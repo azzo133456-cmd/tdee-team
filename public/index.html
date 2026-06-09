@@ -769,7 +769,8 @@ async function analyzePhoto(){
     const name="✨ "+r.name;
     FOODS_DYN[name]=base;
     addToCart(name,g);
-    if(h){ h.textContent=`已加入：${r.name} ${g}g／${r.kcal} kcal（可微調克數）`; }
+    if(h){ h.textContent=`已辨識：${r.name} ${g}g／${r.kcal} kcal，存檔中…`; }
+    await addMeal();   // 連同照片一起存成當餐飲食日記
   }catch(e){
     if(h){ h.textContent="辨識失敗："+e.message; }
   }
