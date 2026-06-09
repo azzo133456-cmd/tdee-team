@@ -20,7 +20,7 @@
   body{
     margin:0; background:var(--bg); color:var(--ink);
     font-family:"Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC",sans-serif;
-    line-height:1.6; padding:16px 14px 60px; max-width:560px; margin:0 auto;
+    line-height:1.6; padding:16px 14px 84px; max-width:560px; margin:0 auto;
   }
   h1{font-size:21px; margin:4px 0 2px;}
   .tagline{color:var(--sub); font-size:13px; margin-bottom:18px;}
@@ -94,6 +94,24 @@
   #scanBar{padding:14px; color:#fff; text-align:center; font-size:14px;}
   #scanBar button{width:auto; padding:9px 18px; margin-top:8px; background:#fff; color:#2b2b2b;}
   .scanframe{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; height:30%; border:2px solid #fff; border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,.35);}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{font-size:13px; padding:6px 10px; border-radius:20px; background:var(--soft); cursor:pointer;}
+  /* 可折疊卡片 */
+  h2.ch{cursor:pointer;}
+  h2.ch .caret{margin-left:auto; color:var(--sub); font-size:13px; transition:transform .2s;}
+  .card.collapsed .cardbody{display:none;}
+  .card.collapsed h2.ch .caret{transform:rotate(-90deg);}
+  /* 搜尋下拉 */
+  .suggest{border:1px solid var(--line); border-radius:10px; margin-top:6px; max-height:240px; overflow:auto; display:none; background:#fff;}
+  .suggest .sg{padding:11px 12px; font-size:15px; border-bottom:1px solid var(--soft); cursor:pointer;}
+  .suggest .sg:last-child{border-bottom:none;}
+  .suggest .sg:active{background:var(--soft);}
+  /* 分頁 + 底部導覽 */
+  .tabpage{padding-bottom:6px;}
+  .bottomnav{position:fixed; left:0; right:0; bottom:0; display:flex; background:#fff; border-top:1px solid var(--line); max-width:560px; margin:0 auto; z-index:40;}
+  .bottomnav .nav{flex:1; text-align:center; padding:7px 0 9px; font-size:20px; color:var(--sub); cursor:pointer; line-height:1.1;}
+  .bottomnav .nav span{display:block; font-size:11px; margin-top:2px;}
+  .bottomnav .nav.on{color:var(--accent);}
 </style>
 </head>
 <body>
@@ -124,237 +142,259 @@
     <button class="ghost sm" onclick="logout()" style="margin-left:auto;">登出</button>
   </div>
 
-  <!-- ① 基礎估算 -->
-  <div class="card">
-    <h2>① 基礎估算 <span class="pill">Mifflin</span></h2>
-    <div class="row">
-      <div><label>性別</label><select id="sex"><option value="m">男</option><option value="f">女</option></select></div>
-      <div><label>年齡</label><input id="age" type="number" inputmode="numeric" placeholder="35"></div>
-    </div>
-    <div class="row">
-      <div><label>身高 (cm)</label><input id="height" type="number" inputmode="decimal" placeholder="170"></div>
-      <div><label>體重 (kg)</label><input id="weight" type="number" inputmode="decimal" placeholder="60"></div>
-    </div>
-    <label>活動係數</label>
-    <select id="act">
-      <option value="1.3">幾乎不動 ×1.3</option>
-      <option value="1.4" selected>輕度活動 ×1.4</option>
-      <option value="1.5">中度活動 ×1.5</option>
-    </select>
-    <div class="result">
-      <div class="lbl">公式估算 TDEE（當起點）</div>
-      <div class="big" id="mifflinOut">—</div>
-      <div class="hint" id="bmrOut"></div>
-    </div>
-  </div>
-
-  <!-- ② 目標與建議 -->
-  <div class="card">
-    <h2>② 目標與建議 <span class="pill">每日配額</span></h2>
-    <div class="row">
-      <div><label>目標</label>
-        <select id="goal"><option value="cut">減脂</option><option value="maintain" selected>維持</option><option value="bulk">增肌</option></select>
-      </div>
-      <div><label>強度</label>
-        <select id="goalRate"><option value="0.1">溫和 10%</option><option value="0.2" selected>標準 20%</option><option value="0.25">積極 25%</option></select>
-      </div>
-    </div>
-    <label>TDEE 基準</label>
-    <select id="tdeeBasis">
-      <option value="gross" selected>含運動（維持目前運動量）</option>
-      <option value="base">不含運動（運動另外加回）</option>
-    </select>
-    <div class="result">
-      <div class="lbl">建議每日攝取</div>
-      <div class="big" id="goalKcal">—</div>
-      <div class="hint" id="goalBasis"></div>
-    </div>
-    <div class="macro-bar" id="goalBar"></div>
-    <div class="macro-leg" id="goalLeg"></div>
-    <div class="hint">蛋白＝體重×2.0g、脂肪取總熱量 25%，其餘為碳水。優先用你的「真實 TDEE」當基準，未滿 7 天才用公式。</div>
-  </div>
-
-  <!-- ③ 食物熱量計算機 -->
-  <div class="card">
-    <h2>③ 食物熱量計算機</h2>
-    <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
-    <label>選食物（可打字搜尋）</label>
-    <input id="foodPick" list="foodList" placeholder="例如：白飯 / 雞胸肉" autocomplete="off">
-    <datalist id="foodList"></datalist>
-    <div class="row">
-      <div><label>份量 (克)</label><input id="foodGram" type="number" inputmode="decimal" placeholder="100"></div>
-      <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addFood()">＋ 加入</button></div>
-    </div>
-    <div class="hint" id="foodPreview"></div>
-    <div class="row">
-      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
-      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
-      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
-      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
-    </div>
-    <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
-      <label>食物名稱</label>
-      <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
-      <div class="row">
-        <div><label>數值依據</label>
-          <select id="cfUnit" onchange="cfUnitChange()"><option value="100">每 100 公克</option><option value="serv">每份</option></select>
+  <!-- ===== 分頁：概覽 ===== -->
+  <div class="tabpage" id="page-overview">
+    <!-- 基礎估算（可折疊） -->
+    <div class="card collapsed">
+      <h2 class="ch" onclick="toggleCard(this)">① 基礎估算 <span class="pill">Mifflin</span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="row">
+          <div><label>性別</label><select id="sex"><option value="m">男</option><option value="f">女</option></select></div>
+          <div><label>年齡</label><input id="age" type="number" inputmode="numeric" placeholder="35"></div>
         </div>
-        <div id="cfServWrap" style="display:none;"><label>每份重量 (克)</label><input id="cfServ" type="number" inputmode="decimal" placeholder="40"></div>
+        <div class="row">
+          <div><label>身高 (cm)</label><input id="height" type="number" inputmode="decimal" placeholder="170"></div>
+          <div><label>體重 (kg)</label><input id="weight" type="number" inputmode="decimal" placeholder="60"></div>
+        </div>
+        <label>活動係數</label>
+        <select id="act">
+          <option value="1.3">幾乎不動 ×1.3</option>
+          <option value="1.4" selected>輕度活動 ×1.4</option>
+          <option value="1.5">中度活動 ×1.5</option>
+        </select>
+        <div class="result">
+          <div class="lbl">公式估算 TDEE（當起點）</div>
+          <div class="big" id="mifflinOut">—</div>
+          <div class="hint" id="bmrOut"></div>
+        </div>
       </div>
-      <div class="hint" id="cfHint" style="margin:6px 0;">照包裝「每 100 公克」那一欄抄即可。</div>
-      <div class="row">
-        <div><label>熱量 (kcal)</label><input id="cfK" type="number" inputmode="decimal" placeholder="380"></div>
-        <div><label>蛋白 (g)</label><input id="cfP" type="number" inputmode="decimal" placeholder="30"></div>
-      </div>
-      <div class="row">
-        <div><label>脂肪 (g)</label><input id="cfF" type="number" inputmode="decimal" placeholder="12"></div>
-        <div><label>碳水 (g)</label><input id="cfC" type="number" inputmode="decimal" placeholder="40"></div>
-      </div>
-      <button class="sm" style="width:100%;" onclick="addCustom()">建立並選用（同時存成最愛）</button>
     </div>
-    <div class="foodlist" id="usdaResults"></div>
-    <div class="foodlist" id="foodItems"></div>
-    <div class="result" id="foodTotal" style="display:none;"></div>
-    <div id="mealAddBox">
+
+    <!-- 目標與建議（可折疊） -->
+    <div class="card">
+      <h2 class="ch" onclick="toggleCard(this)">② 目標與建議 <span class="pill">每日配額</span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="row">
+          <div><label>目標</label>
+            <select id="goal"><option value="cut">減脂</option><option value="maintain" selected>維持</option><option value="bulk">增肌</option></select>
+          </div>
+          <div><label>強度</label>
+            <select id="goalRate"><option value="0.1">溫和 10%</option><option value="0.2" selected>標準 20%</option><option value="0.25">積極 25%</option></select>
+          </div>
+        </div>
+        <div class="hint">「強度」＝每日熱量增減幅度：減脂時吃低於 TDEE 的 10/20/25%；增肌時建立盈餘（保守取一半）。溫和 10% 最不易復胖、積極 25% 較快但較辛苦。</div>
+        <label>TDEE 基準</label>
+        <select id="tdeeBasis">
+          <option value="gross" selected>含運動（維持目前運動量）</option>
+          <option value="base">不含運動（運動另外加回）</option>
+        </select>
+        <div class="result">
+          <div class="lbl">建議每日攝取</div>
+          <div class="big" id="goalKcal">—</div>
+          <div class="hint" id="goalBasis"></div>
+        </div>
+        <div class="macro-bar" id="goalBar"></div>
+        <div class="macro-leg" id="goalLeg"></div>
+        <div class="hint">蛋白＝體重×2.0g、脂肪取總熱量 25%，其餘為碳水。優先用你的「真實 TDEE」當基準，未滿 7 天才用公式。</div>
+      </div>
+    </div>
+
+    <!-- 真實 TDEE -->
+    <div class="card">
+      <h2>真實 TDEE <span class="pill">斜率反推</span></h2>
+      <div class="hint" id="realDetail" style="text-align:center;margin-bottom:6px;">需要至少 7 天紀錄才能估算</div>
+      <div class="row">
+        <div class="result" style="margin-top:0;">
+          <div class="lbl">總 TDEE（含運動）</div>
+          <div class="big" id="realTdee">—</div>
+          <div class="hint">你每天真正的總消耗</div>
+        </div>
+        <div class="result" style="margin-top:0;">
+          <div class="lbl">基礎 TDEE（不含運動）</div>
+          <div class="big" id="realTdeeBase" style="color:var(--accent)">—</div>
+          <div class="hint">完全不運動時的消耗</div>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div><div class="v" id="sAvgKcal">—</div><div class="k">平均攝取</div></div>
+        <div><div class="v" id="sBurn">—</div><div class="k">平均運動/天</div></div>
+        <div><div class="v" id="sSlope">—</div><div class="k">週體重變化</div></div>
+        <div><div class="v" id="sDeficit">—</div><div class="k">每日赤字</div></div>
+      </div>
+      <div class="card collapsed" style="margin:14px 0 0; border:none; background:var(--soft); padding:10px 12px;">
+        <h2 class="ch" onclick="toggleCard(this)" style="font-size:14px;margin:0;">📊 詳細比較<span class="caret">▾</span></h2>
+        <div class="cardbody">
+          <table id="cmpTbl"><tbody></tbody></table>
+          <div class="hint" id="cmpHint"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 體重趨勢 -->
+    <div class="card">
+      <h2>體重趨勢</h2>
+      <canvas id="chart" height="200"></canvas>
+      <div class="empty" id="chartEmpty">尚無資料，先到「紀錄」分頁新增體重</div>
+      <div class="hint">藍＝每日體重、橘＝7 日移動平均（看趨勢更準）、綠虛線＝整體斜率。</div>
+    </div>
+
+    <!-- 目標體重 -->
+    <div class="card">
+      <h2>🎯 目標體重</h2>
+      <label>目標體重 (kg)</label>
+      <input id="targetWeight" type="number" inputmode="decimal" placeholder="58">
+      <div class="result">
+        <div class="lbl">依目前趨勢預估達成</div>
+        <div class="big" id="etaOut" style="font-size:24px;">—</div>
+        <div class="hint" id="etaDetail">輸入目標體重後估算</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 分頁：飲食 ===== -->
+  <div class="tabpage hidden" id="page-food">
+    <!-- 食物熱量計算機 -->
+    <div class="card">
+      <h2>食物熱量計算機</h2>
+      <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
+      <label>搜尋食物（打字即出現選單）</label>
+      <input id="foodPick" placeholder="例如：白飯 / 雞胸肉" autocomplete="off" oninput="foodSuggest()">
+      <div class="suggest" id="foodSuggest"></div>
+      <div class="row">
+        <div><label>份量 (克)</label><input id="foodGram" type="number" inputmode="decimal" placeholder="100"></div>
+        <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addFood()">＋ 加入</button></div>
+      </div>
+      <div class="hint" id="foodPreview"></div>
+      <div class="row">
+        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
+        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
+        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
+        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
+      </div>
+      <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
+        <label>食物名稱</label>
+        <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
+        <div class="row">
+          <div><label>數值依據</label>
+            <select id="cfUnit" onchange="cfUnitChange()"><option value="100">每 100 公克</option><option value="serv">每份</option></select>
+          </div>
+          <div id="cfServWrap" style="display:none;"><label>每份重量 (克)</label><input id="cfServ" type="number" inputmode="decimal" placeholder="40"></div>
+        </div>
+        <div class="hint" id="cfHint" style="margin:6px 0;">照包裝「每 100 公克」那一欄抄即可。</div>
+        <div class="row">
+          <div><label>熱量 (kcal)</label><input id="cfK" type="number" inputmode="decimal" placeholder="380"></div>
+          <div><label>蛋白 (g)</label><input id="cfP" type="number" inputmode="decimal" placeholder="30"></div>
+        </div>
+        <div class="row">
+          <div><label>脂肪 (g)</label><input id="cfF" type="number" inputmode="decimal" placeholder="12"></div>
+          <div><label>碳水 (g)</label><input id="cfC" type="number" inputmode="decimal" placeholder="40"></div>
+        </div>
+        <button class="sm" style="width:100%;" onclick="addCustom()">建立並選用（同時存成最愛）</button>
+      </div>
+      <div class="foodlist" id="usdaResults"></div>
+      <div class="foodlist" id="foodItems"></div>
+      <div class="result" id="foodTotal" style="display:none;"></div>
+      <div id="mealAddBox">
+        <div class="row" style="margin-top:10px;">
+          <div><label>加到哪一餐</label>
+            <select id="mealType"><option value="早餐">早餐</option><option value="午餐">午餐</option><option value="晚餐">晚餐</option><option value="點心">點心</option></select>
+          </div>
+          <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
+        </div>
+        <input id="mealPhotoInput" type="file" accept="image/*" capture="environment" style="display:none;" onchange="onPhotoPick(event)">
+        <button class="ghost sm" style="margin-top:8px;" onclick="document.getElementById('mealPhotoInput').click()">📷 為這一餐拍照／選圖</button>
+        <div id="mealPhotoPreview" style="margin-top:8px;"></div>
+        <div class="hint">可只拍照不輸入食物，當作飲食日記；有照片時按「＋加入」即可。</div>
+      </div>
+      <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
+      <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆中文）＋常見品項概估＋USDA 線上查詢。皆為每 100g，僅供參考。</div>
+    </div>
+
+    <!-- 今日飲食（在計算機下方） -->
+    <div class="card">
+      <h2>🍽️ 今日飲食</h2>
+      <label>日期</label>
+      <input id="foodDate" type="date" onchange="renderDay()">
+      <div class="rings" id="rings" style="margin-top:12px;"></div>
+      <div class="result" id="netBox" style="display:none;"></div>
+      <div id="mealGroups"></div>
+      <div class="hint">在上方計算機組好，選餐別「加入」即可分餐記錄；環圈為對②目標的達成度。</div>
+    </div>
+
+    <!-- 食譜 -->
+    <div class="card">
+      <h2>📖 我的食譜 <span class="pill" id="recipeCount"></span></h2>
+      <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
+      <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
+    </div>
+
+    <!-- 飲水 -->
+    <div class="card">
+      <h2>💧 飲水紀錄</h2>
+      <div class="result" style="margin-top:0;">
+        <div class="big" id="waterOut">0 ml</div>
+        <div class="hint" id="waterGoal"></div>
+      </div>
+      <div class="prog"><i id="waterBar" style="width:0%"></i></div>
       <div class="row" style="margin-top:10px;">
-        <div><label>加到哪一餐</label>
-          <select id="mealType"><option value="早餐">早餐</option><option value="午餐">午餐</option><option value="晚餐">晚餐</option><option value="點心">點心</option></select>
-        </div>
-        <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
-      </div>
-      <input id="mealPhotoInput" type="file" accept="image/*" capture="environment" style="display:none;" onchange="onPhotoPick(event)">
-      <button class="ghost sm" style="margin-top:8px;" onclick="document.getElementById('mealPhotoInput').click()">📷 為這一餐拍照／選圖</button>
-      <div id="mealPhotoPreview" style="margin-top:8px;"></div>
-      <div class="hint">可只拍照不輸入食物，當作飲食日記；有照片時按「＋加入」即可。</div>
-    </div>
-    <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
-    <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆中文）＋常見品項概估＋USDA 線上查詢。皆為每 100g，僅供參考。</div>
-  </div>
-
-  <!-- 食譜 -->
-  <div class="card">
-    <h2>📖 我的食譜 <span class="pill" id="recipeCount"></span></h2>
-    <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
-    <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
-  </div>
-
-  <!-- ④ 每日紀錄 -->
-  <div class="card" id="cardRecord">
-    <h2>④ 每日紀錄</h2>
-    <label>日期</label>
-    <input id="rDate" type="date">
-    <div class="row">
-      <div><label>早上體重 (kg)</label><input id="rWeight" type="number" inputmode="decimal" placeholder="59.8"></div>
-      <div><label>晚上體重 (kg)</label><input id="rWeightPm" type="number" inputmode="decimal" placeholder="60.5"></div>
-    </div>
-    <label>當日攝取 (kcal)</label>
-    <input id="rKcal" type="number" inputmode="numeric" placeholder="1800">
-    <div class="row">
-      <div><label>蛋白 (g)</label><input id="rProtein" type="number" inputmode="decimal" placeholder="120"></div>
-      <div><label>脂肪 (g)</label><input id="rFat" type="number" inputmode="decimal" placeholder="55"></div>
-      <div><label>碳水 (g)</label><input id="rCarb" type="number" inputmode="decimal" placeholder="180"></div>
-    </div>
-    <button onclick="addRecord()">＋ 新增 / 更新當日紀錄</button>
-    <div class="hint">早/晚至少填一個。趨勢與反推 TDEE 以「早上體重」為準（最穩定）。</div>
-    <div class="result" id="netBox" style="display:none;"></div>
-  </div>
-
-  <!-- 今日營養素達成環 + 餐別 -->
-  <div class="card">
-    <h2>🍽️ 今日飲食 <span class="pill" id="dayLabel"></span></h2>
-    <div class="rings" id="rings"></div>
-    <div id="mealGroups"></div>
-    <div class="hint">在上方③食物計算機組好，選餐別「加入」即可分餐記錄；環圈為對②目標的達成度。</div>
-  </div>
-
-  <!-- 飲水 -->
-  <div class="card">
-    <h2>💧 飲水紀錄</h2>
-    <div class="result" style="margin-top:0;">
-      <div class="big" id="waterOut">0 ml</div>
-      <div class="hint" id="waterGoal"></div>
-    </div>
-    <div class="prog"><i id="waterBar" style="width:0%"></i></div>
-    <div class="row" style="margin-top:10px;">
-      <div><button class="ghost sm" onclick="addWater(250)">＋250</button></div>
-      <div><button class="ghost sm" onclick="addWater(500)">＋500</button></div>
-      <div><button class="ghost sm" onclick="addWater(-250)">－250</button></div>
-      <div><button class="ghost sm" onclick="addWater(0,true)">歸零</button></div>
-    </div>
-  </div>
-
-  <!-- ⑤ 運動紀錄與建議 -->
-  <div class="card">
-    <h2>⑤ 運動紀錄 <span class="pill">含熱量估算</span></h2>
-    <label>選運動（可打字搜尋）</label>
-    <input id="exPick" list="exList" placeholder="例如：跑步 / 重訓" autocomplete="off">
-    <datalist id="exList"></datalist>
-    <div class="row">
-      <div><label>時間 (分鐘)</label><input id="exMin" type="number" inputmode="numeric" placeholder="30"></div>
-      <div><label>日期</label><input id="exDate" type="date"></div>
-    </div>
-    <div class="hint" id="exPreview"></div>
-    <button onclick="addExercise()">＋ 記錄這次運動</button>
-    <div class="foodlist" id="exItems"></div>
-
-    <h2 style="margin-top:18px;">🏃 本週運動建議</h2>
-    <div id="exRec"></div>
-    <div class="hint">建議依你的目標調整；消耗熱量用 MET×體重估算，僅供參考。</div>
-  </div>
-
-  <!-- ⑥ 真實 TDEE -->
-  <div class="card">
-    <h2>⑥ 真實 TDEE <span class="pill">斜率反推</span></h2>
-    <div class="hint" id="realDetail" style="text-align:center;margin-bottom:6px;">需要至少 7 天紀錄才能估算</div>
-    <div class="row">
-      <div class="result" style="margin-top:0;">
-        <div class="lbl">總 TDEE（含運動）</div>
-        <div class="big" id="realTdee">—</div>
-        <div class="hint">你每天真正的總消耗</div>
-      </div>
-      <div class="result" style="margin-top:0;">
-        <div class="lbl">基礎 TDEE（不含運動）</div>
-        <div class="big" id="realTdeeBase" style="color:var(--accent)">—</div>
-        <div class="hint">完全不運動時的消耗</div>
+        <div><button class="ghost sm" onclick="addWater(250)">＋250</button></div>
+        <div><button class="ghost sm" onclick="addWater(500)">＋500</button></div>
+        <div><button class="ghost sm" onclick="addWater(-250)">－250</button></div>
+        <div><button class="ghost sm" onclick="addWater(0,true)">歸零</button></div>
       </div>
     </div>
-    <div class="stat-row">
-      <div><div class="v" id="sAvgKcal">—</div><div class="k">平均攝取</div></div>
-      <div><div class="v" id="sBurn">—</div><div class="k">平均運動/天</div></div>
-      <div><div class="v" id="sSlope">—</div><div class="k">週體重變化</div></div>
-      <div><div class="v" id="sDeficit">—</div><div class="k">每日赤字</div></div>
-    </div>
-
-    <h2 style="margin:18px 0 6px;font-size:15px;">📊 詳細比較</h2>
-    <table id="cmpTbl"><tbody></tbody></table>
-    <div class="hint" id="cmpHint"></div>
   </div>
 
-  <!-- ⑦ 體重趨勢 -->
-  <div class="card">
-    <h2>⑦ 體重趨勢</h2>
-    <canvas id="chart" height="200"></canvas>
-    <div class="empty" id="chartEmpty">尚無資料，先到上方新增紀錄</div>
-    <div class="hint">藍＝每日體重、橘＝7 日移動平均（看趨勢更準）、綠虛線＝整體斜率。</div>
-  </div>
+  <!-- ===== 分頁：運動 ===== -->
+  <div class="tabpage hidden" id="page-exercise">
+    <div class="card">
+      <h2>🏃 運動紀錄 <span class="pill">含熱量估算</span></h2>
+      <label>搜尋運動（打字即出現選單）</label>
+      <input id="exPick" placeholder="例如：跑步 / 重訓" autocomplete="off" oninput="exSuggest()">
+      <div class="suggest" id="exSuggest"></div>
+      <div class="row">
+        <div><label>時間 (分鐘)</label><input id="exMin" type="number" inputmode="numeric" placeholder="30"></div>
+        <div><label>日期</label><input id="exDate" type="date"></div>
+      </div>
+      <div class="hint" id="exPreview"></div>
+      <button onclick="addExercise()">＋ 記錄這次運動</button>
+      <div class="foodlist" id="exItems"></div>
 
-  <!-- 目標體重 -->
-  <div class="card">
-    <h2>🎯 目標體重</h2>
-    <label>目標體重 (kg)</label>
-    <input id="targetWeight" type="number" inputmode="decimal" placeholder="58">
-    <div class="result">
-      <div class="lbl">依目前趨勢預估達成</div>
-      <div class="big" id="etaOut" style="font-size:24px;">—</div>
-      <div class="hint" id="etaDetail">輸入目標體重後估算</div>
+      <h2 style="margin-top:18px;">本週運動建議</h2>
+      <div id="exRec"></div>
+      <div class="hint">建議依你的目標調整；消耗熱量用 MET×體重估算，僅供參考。</div>
     </div>
   </div>
 
-  <!-- ⑧ 所有紀錄 -->
-  <div class="card">
-    <h2>⑧ 所有紀錄</h2>
-    <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>攝取</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
-    <div class="empty" id="tblEmpty">尚無資料</div>
+  <!-- ===== 分頁：紀錄 ===== -->
+  <div class="tabpage hidden" id="page-records">
+    <!-- 每日體重 -->
+    <div class="card" id="cardRecord">
+      <h2>📝 每日體重</h2>
+      <label>日期</label>
+      <input id="rDate" type="date">
+      <div class="row">
+        <div><label>早上體重 (kg)</label><input id="rWeight" type="number" inputmode="decimal" placeholder="59.8"></div>
+        <div><label>晚上體重 (kg)</label><input id="rWeightPm" type="number" inputmode="decimal" placeholder="60.5"></div>
+      </div>
+      <button onclick="addRecord()">＋ 新增 / 更新體重</button>
+      <div class="hint">早/晚至少填一個。趨勢與反推 TDEE 以「早上體重」為準（最穩定）。當日攝取與營養素改由「飲食」分頁的餐別自動加總。</div>
+    </div>
+
+    <!-- 所有紀錄 -->
+    <div class="card">
+      <h2>所有紀錄</h2>
+      <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>攝取</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="empty" id="tblEmpty">尚無資料</div>
+    </div>
+  </div>
+
+  <!-- 底部導覽 -->
+  <div class="bottomnav">
+    <div class="nav on" data-tab="overview" onclick="showTab('overview')">📊<span>概覽</span></div>
+    <div class="nav" data-tab="food" onclick="showTab('food')">🍽️<span>飲食</span></div>
+    <div class="nav" data-tab="exercise" onclick="showTab('exercise')">🏃<span>運動</span></div>
+    <div class="nav" data-tab="records" onclick="showTab('records')">📝<span>紀錄</span></div>
   </div>
 </div>
 
@@ -530,9 +570,25 @@ function drawMacroBar(barId,legId,p,f,c){
 }
 
 /* ---------- 食物計算機 ---------- */
-function fillFoodList(){
-  const names=Object.keys(FOODS).concat(Object.keys(FOODS_TW));
-  document.getElementById("foodList").innerHTML=names.map(n=>`<option value="${n}">`).join("");
+function fillFoodList(){}  // 已改用自訂下拉，保留空函式相容
+function allFoodNames(){ return Object.keys(FOODS).concat(Object.keys(FOODS_DYN)).concat(Object.keys(FOODS_TW)); }
+function foodSuggest(){
+  const q=val("foodPick").trim(), box=document.getElementById("foodSuggest");
+  if(!q){ box.style.display="none"; box.innerHTML=""; return; }
+  const ql=q.toLowerCase();
+  let res=[...new Set(allFoodNames())].filter(n=>n.toLowerCase().includes(ql));
+  res.sort((a,b)=>(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1));
+  res=res.slice(0,30); window.__fs=res;
+  if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 試試「USDA 線上查」或「自訂食物」</div>'; box.style.display="block"; return; }
+  box.innerHTML=res.map((n,i)=>{ const d=foodData(n); return `<div class="sg" onclick="pickFood(${i})">${n}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
+  box.style.display="block";
+}
+function pickFood(i){
+  const n=window.__fs[i]; if(n==null) return;
+  document.getElementById("foodPick").value=n;
+  document.getElementById("foodSuggest").style.display="none";
+  if(!val("foodGram")) document.getElementById("foodGram").value=100;
+  foodPreview(); document.getElementById("foodGram").focus();
 }
 function foodPreview(){
   const n=val("foodPick"), g=+val("foodGram"), d=foodData(n);
@@ -546,7 +602,8 @@ function addFood(){
   if(!g){ alert("請輸入份量"); return; }
   const [k,p,f,c]=d;
   foodCart.push({n,g,k:k*g/100,p:p*g/100,f:f*g/100,c:c*g/100});
-  document.getElementById("foodPick").value=""; document.getElementById("foodGram").value=""; set("foodPreview",""); renderFood();
+  document.getElementById("foodPick").value=""; document.getElementById("foodGram").value=""; set("foodPreview","");
+  document.getElementById("foodSuggest").style.display="none"; renderFood();
 }
 function renderFood(){
   document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>
@@ -581,7 +638,13 @@ function pickUsda(i){
   foodPreview();
   document.getElementById("foodGram").focus();
 }
-function selDate(){ return val("rDate")||todayStr(); }
+function selDate(){ return val("foodDate")||todayStr(); }
+function toggleCard(h){ h.parentElement.classList.toggle("collapsed"); }
+function showTab(name){
+  ["overview","food","exercise","records"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
+  document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
+  window.scrollTo(0,0);
+}
 
 /* ---------- 我的最愛 ---------- */
 function saveFavs(){ api("/api/favorites",{method:"PUT",body:JSON.stringify(store.favorites||[])}).catch(()=>{}); }
@@ -725,6 +788,7 @@ async function addMeal(){
   }catch(e){ alert(e.message); }
 }
 async function delMeal(id){ await api("/api/meal/"+id,{method:"DELETE"}); await reload(); }
+async function delMealPhoto(id){ if(!confirm("移除這張照片？")) return; await api("/api/meal/"+id+"/photo",{method:"DELETE"}); await reload(); }
 function viewPhoto(id){
   const m=(store.meals||[]).find(x=>String(x.id)===String(id)); if(!m||!m.photo) return;
   const ov=document.createElement("div");
@@ -742,7 +806,7 @@ function renderMeals(date){
   for(const mt of MEAL_ORDER){
     const g=list.filter(m=>m.meal===mt); if(!g.length) continue;
     const sub=g.reduce((a,b)=>a+(+b.kcal||0),0);
-    const photos=g.filter(m=>m.photo).map(m=>`<img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer;margin:6px 6px 0 0">`).join("");
+    const photos=g.filter(m=>m.photo).map(m=>`<div style="position:relative;display:inline-block;margin:6px 6px 0 0"><img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer"><span onclick="delMealPhoto(${m.id})" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;line-height:18px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:50%;color:#b5564e;font-size:12px;cursor:pointer">✕</span></div>`).join("");
     html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal</span></div>`+
       g.map(m=>`<div class="foodrow"><span class="nm">${m.name}</span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+
       (photos?`<div style="display:flex;flex-wrap:wrap">${photos}</div>`:"")+`</div>`;
@@ -785,9 +849,9 @@ async function addWater(amt,reset){
   catch(e){ alert(e.message); }
 }
 function renderWater(date){
-  const cur=waterFor(date), w=+val("weight")||60, goal=Math.round(w*30/50)*50;
+  const cur=waterFor(date), w=+val("weight")||60, goal=Math.round(w*45/50)*50;
   set("waterOut", cur.toLocaleString()+" ml");
-  set("waterGoal", `目標約 ${goal.toLocaleString()} ml（體重×30）　${cur>=goal?"✅ 已達標":"還差 "+(goal-cur).toLocaleString()+" ml"}`);
+  set("waterGoal", `目標約 ${goal.toLocaleString()} ml（體重×45）　${cur>=goal?"✅ 已達標":"還差 "+(goal-cur).toLocaleString()+" ml"}`);
   document.getElementById("waterBar").style.width=Math.min(100,goal?cur/goal*100:0)+"%";
 }
 
@@ -838,7 +902,22 @@ async function delRecipe(id){
 }
 
 /* ---------- 運動 ---------- */
-function fillExList(){ document.getElementById("exList").innerHTML=Object.keys(EXS).map(n=>`<option value="${n}">`).join(""); }
+function fillExList(){}  // 改用自訂下拉
+function exSuggest(){
+  const q=val("exPick").trim(), box=document.getElementById("exSuggest");
+  if(!q){ box.style.display="none"; box.innerHTML=""; return; }
+  const ql=q.toLowerCase();
+  let res=Object.keys(EXS).filter(n=>n.toLowerCase().includes(ql)).slice(0,30); window.__es=res;
+  if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無此運動</div>'; box.style.display="block"; return; }
+  box.innerHTML=res.map((n,i)=>`<div class="sg" onclick="pickEx(${i})">${n}</div>`).join("");
+  box.style.display="block";
+}
+function pickEx(i){
+  const n=window.__es[i]; if(n==null) return;
+  document.getElementById("exPick").value=n;
+  document.getElementById("exSuggest").style.display="none";
+  exPreview(); document.getElementById("exMin").focus();
+}
 function exPreview(){
   const n=val("exPick"), m=+val("exMin"), w=+val("weight")||60;
   if(!EXS[n]||!m){ set("exPreview",""); return; }
@@ -894,20 +973,19 @@ function renderExRec(){
 function todayStr(){ const d=new Date(),o=d.getTimezoneOffset(); return new Date(d-o*60000).toISOString().slice(0,10); }
 async function addRecord(){
   const date=val("rDate")||todayStr();
-  const w=parseFloat(val("rWeight")), wpm=parseFloat(val("rWeightPm")), k=parseFloat(val("rKcal"));
-  const p=parseFloat(val("rProtein")), f=parseFloat(val("rFat")), c=parseFloat(val("rCarb"));
+  const w=parseFloat(val("rWeight")), wpm=parseFloat(val("rWeightPm"));
   if(isNaN(w)&&isNaN(wpm)){ alert("請至少填早上或晚上體重"); return; }
   try{
-    await api("/api/record",{method:"POST",body:JSON.stringify({date,weight:isNaN(w)?null:w,weight_pm:isNaN(wpm)?null:wpm,kcal:isNaN(k)?null:k,protein:isNaN(p)?null:p,fat:isNaN(f)?null:f,carb:isNaN(c)?null:c})});
-    ["rWeight","rWeightPm","rKcal","rProtein","rFat","rCarb"].forEach(id=>document.getElementById(id).value="");
-    foodCart=[]; renderFood(); await reload();
+    await api("/api/record",{method:"POST",body:JSON.stringify({date,weight:isNaN(w)?null:w,weight_pm:isNaN(wpm)?null:wpm})});
+    ["rWeight","rWeightPm"].forEach(id=>document.getElementById(id).value="");
+    await reload();
   }catch(e){ alert(e.message); }
 }
 // 每日運動消耗
 function burnByDate(date){ return store.exercises.filter(e=>e.date.slice(0,10)===date).reduce((a,b)=>a+(+b.kcal||0),0); }
 function renderNet(){
   const box=document.getElementById("netBox");
-  const date=val("rDate")||todayStr();
+  const date=selDate();
   const rec=store.records.find(r=>r.date.slice(0,10)===date);
   const intake=rec&&rec.kcal!=null?+rec.kcal:null;
   const burn=burnByDate(date);
@@ -1066,7 +1144,7 @@ async function boot(){
   document.getElementById("appView").classList.remove("hidden");
   document.getElementById("rDate").value=todayStr();
   document.getElementById("exDate").value=todayStr();
-  fillFoodList(); fillExList();
+  document.getElementById("foodDate").value=todayStr();
   await reload();
   if(store.profile) applyProfile(store.profile);
   renderDerived();
@@ -1074,13 +1152,9 @@ async function boot(){
 
 window.addEventListener("DOMContentLoaded", ()=>{
   pIds.forEach(id=> document.getElementById(id).addEventListener("input",saveProfile));
-  document.getElementById("foodPick").addEventListener("input",foodPreview);
   document.getElementById("foodGram").addEventListener("input",foodPreview);
-  document.getElementById("exPick").addEventListener("input",exPreview);
   document.getElementById("exMin").addEventListener("input",exPreview);
   document.getElementById("auPass").addEventListener("keydown",e=>{ if(e.key==="Enter") doAuth(); });
-  document.getElementById("rDate").addEventListener("change",renderDay);
-  fillFoodList(); fillExList();
   if(session) boot();
 });
 // 註冊 Service Worker（PWA 可安裝 + 離線）

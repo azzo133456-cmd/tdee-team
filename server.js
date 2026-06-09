@@ -248,6 +248,21 @@ app.post("/api/meal", auth, async (req, res) => {
   }
 });
 
+app.delete("/api/meal/:mid/photo", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT name FROM meals WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);
+    if (r.rowCount === 0) return res.json({ ok: true });
+    if (r.rows[0].name === "📷 照片紀錄") {
+      await pool.query("DELETE FROM meals WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);
+    } else {
+      await pool.query("UPDATE meals SET photo=NULL WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 app.delete("/api/meal/:mid", auth, async (req, res) => {
   try {
     await pool.query("DELETE FROM meals WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);
