@@ -982,11 +982,27 @@ async function analyzePhoto(){
       h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`
         +`<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
         +`<input id="aiFixInput" placeholder="辨識不對？例：這是滷肉飯不是燴飯／雞肉約300g" style="flex:1 1 200px;padding:6px 8px;font-size:13px">`
-        +`<button class="ghost sm" onclick="analyzePhoto()">🔁 依提示重新辨識</button></div>`;
+        +`<button class="ghost sm" onclick="analyzePhoto()">🔁 依提示重新辨識</button>`
+        +`<button class="ghost sm" onclick="saveAiFoods()">💾 存成自訂食物</button></div>`;
     }
   }catch(e){
     if(h){ h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="analyzePhoto()">🔁 再試一次</button>`; }
   }
+}
+// 把目前 AI 辨識（✨）的項目存成自訂食物（去掉 ✨、進最愛＋共享庫，之後可直接搜尋）
+function saveAiFoods(){
+  const ai=foodCart.filter(it=>String(it.n).startsWith("✨ "));
+  if(!ai.length){ alert("沒有 AI 辨識的項目可存"); return; }
+  let saved=0;
+  ai.forEach(it=>{
+    const clean=it.n.replace(/^✨\s*/,"").trim(); if(!clean) return;
+    FOODS_DYN[clean]=it.base.slice(); SERVINGS[clean]=it.g||100;
+    store.favorites=store.favorites||[];
+    if(!store.favorites.find(x=>x.n===clean)){ store.favorites.push({n:clean,d:it.base.slice()}); }
+    shareFood(clean,it.base,it.g||100,"food"); saved++;
+  });
+  saveFavs(); renderFavs();
+  alert(`已存 ${saved} 項自訂食物（已加入我的最愛與共享庫，之後可直接搜尋）`);
 }
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
