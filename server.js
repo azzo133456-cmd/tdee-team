@@ -67,6 +67,7 @@ async function initDb() {
     ALTER TABLE exercises ADD COLUMN IF NOT EXISTS reps INT;
     ALTER TABLE exercises ADD COLUMN IF NOT EXISTS weight REAL;
     ALTER TABLE exercises ADD COLUMN IF NOT EXISTS volume REAL;
+    ALTER TABLE exercises ADD COLUMN IF NOT EXISTS muscle TEXT;
     CREATE TABLE IF NOT EXISTS recipes (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -203,11 +204,11 @@ app.delete("/api/record/:rid", auth, async (req, res) => {
 /* ---------- 運動紀錄 ---------- */
 app.post("/api/exercise", auth, async (req, res) => {
   try {
-    const { date, name, minutes, kcal, kind, sets, reps, weight, volume } = req.body;
+    const { date, name, minutes, kcal, kind, sets, reps, weight, volume, muscle } = req.body;
     if (!date || !name) return res.status(400).json({ error: "需要日期與運動項目" });
     await pool.query(
-      "INSERT INTO exercises(user_id,date,name,minutes,kcal,kind,sets,reps,weight,volume) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-      [req.user.id, date, name, minutes ?? null, kcal ?? null, kind || "cardio", sets ?? null, reps ?? null, weight ?? null, volume ?? null]
+      "INSERT INTO exercises(user_id,date,name,minutes,kcal,kind,sets,reps,weight,volume,muscle) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+      [req.user.id, date, name, minutes ?? null, kcal ?? null, kind || "cardio", sets ?? null, reps ?? null, weight ?? null, volume ?? null, muscle ?? null]
     );
     res.json({ ok: true });
   } catch (e) {
