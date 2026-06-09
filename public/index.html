@@ -52,6 +52,7 @@
   button.ghost{background:transparent; color:var(--accent); border:1px solid var(--line); font-weight:500;}
   button.danger{background:transparent; color:#b5564e; border:1px solid var(--line); font-weight:500;}
   button.sm{width:auto; padding:7px 12px; font-size:13px; margin-top:0;}
+  button.fbtn.on{background:var(--accent); color:#fff; border-color:var(--accent);}
   .result{background:var(--soft); border-radius:10px; padding:14px; margin-top:14px; text-align:center;}
   .result .big{font-size:30px; font-weight:700; color:var(--green);}
   .result .lbl{font-size:13px; color:var(--sub);}
@@ -266,8 +267,15 @@
       <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
       <label>搜尋食物（打字 → 點結果即加入）</label>
       <input id="foodPick" placeholder="例如：白飯 / 雞胸肉" autocomplete="off" oninput="foodSuggest()">
+      <div id="foodFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;">
+        <button class="ghost sm fbtn on" data-f="" onclick="setFoodFilter('',this)">全部</button>
+        <button class="ghost sm fbtn" data-f="drink" onclick="setFoodFilter('drink',this)">🧋手搖</button>
+        <button class="ghost sm fbtn" data-f="meal" onclick="setFoodFilter('meal',this)">🍱便當麵飯</button>
+        <button class="ghost sm fbtn" data-f="store" onclick="setFoodFilter('store',this)">🏪超商</button>
+        <button class="ghost sm fbtn" data-f="raw" onclick="setFoodFilter('raw',this)">🥗原型</button>
+      </div>
       <div class="suggest" id="foodSuggest"></div>
-      <div class="hint">點搜尋結果就直接加入下方清單（預設 100g），克數在清單裡直接改。</div>
+      <div class="hint">點搜尋結果就直接加入下方清單（記住你上次的克數），克數在清單裡直接改。🕘=常用 · 👥=共享庫 · 💪高蛋白 🍬高糖 🧈高脂</div>
       <div class="row">
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
@@ -330,9 +338,11 @@
     <!-- 今日飲食（在計算機下方） -->
     <div class="card">
       <h2>🍽️ 今日飲食</h2>
-      <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <label style="margin:0;">日期</label>
         <input id="foodDate" type="date" onchange="renderDay()">
+        <button class="ghost sm" onclick="copyDay(1)">📋 複製昨天</button>
+        <button class="ghost sm" onclick="copyDayPrompt()">📅 複製某天</button>
       </div>
       <div class="rings" id="rings" style="margin-top:12px;"></div>
       <div class="result" id="netBox" style="display:none;"></div>
@@ -345,6 +355,16 @@
       <h2>📖 我的食譜 <span class="pill" id="recipeCount"></span></h2>
       <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
       <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
+    </div>
+
+    <!-- 共享食物庫管理 -->
+    <div class="card collapsed">
+      <h2 class="ch" onclick="toggleCard(this)">👥 共享食物庫 <span class="pill" id="sharedCount"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <input id="sharedSearch" placeholder="搜尋共享品項…" autocomplete="off" oninput="renderShared()">
+        <div class="hint">大家建立的自訂食物與食譜（每100g）。你只能刪除自己建立的（標 ⭐）。發現別人的數值有誤，可用「✏️自訂食物」用同名重建來更正。</div>
+        <div id="sharedList" style="max-height:340px;overflow:auto;"></div>
+      </div>
     </div>
 
     <!-- 飲水 -->
@@ -483,6 +503,38 @@ const FOODS_DYN = {};
 const FOODS_TW = window.FOODS_TW || {};
 const SERVINGS = {};  // 食物 → 預設一份的克數
 const SHARED_NAMES = new Set();  // 來自共享食物庫的品項名
+/* ---------- 使用統計（次數＋上次克數，存本機） ---------- */
+let FOOD_STATS = (()=>{ try{ return JSON.parse(localStorage.getItem("tdee_foodstats")||"{}"); }catch(e){ return {}; } })();
+function saveFoodStats(){ try{ localStorage.setItem("tdee_foodstats",JSON.stringify(FOOD_STATS)); }catch(e){} }
+function bumpFoodStat(n,g){ const s=FOOD_STATS[n]||(FOOD_STATS[n]={c:0,g:0}); s.c=(s.c||0)+1; if(g>0) s.g=g; saveFoodStats(); }
+function statG(n){ const s=FOOD_STATS[n]; return (s&&s.g>0)?s.g:(SERVINGS[n]||100); }
+/* ---------- 食物分類（給快速篩選用） ---------- */
+function foodCat(n){
+  if(/茶|奶|咖啡|拿鐵|那堤|可樂|多多|檸檬汁|豆漿|米漿|汽水|果汁|思樂冰|星冰樂|50嵐|茶湯會/.test(n) && !/便當|飯|麵/.test(n)) return "drink";
+  if(/便當|飯|麵|粥|燴|義大利|焗烤|炒飯|滷肉|雞腿|排骨/.test(n)) return "meal";
+  if(/超商|7-?11|全家|關東煮|御飯糰|飯糰|三明治/.test(n)) return "store";
+  return "raw";
+}
+/* ---------- 營養密度標籤（每100g門檻） ---------- */
+function densityTags(d){
+  if(!d) return "";
+  const [k,p,f,c]=d; let t="";
+  if(p>=15) t+='<span style="color:#5b8aa6">💪</span>';
+  if(c>=40) t+='<span style="color:#b5836a" title="高糖/高碳">🍬</span>';
+  if(f>=20) t+='<span style="color:#c98b5e" title="高脂">🧈</span>';
+  return t;
+}
+let FOOD_FILTER = "";  // "", drink, meal, store, raw
+/* ---------- 份量視覺化（換算成生活化單位） ---------- */
+function portionHint(n,g){
+  if(!g) return "";
+  const serv=SERVINGS[n];
+  if(serv && serv>=120){ const x=g/serv; const unit=foodCat(n)==="drink"?"杯":"份"; return `≈ ${x.toFixed(x>=10?0:1)} ${unit}`; }
+  if(/白飯|糙米飯|飯$|米飯/.test(n)) return `≈ ${(g/200).toFixed(1)} 碗`;       // 1碗飯≈200g
+  if(/肉|雞胸|魚|排|牛|豬/.test(n)) return `≈ ${(g/100).toFixed(1)} 個手掌`;    // 1掌≈100g
+  if(/麵$|麵條|義大利麵/.test(n)) return `≈ ${(g/100).toFixed(1)} 把(乾)`;
+  return "";
+}
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
   const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {});
@@ -632,15 +684,44 @@ function foodSuggest(){
   const ql=q.toLowerCase();
   const toks=normSearch(q).split(/\s+/).filter(Boolean);  // 多關鍵字：全部命中才算
   let res=[...new Set(allFoodNames())].filter(n=>{ const nn=normSearch(n); return toks.every(t=>nn.includes(t)); });
-  res.sort((a,b)=>(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1));
+  if(FOOD_FILTER) res=res.filter(n=>foodCat(n)===FOOD_FILTER);
+  res.sort((a,b)=>{
+    const sa=(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1); if(sa) return sa;
+    const ca=(FOOD_STATS[b]?.c||0)-(FOOD_STATS[a]?.c||0); return ca;   // 常用優先
+  });
   res=res.slice(0,50); window.__fs=res;
   if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 用「📷 掃條碼」或「✏️ 自訂食物」建立</div>'; box.style.display="block"; return; }
-  box.innerHTML=res.map((n,i)=>{ const d=foodData(n); const tag=SHARED_NAMES.has(n)?'<span title="共享食物庫" style="color:var(--sub);font-size:11px">👥 </span>':""; return `<div class="sg" onclick="pickFood(${i})">${tag}${n}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
+  box.innerHTML=res.map((n,i)=>{ const d=foodData(n); const tag=SHARED_NAMES.has(n)?'<span title="共享食物庫" style="color:var(--sub);font-size:11px">👥 </span>':""; const used=(FOOD_STATS[n]?.c||0)>0?'<span title="常用" style="color:var(--sub);font-size:11px">🕘</span>':""; return `<div class="sg" onclick="pickFood(${i})">${tag}${n} ${densityTags(d)}${used}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
   box.style.display="block";
+}
+function renderShared(){
+  const list=(store.sharedFoods||[]);
+  set("sharedCount", list.length?list.length+" 筆":"");
+  const q=(document.getElementById("sharedSearch").value||"").trim().toLowerCase();
+  const box=document.getElementById("sharedList");
+  let rows=list.filter(s=>!q||s.name.toLowerCase().includes(q));
+  if(!rows.length){ box.innerHTML='<div class="empty">'+(q?"查無":"還沒有共享品項。建立自訂食物或食譜就會出現在這裡。")+'</div>'; return; }
+  rows=rows.slice(0,200);
+  box.innerHTML=rows.map(s=>{
+    const mine=session&&s.created_by===session.userId;
+    const del=mine?`<span class="x" onclick="delShared('${s.name.replace(/'/g,"\\'")}')">✕</span>`:`<span class="x" style="visibility:hidden">✕</span>`;
+    return `<div class="foodrow"><span class="nm">${mine?"⭐ ":""}${s.name}<br><span style="color:var(--sub);font-size:11px">每100g · 蛋${Math.round(s.protein||0)} 脂${Math.round(s.fat||0)} 碳${Math.round(s.carb||0)}</span></span>`+
+      `<span class="kc">${Math.round(s.kcal||0)}</span>${del}</div>`;
+  }).join("");
+}
+async function delShared(name){
+  if(!confirm(`從共享庫刪除「${name}」？`)) return;
+  try{ await api("/api/sharedfood",{method:"DELETE",body:JSON.stringify({name})}); await reload(); }
+  catch(e){ alert(e.message); }
+}
+function setFoodFilter(f,btn){
+  FOOD_FILTER=f;
+  document.querySelectorAll("#foodFilters .fbtn").forEach(b=>b.classList.toggle("on",b===btn));
+  foodSuggest();
 }
 function pickFood(i){
   const n=window.__fs[i]; if(n==null) return;
-  addToCart(n, SERVINGS[n]||100);   // 連鎖餐點預設一份
+  addToCart(n, statG(n));   // 用上次克數，否則一份/100g
   document.getElementById("foodPick").value="";
   document.getElementById("foodSuggest").style.display="none";
 }
@@ -656,7 +737,7 @@ function foodPreview(){}  // 已不需要（份量改在清單內調整）
 function renderFood(){
   document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>{
     const m=cartMacros(it);
-    return `<div class="foodrow"><span class="nm">${it.n}</span>`+
+    return `<div class="foodrow"><span class="nm">${it.n} ${densityTags(it.base)}<br><span style="color:var(--sub);font-size:11px">${portionHint(it.n,it.g)}</span></span>`+
       `<input type="number" inputmode="decimal" value="${it.g}" onchange="setGram(${i},this.value)" style="width:62px;padding:6px 8px;text-align:right;font-size:14px"><span style="color:var(--sub);font-size:12px">g</span>`+
       `<span class="kc" style="min-width:54px;text-align:right">${Math.round(m.k)}</span>`+
       `<span class="x" onclick="rmFood(${i})">✕</span></div>`;
@@ -833,13 +914,18 @@ function compressImg(file){
     img.src=URL.createObjectURL(file);
   });
 }
+let lastLabelImg=null;
 async function onLabelPick(ev){
   const file=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!file) return;
+  lastLabelImg=await compressImg(file);
+  await runLabel();
+}
+async function runLabel(){
+  if(!lastLabelImg) return;
   const h=document.getElementById("labelHint");
   h.style.display="block"; h.textContent="🔎 辨識營養標示中…約 3–8 秒";
   try{
-    const dataUrl=await compressImg(file);
-    const r=await api("/api/label",{method:"POST",body:JSON.stringify({image:dataUrl})});
+    const r=await api("/api/label",{method:"POST",body:JSON.stringify({image:lastLabelImg})});
     // 打開自訂食物表單並填入每100g數值
     document.getElementById("customBox").style.display="block";
     document.getElementById("cfUnit").value="100";
@@ -852,7 +938,7 @@ async function onLabelPick(ev){
     h.innerHTML=`已讀取（每100g）：<b>${r.kcal} kcal / 蛋${r.protein} / 脂${r.fat} / 碳${r.carb}</b>。確認名稱與數值後按「建立並選用」。`;
     document.getElementById("customBox").scrollIntoView({behavior:"smooth",block:"center"});
   }catch(e){
-    h.textContent="辨識失敗："+e.message+"（可改手動填）";
+    h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="runLabel()">🔁 再試一次</button>（也可手動填）`;
     document.getElementById("customBox").style.display="block";
   }
 }
@@ -881,18 +967,42 @@ async function analyzePhoto(){
         +`<button class="ghost sm" onclick="analyzePhoto()">🔁 依提示重新辨識</button></div>`;
     }
   }catch(e){
-    if(h){ h.textContent="辨識失敗："+e.message; }
+    if(h){ h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="analyzePhoto()">🔁 再試一次</button>`; }
   }
 }
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
   const date=selDate(), meal=val("mealType");
   const items=foodCart.map(it=>{const m=cartMacros(it);return {name:it.n+` ${it.g}g`,kcal:Math.round(m.k),protein:+m.p.toFixed(1),fat:+m.f.toFixed(1),carb:+m.c.toFixed(1)};});
+  foodCart.forEach(it=>bumpFoodStat(it.n,it.g));   // 記錄常用與上次克數
   try{
     await api("/api/meal",{method:"POST",body:JSON.stringify({date,meal,items,photo:mealPhoto})});
     foodCart=[]; renderFood(); clearMealPhoto(); await reload();
     document.getElementById("mealGroups").scrollIntoView({behavior:"smooth"});
   }catch(e){ alert(e.message); }
+}
+// 複製某天的飲食到目前選的日期（不含照片）
+async function copyDayFrom(fromDate){
+  const to=selDate();
+  if(fromDate===to){ alert("來源與目標是同一天"); return; }
+  const src=(store.meals||[]).filter(m=>m.date.slice(0,10)===fromDate && m.name!=="📷 照片紀錄");
+  if(!src.length){ alert(fromDate+" 沒有可複製的飲食"); return; }
+  if(!confirm(`把 ${fromDate} 的 ${src.length} 筆飲食複製到 ${to}？`)) return;
+  const byMeal={};
+  src.forEach(m=>{ (byMeal[m.meal]=byMeal[m.meal]||[]).push({name:m.name,kcal:m.kcal,protein:m.protein,fat:m.fat,carb:m.carb}); });
+  try{
+    for(const meal in byMeal){ await api("/api/meal",{method:"POST",body:JSON.stringify({date:to,meal,items:byMeal[meal]})}); }
+    await reload();
+    alert("已複製到 "+to);
+  }catch(e){ alert(e.message); }
+}
+function copyDay(daysBack){
+  const d=new Date(selDate()); d.setDate(d.getDate()-daysBack);
+  const o=d.getTimezoneOffset(); copyDayFrom(new Date(d-o*60000).toISOString().slice(0,10));
+}
+function copyDayPrompt(){
+  const f=prompt("要複製哪一天？（格式 2026-06-08）", selDate());
+  if(f&&/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) copyDayFrom(f.trim());
 }
 async function delMeal(id){ await api("/api/meal/"+id,{method:"DELETE"}); await reload(); }
 async function delMealPhoto(id){ if(!confirm("移除這張照片？")) return; await api("/api/meal/"+id+"/photo",{method:"DELETE"}); await reload(); }
@@ -1235,7 +1345,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderRecipes(); renderFavs(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");

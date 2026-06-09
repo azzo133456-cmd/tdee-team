@@ -356,7 +356,8 @@ app.get("/api/barcode", auth, async (req, res) => {
 });
 
 /* ---------- Gemini 共用呼叫：多模型備援 + 503/429 退避重試 ---------- */
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+// flash-lite 通常較不壅塞，作為前段備援；再退到其他版本
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function geminiVision(key, prompt, mime, imgB64, temperature) {
   const body = JSON.stringify({
@@ -366,17 +367,25 @@ async function geminiVision(key, prompt, mime, imgB64, temperature) {
   let lastErr = { status: 502, text: "未知錯誤" };
   for (const model of GEMINI_MODELS) {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const r = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + key,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body }
-      );
-      if (r.ok) return { data: await r.json(), model };
-      const text = await r.text();
-      lastErr = { status: r.status, text };
-      console.error("Gemini fail", model, r.status, text.slice(0, 160));
-      // 503/429 = 過載/限流：退避後重試；其餘錯誤直接換下一個模型
-      if (r.status === 503 || r.status === 429) { await sleep(700 * (attempt + 1)); continue; }
-      break;
+      try {
+        const ctrl = AbortSignal.timeout ? AbortSignal.timeout(25000) : undefined;
+        const r = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + key,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: ctrl }
+        );
+        if (r.ok) return { data: await r.json(), model };
+        const text = await r.text();
+        lastErr = { status: r.status, text };
+        console.error("Gemini fail", model, r.status, text.slice(0, 160));
+        // 503/429 = 過載/限流：退避(含抖動)後重試；其餘錯誤直接換下一個模型
+        if (r.status === 503 || r.status === 429) { await sleep(600 * (attempt + 1) + Math.random() * 400); continue; }
+        break;
+      } catch (err) {
+        // 連線中斷/逾時：視為可重試
+        lastErr = { status: 503, text: String(err && err.message || err) };
+        console.error("Gemini network", model, lastErr.text);
+        await sleep(600 * (attempt + 1) + Math.random() * 400);
+      }
     }
   }
   return { error: lastErr };
@@ -518,6 +527,18 @@ app.post("/api/sharedfood", auth, async (req, res) => {
   }
 });
 
+app.delete("/api/sharedfood", auth, async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    if (!name) return res.status(400).json({ error: "需要名稱" });
+    const r = await pool.query("DELETE FROM shared_foods WHERE name=$1 AND created_by=$2", [name, req.user.id]);
+    if (r.rowCount === 0) return res.status(403).json({ error: "只能刪除自己建立的品項" });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 取得自己的所有資料 ---------- */
 app.get("/api/me/all", auth, async (req, res) => {
   try {
@@ -525,7 +546,7 @@ app.get("/api/me/all", auth, async (req, res) => {
     const exs = await pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]);
     const rcp = await pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
     const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
-    const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind FROM shared_foods ORDER BY name");
+    const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name");
     res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
