@@ -376,9 +376,9 @@
   <!-- ===== 分頁：運動 ===== -->
   <div class="tabpage hidden" id="page-exercise">
     <div class="card">
-      <h2>🏃 運動紀錄 <span class="pill">含熱量估算</span></h2>
+      <h2>🏃 有氧／一般運動 <span class="pill">熱量估算</span></h2>
       <label>搜尋運動（打字即出現選單）</label>
-      <input id="exPick" placeholder="例如：跑步 / 重訓" autocomplete="off" oninput="exSuggest()">
+      <input id="exPick" placeholder="例如：跑步 / 飛輪" autocomplete="off" oninput="exSuggest()">
       <div class="suggest" id="exSuggest"></div>
       <div class="row">
         <div><label>時間 (分鐘)</label><input id="exMin" type="number" inputmode="numeric" placeholder="30"></div>
@@ -386,11 +386,29 @@
       </div>
       <div class="hint" id="exPreview"></div>
       <button onclick="addExercise()">＋ 記錄這次運動</button>
-      <div class="foodlist" id="exItems"></div>
+    </div>
 
+    <div class="card">
+      <h2>💪 重訓紀錄 <span class="pill">組數×次數×重量</span></h2>
+      <label>動作（打字選單，可自行輸入）</label>
+      <input id="stPick" placeholder="例如：臥推 / 深蹲 / 硬舉" autocomplete="off" oninput="stSuggest()">
+      <div class="suggest" id="stSuggest"></div>
+      <div class="row">
+        <div><label>重量 (kg)</label><input id="stW" type="number" inputmode="decimal" placeholder="60" oninput="stPreview()"></div>
+        <div><label>次數 (reps)</label><input id="stR" type="number" inputmode="numeric" placeholder="8" oninput="stPreview()"></div>
+        <div><label>組數 (sets)</label><input id="stS" type="number" inputmode="numeric" placeholder="4" oninput="stPreview()"></div>
+      </div>
+      <div class="hint" id="stPreview"></div>
+      <button onclick="addStrength()">＋ 記錄這組重訓</button>
+      <div id="stPR" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>📋 最近紀錄</h2>
+      <div class="foodlist" id="exItems"></div>
       <h2 style="margin-top:18px;">本週運動建議</h2>
       <div id="exRec"></div>
-      <div class="hint">建議依你的目標調整；消耗熱量用 MET×體重估算，僅供參考。</div>
+      <div class="hint">建議依你的目標調整；有氧消耗用 MET×體重估算、重訓用訓練時間估算，僅供參考。</div>
     </div>
   </div>
 
@@ -1173,11 +1191,57 @@ async function delExercise(id){
   if(!confirm("刪除這筆運動？")) return;
   await api("/api/exercise/"+id,{method:"DELETE"}); await reload();
 }
+/* ---------- 重訓 ---------- */
+const STRENGTH=["臥推","上斜臥推","啞鈴臥推","胸推機","深蹲","前蹲舉","腿推","腿伸屈","腿後勾","硬舉","羅馬尼亞硬舉","肩推","啞鈴肩推","側平舉","引體向上","滑輪下拉","槓鈴划船","坐姿划船","二頭彎舉","三頭下壓","臀推","小腿推舉","核心捲腹","面拉"];
+function stSuggest(){
+  const q=val("stPick").trim(), box=document.getElementById("stSuggest");
+  if(!q){ box.style.display="none"; box.innerHTML=""; return; }
+  const res=STRENGTH.filter(n=>n.includes(q)).slice(0,20); window.__st=res;
+  if(!res.length){ box.style.display="none"; return; }   // 允許自訂動作，不擋
+  box.innerHTML=res.map((n,i)=>`<div class="sg" onclick="pickSt(${i})">${n}</div>`).join("");
+  box.style.display="block";
+}
+function pickSt(i){ const n=window.__st[i]; if(n==null) return; document.getElementById("stPick").value=n; document.getElementById("stSuggest").style.display="none"; document.getElementById("stW").focus(); }
+function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(5.0,w)*(sets*3)); } // 每組約3分鐘、MET5
+function stPreview(){
+  const w=+val("stW"),r=+val("stR"),s=+val("stS");
+  if(!w||!r||!s){ set("stPreview",""); return; }
+  set("stPreview", `訓練量 ${ (s*r*w).toLocaleString() } kg（${s}組×${r}次×${w}kg）· 估耗 ${stEstKcal(s)} kcal`);
+}
+async function addStrength(){
+  const n=val("stPick").trim(), w=+val("stW"), r=+val("stR"), s=+val("stS");
+  const date=val("exDate")||todayStr();
+  if(!n){ alert("請輸入或選擇重訓動作"); return; }
+  if(!w||!r||!s){ alert("請填重量、次數、組數"); return; }
+  const volume=s*r*w, kcal=stEstKcal(s), minutes=s*3;
+  try{
+    await api("/api/exercise",{method:"POST",body:JSON.stringify({date,name:n,minutes,kcal,kind:"strength",sets:s,reps:r,weight:w,volume})});
+    document.getElementById("stPick").value=""; document.getElementById("stW").value=""; document.getElementById("stR").value=""; document.getElementById("stS").value=""; set("stPreview","");
+    await reload();
+  }catch(e){ alert(e.message); }
+}
+// 每個動作的最佳重量 / 最近一次（PR 進度）
+function renderPR(){
+  const box=document.getElementById("stPR"); if(!box) return;
+  const st=(store.exercises||[]).filter(e=>e.kind==="strength"&&e.weight>0);
+  if(!st.length){ box.innerHTML=""; return; }
+  const by={};
+  st.forEach(e=>{ const a=by[e.name]||(by[e.name]={best:0,bestReps:0,last:null,lastDate:""});
+    if(+e.weight>a.best){ a.best=+e.weight; a.bestReps=+e.reps||0; }
+    if(e.date>=a.lastDate){ a.lastDate=e.date; a.last=e; } });
+  const rows=Object.entries(by).sort((x,y)=>y[1].best-x[1].best).slice(0,12).map(([n,a])=>
+    `<div class="rec-line"><span>${n}</span><span><b>最佳 ${a.best}kg</b>×${a.bestReps}　<span style="color:var(--sub);font-size:12px">上次 ${a.last.weight}kg×${a.last.reps}×${a.last.sets}組</span></span></div>`).join("");
+  box.innerHTML=`<div class="hint" style="margin-bottom:4px;">💪 各動作進度（依最佳重量排序）</div>${rows}`;
+}
 function renderExercises(){
   const box=document.getElementById("exItems");
   if(!store.exercises.length){ box.innerHTML=""; return; }
-  box.innerHTML=store.exercises.slice(0,12).map(e=>
-    `<div class="foodrow"><span class="nm">${e.date.slice(5,10)} ${e.name} <span style="color:var(--sub)">${e.minutes||"—"}分</span></span><span class="kc">${e.kcal||0} kcal</span><span class="x" onclick="delExercise(${e.id})">✕</span></div>`).join("");
+  box.innerHTML=store.exercises.slice(0,15).map(e=>{
+    const detail=e.kind==="strength"
+      ? `<span style="color:var(--sub)">${e.weight}kg×${e.reps}×${e.sets}組 · ${(+e.volume||0).toLocaleString()}kg</span>`
+      : `<span style="color:var(--sub)">${e.minutes||"—"}分</span>`;
+    return `<div class="foodrow"><span class="nm">${e.kind==="strength"?"💪":"🏃"} ${e.date.slice(5,10)} ${e.name}<br>${detail}</span><span class="kc">${e.kcal||0} kcal</span><span class="x" onclick="delExercise(${e.id})">✕</span></div>`;
+  }).join("");
 }
 function renderExRec(){
   const goal=val("goal")||"maintain";
@@ -1190,9 +1254,10 @@ function renderExRec(){
   // 本週(近7天)已完成
   const now=new Date(), wk=new Date(now-6*86400000).toISOString().slice(0,10);
   const week=store.exercises.filter(e=>e.date>=wk);
-  const doneMin=week.reduce((a,b)=>a+(+b.minutes||0),0);
+  const doneMin=week.filter(e=>e.kind!=="strength").reduce((a,b)=>a+(+b.minutes||0),0);
   const strongNames=["重訓(一般)","重訓(高強度)","徒手健身","HIIT"];
-  const doneStrength=week.filter(e=>strongNames.includes(e.name)).length;
+  const strengthDays=new Set(week.filter(e=>e.kind==="strength"||strongNames.includes(e.name)).map(e=>e.date.slice(0,10)));
+  const doneStrength=strengthDays.size;
   const pct=Math.min(100,Math.round(doneMin/p.cardioMin*100));
   const sPct=Math.min(100,Math.round(doneStrength/p.strength*100));
   document.getElementById("exRec").innerHTML=
@@ -1351,7 +1416,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderPR(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
