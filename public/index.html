@@ -769,8 +769,7 @@ async function analyzePhoto(){
     const name="✨ "+r.name;
     FOODS_DYN[name]=base;
     addToCart(name,g);
-    if(h){ h.textContent=`已辨識：${r.name} ${g}g／${r.kcal} kcal，存檔中…`; }
-    await addMeal();   // 連同照片一起存成當餐飲食日記
+    if(h){ h.innerHTML=`已加入：<b>${r.name} ${g}g／${r.kcal} kcal</b>。可在下方清單改克數（幾人份就乘幾），確認後按「＋加入」存檔。`; }
   }catch(e){
     if(h){ h.textContent="辨識失敗："+e.message; }
   }
