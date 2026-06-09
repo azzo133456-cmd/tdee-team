@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>我的 TDEE 追蹤</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#5b8aa6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TDEE">
+<link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="foods_tw.js"></script>
 <style>
@@ -257,6 +262,19 @@
     <h2>⑦ 體重趨勢</h2>
     <canvas id="chart" height="200"></canvas>
     <div class="empty" id="chartEmpty">尚無資料，先到上方新增紀錄</div>
+    <div class="hint">藍＝每日體重、橘＝7 日移動平均（看趨勢更準）、綠虛線＝整體斜率。</div>
+  </div>
+
+  <!-- 目標體重 -->
+  <div class="card">
+    <h2>🎯 目標體重</h2>
+    <label>目標體重 (kg)</label>
+    <input id="targetWeight" type="number" inputmode="decimal" placeholder="58">
+    <div class="result">
+      <div class="lbl">依目前趨勢預估達成</div>
+      <div class="big" id="etaOut" style="font-size:24px;">—</div>
+      <div class="hint" id="etaDetail">輸入目標體重後估算</div>
+    </div>
   </div>
 
   <!-- ⑧ 所有紀錄 -->
@@ -365,7 +383,7 @@ async function doAuth(){
 function logout(){ localStorage.removeItem(SKEY); session=null; location.reload(); }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis"];
+const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight"];
 function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); }
 function readProfile(){ const o={}; pIds.forEach(id=> o[id]=val(id)); return o; }
 let saveTimer=null;
@@ -694,13 +712,36 @@ function drawChart(){
   const n=xs.length,mx=avg(xs),my=avg(data); let num=0,den=0;
   for(let i=0;i<n;i++){num+=(xs[i]-mx)*(data[i]-my);den+=(xs[i]-mx)**2;}
   const sl=den?num/den:0,ic=my-sl*mx,trend=xs.map(x=>+(sl*x+ic).toFixed(2));
+  // 7 日移動平均（過濾每日水分波動）
+  const ma=data.map((_,i)=>{ const s=Math.max(0,i-6); const w=data.slice(s,i+1); return +(w.reduce((a,b)=>a+b,0)/w.length).toFixed(2); });
   if(chart)chart.destroy();
   chart=new Chart(cv,{type:"line",data:{labels,datasets:[
     {label:"體重",data,borderColor:"#5b8aa6",backgroundColor:"rgba(91,138,166,.12)",fill:true,tension:.3,pointRadius:3},
+    {label:"7日平均",data:ma,borderColor:"#c98b5e",borderWidth:2,pointRadius:0,fill:false,tension:.3},
     {label:"趨勢",data:trend,borderColor:"#7c9070",borderDash:[5,4],pointRadius:0,fill:false}
   ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); }
+function renderEta(){
+  const target=+val("targetWeight");
+  const recs=store.records.filter(r=>r.weight!=null);
+  if(!target||recs.length<2){ set("etaOut","—"); set("etaDetail", target?"需要更多體重紀錄":"輸入目標體重後估算"); return; }
+  const cur=+recs[recs.length-1].weight;
+  const diff=target-cur;
+  if(Math.abs(diff)<0.1){ set("etaOut","已達成 🎉"); set("etaDetail","目前 "+cur+" kg"); return; }
+  const R=calcReal(store.records, store.exercises);
+  const slopeDay=R.slopeWk!=null? R.slopeWk/7 : null;
+  if(slopeDay==null){ set("etaOut","—"); set("etaDetail","需至少 7 天體重紀錄才能推估速度"); return; }
+  // 方向不一致（想減卻在增，或反之）
+  if((diff<0&&slopeDay>=0)||(diff>0&&slopeDay<=0)||slopeDay===0){
+    set("etaOut","趨勢相反"); set("etaDetail",`目前 ${cur}kg，目標 ${target}kg，但體重正${slopeDay>0?"上升":"持平"}中，需調整攝取`); return;
+  }
+  const days=Math.round(diff/slopeDay);
+  const eta=new Date(Date.now()+days*86400000);
+  const y=eta.getFullYear(), m=eta.getMonth()+1, d=eta.getDate();
+  set("etaOut", `${y}/${m}/${d}`);
+  set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
+}
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); }
 function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderNet(); renderRecipes(); }
 
 async function reload(){
@@ -739,6 +780,8 @@ window.addEventListener("DOMContentLoaded", ()=>{
   fillFoodList(); fillExList();
   if(session) boot();
 });
+// 註冊 Service Worker（PWA 可安裝 + 離線）
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
 </script>
 </body>
 </html>
