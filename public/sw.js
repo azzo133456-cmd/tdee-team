@@ -1,10 +1,11 @@
 // 簡單的離線快取：app 殼層用 cache-first，API 一律走網路
-const CACHE = "tdee-v9";
+const CACHE = "tdee-v10";
 const SHELL = [
   "./",
   "./index.html",
   "./foods_tw.js",
   "./foods_chain.js",
+  "./foods_drinks.js",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",

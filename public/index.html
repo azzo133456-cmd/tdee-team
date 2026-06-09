@@ -12,6 +12,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="foods_tw.js"></script>
 <script src="foods_chain.js"></script>
+<script src="foods_drinks.js"></script>
 <style>
   :root{
     --bg:#faf8f3; --card:#ffffff; --ink:#2b2b2b; --sub:#6b6b6b;
@@ -467,7 +468,7 @@ const FOODS_TW = window.FOODS_TW || {};
 const SERVINGS = {};  // 食物 → 預設一份的克數
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
-  const C = window.FOODS_CHAIN || {};
+  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
