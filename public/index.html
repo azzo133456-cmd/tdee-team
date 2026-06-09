@@ -211,17 +211,29 @@
   <!-- ⑥ 真實 TDEE -->
   <div class="card">
     <h2>⑥ 真實 TDEE <span class="pill">斜率反推</span></h2>
-    <div class="result">
-      <div class="lbl">最近 14 天反推 TDEE</div>
-      <div class="big" id="realTdee">—</div>
-      <div class="hint" id="realDetail">需要至少 7 天紀錄才能估算</div>
+    <div class="hint" id="realDetail" style="text-align:center;margin-bottom:6px;">需要至少 7 天紀錄才能估算</div>
+    <div class="row">
+      <div class="result" style="margin-top:0;">
+        <div class="lbl">總 TDEE（含運動）</div>
+        <div class="big" id="realTdee">—</div>
+        <div class="hint">你每天真正的總消耗</div>
+      </div>
+      <div class="result" style="margin-top:0;">
+        <div class="lbl">基礎 TDEE（不含運動）</div>
+        <div class="big" id="realTdeeBase" style="color:var(--accent)">—</div>
+        <div class="hint">完全不運動時的消耗</div>
+      </div>
     </div>
     <div class="stat-row">
       <div><div class="v" id="sAvgKcal">—</div><div class="k">平均攝取</div></div>
+      <div><div class="v" id="sBurn">—</div><div class="k">平均運動/天</div></div>
       <div><div class="v" id="sSlope">—</div><div class="k">週體重變化</div></div>
       <div><div class="v" id="sDeficit">—</div><div class="k">每日赤字</div></div>
     </div>
-    <div class="hint">每 1kg 脂肪 ≈ 7700 kcal。真實 TDEE ＝ 平均攝取 ＋ 每日赤字（體重下降時赤字為正）。</div>
+
+    <h2 style="margin:18px 0 6px;font-size:15px;">📊 詳細比較</h2>
+    <table id="cmpTbl"><tbody></tbody></table>
+    <div class="hint" id="cmpHint"></div>
   </div>
 
   <!-- ⑦ 體重趨勢 -->
@@ -354,8 +366,8 @@ function calcMifflin(){
 
 /* ---------- 目標建議 ---------- */
 function baseTDEE(){
-  const R=calcReal(store.records);
-  if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE"};
+  const R=calcReal(store.records, store.exercises);
+  if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE(含運動)"};
   return {tdee:calcMifflin(), src:"公式估算"};
 }
 function calcGoal(){
@@ -506,19 +518,28 @@ async function delRecord(rid){
 }
 
 /* ---------- 真實 TDEE ---------- */
-function calcReal(records){
+// tdee = 含運動的總 TDEE；tdeeBase = 不含運動的基礎 TDEE；avgBurn = 期間平均每日運動消耗
+function calcReal(records, exercises){
   const recs=(records||[]).filter(r=>r.weight!=null).slice(-14);
-  const out={tdee:null,avgK:null,slopeWk:null,deficit:null,days:recs.length};
+  const out={tdee:null,tdeeBase:null,avgK:null,avgBurn:0,slopeWk:null,deficit:null,days:recs.length};
   if(recs.length<7) return out;
   const t0=new Date(recs[0].date).getTime();
   const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000), ys=recs.map(r=>+r.weight);
   const n=xs.length,mx=avg(xs),my=avg(ys);
   let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
   const slope=den?num/den:0;
+  out.slopeWk=slope*7;
+  // 期間平均每日運動消耗（用首尾日期跨越的天數當分母）
+  const d0=recs[0].date.slice(0,10), d1=recs[recs.length-1].date.slice(0,10);
+  const spanDays=Math.max(1,Math.round((new Date(d1)-new Date(d0))/86400000)+1);
+  const totalBurn=(exercises||[]).filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;}).reduce((a,b)=>a+(+b.kcal||0),0);
+  out.avgBurn=Math.round(totalBurn/spanDays);
   const ks=recs.filter(r=>r.kcal!=null).map(r=>+r.kcal);
-  if(ks.length<3){ out.slopeWk=slope*7; return out; }
+  if(ks.length<3) return out;
   const avgK=avg(ks),deficit=-slope*7700;
-  out.avgK=Math.round(avgK); out.slopeWk=slope*7; out.deficit=Math.round(deficit); out.tdee=Math.round(avgK+deficit);
+  out.avgK=Math.round(avgK); out.deficit=Math.round(deficit);
+  out.tdee=Math.round(avgK+deficit);                 // 含運動：你真正每天總消耗
+  out.tdeeBase=Math.round(avgK+deficit-out.avgBurn); // 不含運動：基礎(NEAT+BMR)
   return out;
 }
 
@@ -536,12 +557,36 @@ function renderTable(){
   });
 }
 function renderReal(){
-  const R=calcReal(store.records);
-  if(R.tdee){ set("realTdee",R.tdee.toLocaleString()+" kcal"); set("realDetail",`根據最近 ${R.days} 天紀錄`); }
-  else{ set("realTdee","—"); set("realDetail", R.days<7?`已有 ${R.days} 天，需至少 7 天`:"攝取資料不足（至少 3 天）"); }
+  const R=calcReal(store.records, store.exercises);
+  const cmp=document.querySelector("#cmpTbl tbody");
+  if(R.tdee){
+    set("realTdee",R.tdee.toLocaleString()); set("realTdeeBase",R.tdeeBase.toLocaleString());
+    set("realDetail",`根據最近 ${R.days} 天紀錄`);
+  }else{
+    set("realTdee","—"); set("realTdeeBase","—");
+    set("realDetail", R.days<7?`已有 ${R.days} 天，需至少 7 天`:"攝取資料不足（至少 3 天）");
+  }
   set("sAvgKcal", R.avgK?R.avgK.toLocaleString():"—");
+  set("sBurn", R.avgBurn?R.avgBurn.toLocaleString():"0");
   set("sSlope", R.slopeWk!=null?(R.slopeWk>=0?"+":"")+R.slopeWk.toFixed(2)+"kg":"—");
   set("sDeficit", R.deficit!=null?(R.deficit>=0?"+":"")+R.deficit.toLocaleString():"—");
+
+  if(!R.tdee){ cmp.innerHTML=`<tr><td class="empty" colspan="3">資料足夠後會顯示比較</td></tr>`; set("cmpHint",""); return; }
+  const row=(k,v,note)=>`<tr><td style="text-align:left">${k}</td><td style="font-weight:700">${v}</td><td style="text-align:left;color:var(--sub);font-size:12px">${note}</td></tr>`;
+  cmp.innerHTML=
+    row("平均每日攝取", R.avgK.toLocaleString()+" kcal", "14 天吃進的平均")+
+    row("週體重變化", (R.slopeWk>=0?"+":"")+R.slopeWk.toFixed(2)+" kg", R.slopeWk<0?"下降中":R.slopeWk>0?"上升中":"持平")+
+    row("體重反推每日赤字", (R.deficit>=0?"+":"")+R.deficit.toLocaleString()+" kcal", "脂肪 1kg≈7700kcal")+
+    row("平均每日運動消耗", R.avgBurn.toLocaleString()+" kcal", "你記錄的運動")+
+    row("➊ 總 TDEE（含運動）", "<b>"+R.tdee.toLocaleString()+"</b> kcal", "攝取＋赤字")+
+    row("➋ 基礎 TDEE（不含運動）", "<b>"+R.tdeeBase.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
+  const goal=val("goal"), rate=+val("goalRate");
+  let useGross=R.tdee; if(goal==="cut")useGross=Math.round(R.tdee*(1-rate)); if(goal==="bulk")useGross=Math.round(R.tdee*(1+rate*0.5));
+  set("cmpHint",
+    `兩者差 ${R.avgBurn.toLocaleString()} kcal ＝ 你平均每天靠運動多燒的量。`+
+    `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
+    `\n· 想「把運動另外算、運動多就多吃」→ 用 ➋ 基礎 TDEE 當底，再每天加回當天實際運動消耗。`);
+  document.getElementById("cmpHint").style.whiteSpace="pre-line";
 }
 function drawChart(){
   const recs=store.records.filter(r=>r.weight!=null), cv=document.getElementById("chart");
