@@ -173,7 +173,15 @@
     <div class="foodlist" id="foodItems"></div>
     <div class="result" id="foodTotal" style="display:none;"></div>
     <button class="ghost" id="useFoodBtn" style="display:none;" onclick="useFoodAsIntake()">↧ 帶入今天的攝取與營養素</button>
+    <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
     <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆中文）＋常見品項概估＋USDA 線上查詢。皆為每 100g，僅供參考。</div>
+  </div>
+
+  <!-- 食譜 -->
+  <div class="card">
+    <h2>📖 我的食譜 <span class="pill" id="recipeCount"></span></h2>
+    <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
+    <div class="hint">套用後會載入到食物計算機清單，可再按「帶入今天的攝取」。</div>
   </div>
 
   <!-- ④ 每日紀錄 -->
@@ -436,10 +444,10 @@ function renderFood(){
   document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>
     `<div class="foodrow"><span class="nm">${it.n} <span style="color:var(--sub)">${it.g}g</span></span><span class="kc">${Math.round(it.k)} kcal</span><span class="x" onclick="rmFood(${i})">✕</span></div>`).join("");
   const tot=foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
-  const el=document.getElementById("foodTotal"), btn=document.getElementById("useFoodBtn");
-  if(foodCart.length){ el.style.display="block"; btn.style.display="block";
+  const el=document.getElementById("foodTotal"), btn=document.getElementById("useFoodBtn"), sb=document.getElementById("saveRecipeBtn");
+  if(foodCart.length){ el.style.display="block"; btn.style.display="block"; sb.style.display="block";
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
-  }else{ el.style.display="none"; btn.style.display="none"; }
+  }else{ el.style.display="none"; btn.style.display="none"; sb.style.display="none"; }
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
 async function usdaSearch(){
@@ -472,6 +480,46 @@ function useFoodAsIntake(){
   document.getElementById("rFat").value=tot.f.toFixed(0);
   document.getElementById("rCarb").value=tot.c.toFixed(0);
   document.getElementById("cardRecord").scrollIntoView({behavior:"smooth"});
+}
+
+/* ---------- 食譜 ---------- */
+function cartTotal(){ return foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0}); }
+async function saveRecipe(){
+  if(!foodCart.length){ alert("清單是空的"); return; }
+  const name=prompt("食譜名稱（例如：我的早餐）");
+  if(!name||!name.trim()) return;
+  const t=cartTotal();
+  try{
+    await api("/api/recipe",{method:"POST",body:JSON.stringify({
+      name:name.trim(), items:foodCart,
+      kcal:Math.round(t.k), protein:+t.p.toFixed(1), fat:+t.f.toFixed(1), carb:+t.c.toFixed(1)
+    })});
+    await reload();
+    alert("已存成食譜「"+name.trim()+"」");
+  }catch(e){ alert(e.message); }
+}
+function renderRecipes(){
+  const list=store.recipes||[];
+  set("recipeCount", list.length?list.length+" 份":"");
+  const box=document.getElementById("recipeList");
+  if(!list.length){ box.innerHTML='<div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div>'; return; }
+  box.innerHTML=list.map(r=>{
+    const items=(r.items||[]).map(it=>it.n+(it.g?` ${it.g}g`:"")).join("、");
+    return `<div class="foodrow"><span class="nm"><b>${r.name}</b><br><span style="color:var(--sub);font-size:12px">${items}</span></span>`+
+      `<span class="kc">${r.kcal||0} kcal</span>`+
+      `<span class="x" style="color:var(--accent)" onclick="applyRecipe(${r.id})">套用</span>`+
+      `<span class="x" onclick="delRecipe(${r.id})">✕</span></div>`;
+  }).join("");
+}
+function applyRecipe(id){
+  const r=(store.recipes||[]).find(x=>x.id===id); if(!r) return;
+  foodCart=(r.items||[]).map(it=>({n:it.n,g:it.g,k:it.k,p:it.p,f:it.f,c:it.c}));
+  renderFood();
+  document.getElementById("foodTotal").scrollIntoView({behavior:"smooth"});
+}
+async function delRecipe(id){
+  if(!confirm("刪除這份食譜？")) return;
+  await api("/api/recipe/"+id,{method:"DELETE"}); await reload();
 }
 
 /* ---------- 運動 ---------- */
@@ -653,11 +701,11 @@ function drawChart(){
   ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderNet(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderNet(); renderRecipes(); }
 
 async function reload(){
   store = await api("/api/me/all");
-  store.profile = store.profile||{};
+  store.profile = store.profile||{}; store.recipes = store.recipes||[];
   renderAll();
 }
 

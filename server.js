@@ -42,6 +42,14 @@ async function initDb() {
       minutes REAL,
       kcal INT
     );
+    CREATE TABLE IF NOT EXISTS recipes (
+      id SERIAL PRIMARY KEY,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      items JSONB DEFAULT '[]'::jsonb,
+      kcal INT, protein REAL, fat REAL, carb REAL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
   console.log("DB ready");
 }
@@ -182,6 +190,32 @@ app.delete("/api/exercise/:eid", auth, async (req, res) => {
   }
 });
 
+/* ---------- 食譜 ---------- */
+app.post("/api/recipe", auth, async (req, res) => {
+  try {
+    const { name, items, kcal, protein, fat, carb } = req.body;
+    if (!name || !Array.isArray(items) || items.length === 0)
+      return res.status(400).json({ error: "需要食譜名稱與內容" });
+    await pool.query(
+      "INSERT INTO recipes(user_id,name,items,kcal,protein,fat,carb) VALUES($1,$2,$3,$4,$5,$6,$7)",
+      [req.user.id, name, JSON.stringify(items), kcal ?? null, protein ?? null, fat ?? null, carb ?? null]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+app.delete("/api/recipe/:rid", auth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM recipes WHERE id=$1 AND user_id=$2", [req.params.rid, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- USDA 線上食物查詢（代理，隱藏金鑰、避開 CORS） ---------- */
 app.get("/api/foodsearch", auth, async (req, res) => {
   try {
@@ -221,7 +255,8 @@ app.get("/api/me/all", auth, async (req, res) => {
   try {
     const recs = await pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]);
     const exs = await pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]);
-    res.json({ profile: req.user.profile, records: recs.rows, exercises: exs.rows });
+    const rcp = await pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
+    res.json({ profile: req.user.profile, records: recs.rows, exercises: exs.rows, recipes: rcp.rows });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
