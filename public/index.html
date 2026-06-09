@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TDEE 團隊追蹤</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#faf8f3; --card:#ffffff; --ink:#2b2b2b; --sub:#6b6b6b;
+    --line:#e2ddd2; --accent:#5b8aa6; --green:#7c9070; --soft:#eef2ed; --warm:#c98b5e;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC",sans-serif;
+    line-height:1.6; padding:16px 14px 60px; max-width:560px; margin:0 auto;
+  }
+  h1{font-size:21px; margin:4px 0 2px;}
+  .tagline{color:var(--sub); font-size:13px; margin-bottom:18px;}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:16px 14px; margin-bottom:16px;
+  }
+  .card h2{font-size:16px; margin:0 0 12px; display:flex; align-items:center; gap:8px;}
+  label{display:block; font-size:13px; color:var(--sub); margin:10px 0 4px;}
+  input,select{
+    width:100%; padding:11px 12px; font-size:16px; border:1px solid var(--line);
+    border-radius:10px; background:#fff; color:var(--ink); font-family:inherit;
+  }
+  input:focus,select:focus{outline:none; border-color:var(--accent);}
+  .row{display:flex; gap:10px;}
+  .row>div{flex:1;}
+  button{
+    width:100%; padding:13px; font-size:16px; font-weight:600; border:none;
+    border-radius:10px; background:var(--accent); color:#fff; margin-top:14px;
+    cursor:pointer; font-family:inherit;
+  }
+  button:active{opacity:.85;}
+  button.ghost{background:transparent; color:var(--accent); border:1px solid var(--line); font-weight:500;}
+  button.danger{background:transparent; color:#b5564e; border:1px solid var(--line); font-weight:500;}
+  button.sm{width:auto; padding:7px 12px; font-size:13px; margin-top:0;}
+  .result{
+    background:var(--soft); border-radius:10px; padding:14px; margin-top:14px; text-align:center;
+  }
+  .result .big{font-size:30px; font-weight:700; color:var(--green);}
+  .result .lbl{font-size:13px; color:var(--sub);}
+  .hint{font-size:12px; color:var(--sub); margin-top:6px; line-height:1.5;}
+  table{width:100%; border-collapse:collapse; font-size:13px; margin-top:6px;}
+  th,td{border-bottom:1px solid var(--line); padding:7px 4px; text-align:center;}
+  th{color:var(--sub); font-weight:500;}
+  td .del{color:#b5564e; cursor:pointer; font-size:12px;}
+  .empty{color:var(--sub); font-size:13px; text-align:center; padding:18px 0;}
+  .stat-row{display:flex; justify-content:space-around; text-align:center; margin-top:10px;}
+  .stat-row .v{font-size:18px; font-weight:700;}
+  .stat-row .k{font-size:11px; color:var(--sub);}
+  canvas{margin-top:8px;}
+  .pill{font-size:11px; background:var(--soft); color:var(--green); padding:2px 8px; border-radius:20px;}
+  .topbar{display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
+  .topbar .who{font-size:13px; color:var(--sub);}
+  .topbar .who b{color:var(--ink);}
+  .chips{display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;}
+  .chip{font-size:13px; padding:6px 12px; border-radius:20px; border:1px solid var(--line);
+    background:#fff; cursor:pointer; color:var(--sub);}
+  .chip.on{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .chip.me{border-color:var(--green);}
+  .macro-bar{display:flex; height:14px; border-radius:7px; overflow:hidden; margin-top:8px; background:var(--soft);}
+  .macro-bar i{display:block; height:100%;}
+  .macro-leg{display:flex; gap:14px; justify-content:center; margin-top:8px; font-size:12px; color:var(--sub);}
+  .macro-leg b{color:var(--ink);}
+  .dot{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:middle;}
+  .foodlist{margin-top:8px;}
+  .foodrow{display:flex; align-items:center; gap:8px; font-size:13px; padding:6px 0; border-bottom:1px solid var(--line);}
+  .foodrow .nm{flex:1;}
+  .foodrow .kc{color:var(--green); font-weight:600;}
+  .foodrow .x{color:#b5564e; cursor:pointer;}
+  .rank{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line); font-size:14px;}
+  .rank .n{width:22px; text-align:center; color:var(--sub); font-weight:700;}
+  .rank .nm{flex:1;}
+  .rank .val{font-weight:700; color:var(--accent);}
+  .hidden{display:none !important;}
+  datalist{position:absolute;}
+</style>
+</head>
+<body>
+
+<!-- ===== 登入頁 ===== -->
+<div id="loginView">
+  <h1>TDEE 團隊追蹤</h1>
+  <div class="tagline">和朋友一起記錄體重、熱量、營養素，14 天斜率反推真實 TDEE</div>
+  <div class="card">
+    <h2>加入你的群組</h2>
+    <label>群組代碼（和朋友約定同一組，例如 FIT2026）</label>
+    <input id="inCode" placeholder="FIT2026" autocomplete="off">
+    <label>你的名字</label>
+    <input id="inName" placeholder="小明" autocomplete="off">
+    <button onclick="join()">進入</button>
+    <div class="hint">同一組代碼的人會看到彼此的紀錄與排行。代碼自由命名，建議告訴朋友就好，不用密碼。</div>
+  </div>
+</div>
+
+<!-- ===== 主畫面 ===== -->
+<div id="appView" class="hidden">
+  <div class="topbar">
+    <div class="who">群組 <b id="curCode"></b>　我是 <b id="curName"></b></div>
+    <button class="ghost sm" onclick="logout()" style="margin-left:auto;">登出</button>
+  </div>
+
+  <!-- 成員切換 -->
+  <div class="card">
+    <h2>👥 成員 <span class="pill" id="memCount"></span></h2>
+    <div class="chips" id="memChips"></div>
+    <div class="hint" id="viewHint"></div>
+  </div>
+
+  <!-- 1. 基本資料 / Mifflin -->
+  <div class="card" id="cardProfile">
+    <h2>① 基礎估算 <span class="pill">Mifflin</span></h2>
+    <div class="row">
+      <div>
+        <label>性別</label>
+        <select id="sex"><option value="m">男</option><option value="f">女</option></select>
+      </div>
+      <div><label>年齡</label><input id="age" type="number" inputmode="numeric" placeholder="35"></div>
+    </div>
+    <div class="row">
+      <div><label>身高 (cm)</label><input id="height" type="number" inputmode="decimal" placeholder="170"></div>
+      <div><label>體重 (kg)</label><input id="weight" type="number" inputmode="decimal" placeholder="60"></div>
+    </div>
+    <label>活動係數</label>
+    <select id="act">
+      <option value="1.3">幾乎不動 ×1.3</option>
+      <option value="1.4" selected>輕度活動 ×1.4</option>
+      <option value="1.5">中度活動 ×1.5</option>
+    </select>
+    <div class="result">
+      <div class="lbl">公式估算 TDEE（當起點）</div>
+      <div class="big" id="mifflinOut">—</div>
+      <div class="hint" id="bmrOut"></div>
+    </div>
+  </div>
+
+  <!-- 2. 目標與建議 -->
+  <div class="card" id="cardGoal">
+    <h2>② 目標與建議 <span class="pill">每日配額</span></h2>
+    <div class="row">
+      <div>
+        <label>目標</label>
+        <select id="goal">
+          <option value="cut">減脂</option>
+          <option value="maintain" selected>維持</option>
+          <option value="bulk">增肌</option>
+        </select>
+      </div>
+      <div>
+        <label>強度</label>
+        <select id="goalRate">
+          <option value="0.1">溫和 10%</option>
+          <option value="0.2" selected>標準 20%</option>
+          <option value="0.25">積極 25%</option>
+        </select>
+      </div>
+    </div>
+    <div class="result">
+      <div class="lbl">建議每日攝取</div>
+      <div class="big" id="goalKcal">—</div>
+      <div class="hint" id="goalBasis"></div>
+    </div>
+    <div class="macro-bar" id="goalBar"></div>
+    <div class="macro-leg" id="goalLeg"></div>
+    <div class="hint">蛋白以體重 ×2.0 g 計、脂肪取總熱量 25%，其餘為碳水。建議會優先以你的「真實 TDEE」為基準，未滿 7 天才用公式估算。</div>
+  </div>
+
+  <!-- 3. 食物熱量計算機 -->
+  <div class="card" id="cardFood">
+    <h2>③ 食物熱量計算機</h2>
+    <label>選食物（可直接打字搜尋）</label>
+    <input id="foodPick" list="foodList" placeholder="例如：白飯 / 雞胸肉" autocomplete="off">
+    <datalist id="foodList"></datalist>
+    <div class="row">
+      <div><label>份量 (克)</label><input id="foodGram" type="number" inputmode="decimal" placeholder="100"></div>
+      <div style="flex:0 0 auto; align-self:flex-end;">
+        <button class="sm" onclick="addFood()">＋ 加入</button>
+      </div>
+    </div>
+    <div class="hint" id="foodPreview"></div>
+    <div class="foodlist" id="foodItems"></div>
+    <div class="result" id="foodTotal" style="display:none;"></div>
+    <button class="ghost" id="useFoodBtn" style="display:none;" onclick="useFoodAsIntake()">↧ 帶入今天的攝取與營養素</button>
+  </div>
+
+  <!-- 4. 每日紀錄 -->
+  <div class="card" id="cardRecord">
+    <h2>④ 每日紀錄</h2>
+    <label>日期</label>
+    <input id="rDate" type="date">
+    <div class="row">
+      <div><label>早上體重 (kg)</label><input id="rWeight" type="number" inputmode="decimal" placeholder="59.8"></div>
+      <div><label>當日攝取 (kcal)</label><input id="rKcal" type="number" inputmode="numeric" placeholder="1800"></div>
+    </div>
+    <div class="row">
+      <div><label>蛋白 (g)</label><input id="rProtein" type="number" inputmode="decimal" placeholder="120"></div>
+      <div><label>脂肪 (g)</label><input id="rFat" type="number" inputmode="decimal" placeholder="55"></div>
+      <div><label>碳水 (g)</label><input id="rCarb" type="number" inputmode="decimal" placeholder="180"></div>
+    </div>
+    <button onclick="addRecord()">＋ 新增 / 更新當日紀錄</button>
+  </div>
+
+  <!-- 5. 真實 TDEE -->
+  <div class="card">
+    <h2>⑤ 真實 TDEE <span class="pill">斜率反推</span></h2>
+    <div class="result">
+      <div class="lbl">最近 14 天反推 TDEE</div>
+      <div class="big" id="realTdee">—</div>
+      <div class="hint" id="realDetail">需要至少 7 天紀錄才能估算</div>
+    </div>
+    <div class="stat-row">
+      <div><div class="v" id="sAvgKcal">—</div><div class="k">平均攝取</div></div>
+      <div><div class="v" id="sSlope">—</div><div class="k">週體重變化</div></div>
+      <div><div class="v" id="sDeficit">—</div><div class="k">每日赤字</div></div>
+    </div>
+    <div class="hint">每 1kg 脂肪 ≈ 7700 kcal。真實 TDEE ＝ 平均攝取 ＋ 每日赤字（體重下降時赤字為正）。</div>
+  </div>
+
+  <!-- 6. 體重趨勢 -->
+  <div class="card">
+    <h2>⑥ 體重趨勢</h2>
+    <canvas id="chart" height="200"></canvas>
+    <div class="empty" id="chartEmpty">尚無資料，先到上方新增紀錄</div>
+  </div>
+
+  <!-- 7. 群組排行 -->
+  <div class="card">
+    <h2>🏆 群組排行 <span class="pill">本週體重變化</span></h2>
+    <div id="rankList"><div class="empty">資料載入中…</div></div>
+    <div class="hint">依最近 14 天週體重變化排序（減最多在前）。括號為反推真實 TDEE。</div>
+  </div>
+
+  <!-- 8. 紀錄表 -->
+  <div class="card">
+    <h2>⑧ 所有紀錄</h2>
+    <table id="tbl"><thead><tr><th>日期</th><th>體重</th><th>攝取</th><th>蛋白</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="empty" id="tblEmpty">尚無資料</div>
+  </div>
+</div>
+
+<script>
+const API = ""; // 同源；前後端一起部署
+const SKEY = "tdeeTeam_session";
+let session = JSON.parse(localStorage.getItem(SKEY) || "null"); // {memberId,code,name}
+let groupData = { members: [] };
+let viewMemberId = null;      // 目前檢視的成員
+let chart = null;
+let foodCart = [];            // 食物計算機暫存
+
+/* ---------- 食物資料庫（每 100g：kcal, 蛋白P, 脂肪F, 碳水C） ---------- */
+const FOODS = {
+  "白飯":[130,2.7,0.3,28],"糙米飯":[112,2.6,0.9,23],"全麥吐司":[247,13,4.2,41],
+  "白吐司":[265,8,3.6,49],"地瓜":[86,1.6,0.1,20],"馬鈴薯":[77,2,0.1,17],
+  "燕麥":[389,17,7,66],"義大利麵(熟)":[158,6,0.9,31],"水餃(10顆)":[240,9,9,30],
+  "雞胸肉":[165,31,3.6,0],"雞腿(去皮)":[120,20,4,0],"豬里肌":[143,21,6,0],
+  "牛腱":[150,22,6,0],"鮭魚":[208,20,13,0],"鯛魚":[96,21,1,0],"蝦":[99,24,0.3,0],
+  "雞蛋(1顆約50g)":[155,13,11,1.1],"水煮蛋":[155,13,11,1.1],"豆腐":[76,8,4.8,1.9],
+  "毛豆":[122,11,5,10],"無糖豆漿":[33,3.3,1.8,1.5],"牛奶":[64,3.4,3.6,4.7],
+  "希臘優格":[59,10,0.4,3.6],"起司片":[350,25,27,2],
+  "花椰菜":[34,2.8,0.4,7],"高麗菜":[25,1.3,0.1,6],"菠菜":[23,2.9,0.4,3.6],
+  "香蕉":[89,1.1,0.3,23],"蘋果":[52,0.3,0.2,14],"芭樂":[68,2.6,0.9,14],
+  "酪梨":[160,2,15,9],"花生":[567,26,49,16],"杏仁":[579,21,50,22],
+  "橄欖油":[884,0,100,0],"白糖":[400,0,0,100],"珍珠奶茶(700ml)":[68,0.6,1.5,13],
+  "便利商店御飯糰":[180,4,2,36],"雞排":[280,18,18,12]
+};
+function kcalOfMacro(p,f,c){ return p*4 + f*9 + c*4; }
+
+/* ---------- API ---------- */
+async function api(path, opts){
+  const r = await fetch(API + path, Object.assign({headers:{"Content-Type":"application/json"}}, opts));
+  if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.error||"錯誤"); }
+  return r.json();
+}
+
+/* ---------- 登入 ---------- */
+async function join(){
+  const code = document.getElementById("inCode").value.trim();
+  const name = document.getElementById("inName").value.trim();
+  if(!code||!name){ alert("請輸入群組代碼與名字"); return; }
+  try{
+    const m = await api("/api/join", {method:"POST", body:JSON.stringify({code,name})});
+    session = {memberId:m.memberId, code:m.code, name:m.name};
+    localStorage.setItem(SKEY, JSON.stringify(session));
+    if(m.profile) applyProfile(m.profile);
+    boot();
+  }catch(e){ alert(e.message); }
+}
+function logout(){ localStorage.removeItem(SKEY); session=null; location.reload(); }
+
+/* ---------- profile ---------- */
+const pIds=["sex","age","height","weight","act","goal","goalRate"];
+function applyProfile(p){ pIds.forEach(id=>{ if(p[id]!=null) document.getElementById(id).value=p[id]; }); }
+function readProfile(){ const o={}; pIds.forEach(id=> o[id]=document.getElementById(id).value); return o; }
+let saveTimer=null;
+function saveProfile(){
+  calcMifflin(); calcGoal();
+  if(viewMemberId!==session.memberId) return; // 只存自己的
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=> api("/api/member/"+session.memberId+"/profile",
+    {method:"PUT", body:JSON.stringify(readProfile())}).catch(()=>{}), 600);
+}
+
+function calcMifflin(){
+  const a=+val("age"), h=+val("height"), w=+val("weight"), act=+val("act")||1.4;
+  if(!a||!h||!w){ set("mifflinOut","—"); set("bmrOut",""); return null; }
+  const bmr = 10*w + 6.25*h - 5*a + (val("sex")==="f"? -161 : 5);
+  const tdee = Math.round(bmr*act);
+  set("mifflinOut", tdee.toLocaleString()+" kcal");
+  set("bmrOut", "BMR "+Math.round(bmr).toLocaleString()+" × "+act);
+  return tdee;
+}
+
+/* ---------- 目標建議 ---------- */
+function baseTDEE(recs){
+  const R = calcReal(recs);
+  if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE"};
+  const m = calcMifflin();
+  return {tdee:m, src:"公式估算"};
+}
+function calcGoal(){
+  const recs = currentRecords();
+  const base = baseTDEE(recs);
+  if(!base.tdee){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
+  const goal=val("goal"), rate=+val("goalRate");
+  let target = base.tdee;
+  if(goal==="cut") target = Math.round(base.tdee*(1-rate));
+  if(goal==="bulk") target = Math.round(base.tdee*(1+rate*0.5)); // 增肌盈餘較保守
+  const w=+val("weight")|| (recs.length? recs[recs.length-1].weight : 60);
+  const protein = Math.round(w*2.0);
+  const fatKcal = target*0.25;
+  const fat = Math.round(fatKcal/9);
+  const carbKcal = target - protein*4 - fatKcal;
+  const carb = Math.round(Math.max(0,carbKcal)/4);
+  set("goalKcal", target.toLocaleString()+" kcal");
+  set("goalBasis", `基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${ {cut:"減脂",maintain:"維持",bulk:"增肌"}[goal] }`);
+  drawMacroBar("goalBar","goalLeg", protein, fat, carb);
+}
+function drawMacroBar(barId, legId, p, f, c){
+  const pk=p*4, fk=f*9, ck=c*4, tot=pk+fk+ck||1;
+  document.getElementById(barId).innerHTML =
+    `<i style="width:${pk/tot*100}%;background:#5b8aa6"></i>`+
+    `<i style="width:${fk/tot*100}%;background:#c98b5e"></i>`+
+    `<i style="width:${ck/tot*100}%;background:#7c9070"></i>`;
+  document.getElementById(legId).innerHTML =
+    `<span><i class="dot" style="background:#5b8aa6"></i>蛋白 <b>${p}g</b></span>`+
+    `<span><i class="dot" style="background:#c98b5e"></i>脂肪 <b>${f}g</b></span>`+
+    `<span><i class="dot" style="background:#7c9070"></i>碳水 <b>${c}g</b></span>`;
+}
+
+/* ---------- 食物計算機 ---------- */
+function fillFoodList(){
+  document.getElementById("foodList").innerHTML =
+    Object.keys(FOODS).map(n=>`<option value="${n}">`).join("");
+}
+function foodPreview(){
+  const n=val("foodPick"); const g=+val("foodGram");
+  if(!FOODS[n]||!g){ set("foodPreview",""); return; }
+  const [k,p,f,c]=FOODS[n];
+  set("foodPreview", `${g}g ≈ ${Math.round(k*g/100)} kcal（蛋 ${(p*g/100).toFixed(1)} / 脂 ${(f*g/100).toFixed(1)} / 碳 ${(c*g/100).toFixed(1)}）`);
+}
+function addFood(){
+  const n=val("foodPick"); const g=+val("foodGram");
+  if(!FOODS[n]){ alert("找不到這個食物，請從清單選"); return; }
+  if(!g){ alert("請輸入份量"); return; }
+  const [k,p,f,c]=FOODS[n];
+  foodCart.push({n,g, k:k*g/100, p:p*g/100, f:f*g/100, c:c*g/100});
+  document.getElementById("foodPick").value=""; document.getElementById("foodGram").value="";
+  set("foodPreview",""); renderFood();
+}
+function renderFood(){
+  const box=document.getElementById("foodItems");
+  box.innerHTML = foodCart.map((it,i)=>
+    `<div class="foodrow"><span class="nm">${it.n} <span style="color:var(--sub)">${it.g}g</span></span>`+
+    `<span class="kc">${Math.round(it.k)} kcal</span>`+
+    `<span class="x" onclick="rmFood(${i})">✕</span></div>`).join("");
+  const tot = foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
+  const el=document.getElementById("foodTotal"), btn=document.getElementById("useFoodBtn");
+  if(foodCart.length){
+    el.style.display="block"; btn.style.display="block";
+    el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div>`+
+      `<div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
+  }else{ el.style.display="none"; btn.style.display="none"; }
+}
+function rmFood(i){ foodCart.splice(i,1); renderFood(); }
+function useFoodAsIntake(){
+  const tot = foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
+  document.getElementById("rKcal").value=Math.round(tot.k);
+  document.getElementById("rProtein").value=tot.p.toFixed(0);
+  document.getElementById("rFat").value=tot.f.toFixed(0);
+  document.getElementById("rCarb").value=tot.c.toFixed(0);
+  document.getElementById("cardRecord").scrollIntoView({behavior:"smooth"});
+}
+
+/* ---------- 紀錄 ---------- */
+function todayStr(){ const d=new Date(); const o=d.getTimezoneOffset(); return new Date(d-o*60000).toISOString().slice(0,10); }
+function currentRecords(){
+  const m = groupData.members.find(x=>x.id===viewMemberId);
+  return m? m.records.map(r=>({...r, weight:r.weight==null?null:+r.weight})) : [];
+}
+function isMe(){ return viewMemberId===session.memberId; }
+
+async function addRecord(){
+  if(!isMe()){ alert("只能記錄自己的資料，先切回你自己"); return; }
+  const date=val("rDate")||todayStr();
+  const w=parseFloat(val("rWeight"));
+  const k=parseFloat(val("rKcal"));
+  const p=parseFloat(val("rProtein")), f=parseFloat(val("rFat")), c=parseFloat(val("rCarb"));
+  if(!w && isNaN(w)){ /* allow weightless? need weight for slope */ }
+  if(isNaN(w)){ alert("請輸入體重"); return; }
+  try{
+    await api("/api/member/"+session.memberId+"/record", {method:"POST", body:JSON.stringify({
+      date, weight:w, kcal:isNaN(k)?null:k, protein:isNaN(p)?null:p, fat:isNaN(f)?null:f, carb:isNaN(c)?null:c
+    })});
+    ["rWeight","rKcal","rProtein","rFat","rCarb"].forEach(id=>document.getElementById(id).value="");
+    foodCart=[]; renderFood();
+    await reload();
+  }catch(e){ alert(e.message); }
+}
+async function delRecord(rid){
+  if(!isMe()){ return; }
+  if(!confirm("刪除這筆紀錄？")) return;
+  await api("/api/record/"+rid, {method:"DELETE"});
+  await reload();
+}
+
+/* ---------- 真實 TDEE 線性回歸 ---------- */
+function calcReal(records){
+  const recs=(records||[]).filter(r=>r.weight!=null).slice(-14);
+  const out={tdee:null,avgK:null,slopeWk:null,deficit:null,days:recs.length};
+  if(recs.length<7) return out;
+  const t0=new Date(recs[0].date).getTime();
+  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
+  const ys=recs.map(r=>+r.weight);
+  const n=xs.length, mx=avg(xs), my=avg(ys);
+  let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2;}
+  const slope=den?num/den:0;
+  const ks=recs.filter(r=>r.kcal!=null).map(r=>+r.kcal);
+  if(ks.length<3){ out.slopeWk=slope*7; return out; }
+  const avgK=avg(ks), deficit=-slope*7700;
+  out.avgK=Math.round(avgK); out.slopeWk=slope*7; out.deficit=Math.round(deficit); out.tdee=Math.round(avgK+deficit);
+  return out;
+}
+
+/* ---------- 渲染 ---------- */
+function renderMembers(){
+  set("curCode", session.code); set("curName", session.name);
+  set("memCount", groupData.members.length+" 人");
+  const box=document.getElementById("memChips");
+  box.innerHTML = groupData.members.map(m=>
+    `<span class="chip ${m.id===viewMemberId?"on":""} ${m.id===session.memberId?"me":""}" onclick="switchMember(${m.id})">`+
+    `${m.name}${m.id===session.memberId?" (我)":""}</span>`).join("");
+  document.getElementById("viewHint").textContent = isMe()
+    ? "正在看自己的資料，可新增/編輯。"
+    : "正在看 "+(groupData.members.find(x=>x.id===viewMemberId)?.name||"")+" 的資料（唯讀）。";
+  // 唯讀時鎖住輸入卡
+  ["cardProfile","cardGoal","cardFood","cardRecord"].forEach(id=>{
+    document.getElementById(id).style.opacity = isMe()?"1":".55";
+    document.getElementById(id).style.pointerEvents = isMe()?"auto":"none";
+  });
+}
+function switchMember(id){
+  viewMemberId=id;
+  const m=groupData.members.find(x=>x.id===id);
+  if(m && m.profile) applyProfile(Object.assign({sex:"m",act:"1.4",goal:"maintain",goalRate:"0.2"}, m.profile));
+  renderAll();
+}
+
+function renderTable(recs){
+  const tb=document.querySelector("#tbl tbody"); tb.innerHTML="";
+  if(recs.length===0){ show("tblEmpty"); document.getElementById("tbl").style.display="none"; return; }
+  hide("tblEmpty"); document.getElementById("tbl").style.display="table";
+  recs.slice().reverse().forEach(r=>{
+    const tr=document.createElement("tr");
+    const del = isMe()? `<span class="del" onclick="delRecord(${r.id})">刪除</span>`:"";
+    tr.innerHTML=`<td>${r.date.slice(5)}</td><td>${r.weight??"—"}</td><td>${r.kcal??"—"}</td><td>${r.protein??"—"}</td><td>${del}</td>`;
+    tb.appendChild(tr);
+  });
+}
+function renderReal(recs){
+  const R=calcReal(recs);
+  if(R.tdee){ set("realTdee", R.tdee.toLocaleString()+" kcal"); set("realDetail", `根據最近 ${R.days} 天紀錄`); }
+  else{ set("realTdee","—"); set("realDetail", R.days<7? `已有 ${R.days} 天，需至少 7 天` : "攝取資料不足（至少 3 天）"); }
+  set("sAvgKcal", R.avgK? R.avgK.toLocaleString():"—");
+  set("sSlope", R.slopeWk!=null? (R.slopeWk>=0?"+":"")+R.slopeWk.toFixed(2)+"kg":"—");
+  set("sDeficit", R.deficit!=null? (R.deficit>=0?"+":"")+R.deficit.toLocaleString():"—");
+}
+function renderRank(){
+  const rows = groupData.members.map(m=>{
+    const recs=m.records.map(r=>({...r}));
+    const R=calcReal(recs);
+    return {name:m.name, slope:R.slopeWk, tdee:R.tdee, me:m.id===session.memberId};
+  }).filter(r=>r.slope!=null)
+    .sort((a,b)=>a.slope-b.slope);
+  const box=document.getElementById("rankList");
+  if(rows.length===0){ box.innerHTML='<div class="empty">還沒有人累積足夠紀錄（需 ≥7 天體重）</div>'; return; }
+  box.innerHTML = rows.map((r,i)=>
+    `<div class="rank"><span class="n">${i+1}</span>`+
+    `<span class="nm">${r.name}${r.me?" (我)":""}</span>`+
+    `<span class="val">${(r.slope>=0?"+":"")+r.slope.toFixed(2)}kg/週`+
+    `${r.tdee?` <span style="color:var(--sub);font-weight:400">(${r.tdee.toLocaleString()})</span>`:""}</span></div>`).join("");
+}
+function drawChart(recs){
+  const data0=recs.filter(r=>r.weight!=null);
+  const cv=document.getElementById("chart");
+  if(data0.length<2){ cv.style.display="none"; show("chartEmpty"); if(chart){chart.destroy();chart=null;} return; }
+  cv.style.display="block"; hide("chartEmpty");
+  const labels=data0.map(r=>r.date.slice(5)), data=data0.map(r=>+r.weight);
+  const t0=new Date(data0[0].date).getTime();
+  const xs=data0.map(r=>(new Date(r.date).getTime()-t0)/86400000);
+  const n=xs.length, mx=avg(xs), my=avg(data);
+  let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(data[i]-my);den+=(xs[i]-mx)**2;}
+  const sl=den?num/den:0, ic=my-sl*mx, trend=xs.map(x=>+(sl*x+ic).toFixed(2));
+  if(chart)chart.destroy();
+  chart=new Chart(cv,{type:"line",
+    data:{labels,datasets:[
+      {label:"體重",data,borderColor:"#5b8aa6",backgroundColor:"rgba(91,138,166,.12)",fill:true,tension:.3,pointRadius:3},
+      {label:"趨勢",data:trend,borderColor:"#7c9070",borderDash:[5,4],pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},
+      scales:{y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
+}
+
+function renderAll(){
+  const recs=currentRecords();
+  renderMembers();
+  calcMifflin(); calcGoal();
+  renderTable(recs); renderReal(recs); drawChart(recs); renderRank();
+}
+
+async function reload(){
+  groupData = await api("/api/group/"+encodeURIComponent(session.code)+"/all");
+  if(!groupData.members.find(m=>m.id===viewMemberId)) viewMemberId=session.memberId;
+  renderAll();
+}
+
+/* ---------- helpers ---------- */
+function val(id){ return document.getElementById(id).value; }
+function set(id,t){ document.getElementById(id).textContent=t; }
+function show(id){ document.getElementById(id).style.display="block"; }
+function hide(id){ document.getElementById(id).style.display="none"; }
+function avg(a){ return a.reduce((x,y)=>x+y,0)/a.length; }
+
+/* ---------- 啟動 ---------- */
+async function boot(){
+  document.getElementById("loginView").classList.add("hidden");
+  document.getElementById("appView").classList.remove("hidden");
+  viewMemberId=session.memberId;
+  document.getElementById("rDate").value=todayStr();
+  fillFoodList();
+  await reload();
+}
+
+// 事件
+pIds.forEach(id=> document.addEventListener("DOMContentLoaded",()=> document.getElementById(id).addEventListener("input",saveProfile)));
+window.addEventListener("DOMContentLoaded", ()=>{
+  pIds.forEach(id=> document.getElementById(id).addEventListener("input",saveProfile));
+  document.getElementById("foodPick").addEventListener("input",foodPreview);
+  document.getElementById("foodGram").addEventListener("input",foodPreview);
+  fillFoodList();
+  if(session){ boot(); }
+});
+</script>
+</body>
+</html>
