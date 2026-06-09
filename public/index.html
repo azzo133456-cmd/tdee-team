@@ -14,6 +14,7 @@
 <script src="foods_chain.js"></script>
 <script src="foods_drinks.js"></script>
 <script src="foods_breakfast.js"></script>
+<script src="foods_convenience.js"></script>
 <style>
   :root{
     --bg:#faf8f3; --card:#ffffff; --ink:#2b2b2b; --sub:#6b6b6b;
@@ -469,7 +470,7 @@ const FOODS_TW = window.FOODS_TW || {};
 const SERVINGS = {};  // 食物 → 預設一份的克數
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
-  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {});
+  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
@@ -803,9 +804,14 @@ async function onLabelPick(ev){
 async function analyzePhoto(){
   if(!mealPhoto){ alert("請先拍照或選圖"); return; }
   const h=document.getElementById("aiHint");
+  // 取得修正提示（重新辨識時）
+  const hintEl=document.getElementById("aiFixInput");
+  const hint=hintEl?hintEl.value.trim():"";
+  // 移除上一輪 AI 加入的項目（名稱以 ✨ 開頭），避免重複堆疊
+  foodCart=foodCart.filter(it=>!String(it.n).startsWith("✨ ")); renderFood();
   if(h){ h.textContent="🔎 辨識中…約 3–8 秒"; }
   try{
-    const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto})});
+    const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto,hint})});
     const items=r.items||[]; let tot=0;
     items.forEach(it=>{
       const g=it.grams||100, sc=100/g;
@@ -813,7 +819,12 @@ async function analyzePhoto(){
       FOODS_DYN[name]=[Math.round(it.kcal*sc),+(it.protein*sc).toFixed(1),+(it.fat*sc).toFixed(1),+(it.carb*sc).toFixed(1)];
       addToCart(name,g); tot+=it.kcal||0;
     });
-    if(h){ h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`; }
+    if(h){
+      h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`
+        +`<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
+        +`<input id="aiFixInput" placeholder="辨識不對？例：這是滷肉飯不是燴飯／雞肉約300g" style="flex:1 1 200px;padding:6px 8px;font-size:13px">`
+        +`<button class="ghost sm" onclick="analyzePhoto()">🔁 依提示重新辨識</button></div>`;
+    }
   }catch(e){
     if(h){ h.textContent="辨識失敗："+e.message; }
   }

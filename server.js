@@ -358,12 +358,14 @@ app.post("/api/analyze", auth, async (req, res) => {
     const m = img.match(/^data:(image\/[a-zA-Z]+);base64,(.*)$/);
     if (m) { mime = m[1]; img = m[2]; }
 
+    const hint = String(req.body.hint || "").trim().slice(0, 200);
     const prompt =
       "你是營養師。看這張食物照片，把畫面中的每一道菜／品項分別列出（例如烤雞腿、炒冬粉各算一筆，不要全部加總成一筆）。" +
       "每筆估計其重量與營養。只回傳 JSON 陣列，不要任何說明文字、不要 markdown 圍欄。格式：" +
       '[{"name":"中文品名","grams":該品項重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]。' +
       "name 可帶簡短說明（如「烤雞腿(醬燒)」）。若只有單一品項就回傳只含一筆的陣列。" +
-      "數字一律為阿拉伯數字（不含單位），無法判斷就用合理概估。";
+      "數字一律為阿拉伯數字（不含單位），無法判斷就用合理概估。" +
+      (hint ? "使用者提供的補充提示（請優先採信並據此修正辨識）：「" + hint + "」。" : "");
 
     const r = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key,
