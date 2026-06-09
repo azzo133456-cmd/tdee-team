@@ -75,7 +75,7 @@ async function initDb() {
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
 app.use(express.static(join(__dirname, "public")));
 
 /* ---------- 密碼雜湊 ---------- */
@@ -339,6 +339,71 @@ app.get("/api/barcode", auth, async (req, res) => {
       p: Math.round((nu["proteins_100g"] ?? 0) * 10) / 10,
       f: Math.round((nu["fat_100g"] ?? 0) * 10) / 10,
       c: Math.round((nu["carbohydrates_100g"] ?? 0) * 10) / 10,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- AI 食物照片辨識（Gemini 代理） ---------- */
+app.post("/api/analyze", auth, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
+    let img = String(req.body.image || "");
+    if (!img) return res.status(400).json({ error: "缺少照片" });
+    // 接受 data URL 或純 base64
+    let mime = "image/jpeg";
+    const m = img.match(/^data:(image\/[a-zA-Z]+);base64,(.*)$/);
+    if (m) { mime = m[1]; img = m[2]; }
+
+    const prompt =
+      "你是營養師。看這張食物照片，估計整盤/整份食物的營養。" +
+      "只回傳 JSON，不要任何說明文字、不要 markdown 圍欄。格式：" +
+      '{"name":"中文品名","grams":整份重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}。' +
+      "若無法判斷就用合理概估，數字一律為阿拉伯數字（不含單位）。";
+
+    const r = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mime, data: img } },
+            ],
+          }],
+          generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
+        }),
+      }
+    );
+    if (!r.ok) {
+      const t = await r.text();
+      console.error("Gemini error", r.status, t);
+      return res.status(502).json({ error: "辨識服務錯誤" });
+    }
+    const data = await r.json();
+    const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    let parsed;
+    try {
+      parsed = JSON.parse(txt);
+    } catch {
+      const j = txt.match(/\{[\s\S]*\}/);
+      if (!j) return res.status(502).json({ error: "無法解析辨識結果" });
+      parsed = JSON.parse(j[0]);
+    }
+    const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
+    res.json({
+      ok: true,
+      name: String(parsed.name || "辨識食物").slice(0, 40),
+      grams: Math.max(1, Math.round(num(parsed.grams) || 100)),
+      kcal: Math.round(num(parsed.kcal)),
+      protein: num(parsed.protein),
+      fat: num(parsed.fat),
+      carb: num(parsed.carb),
     });
   } catch (e) {
     console.error(e);

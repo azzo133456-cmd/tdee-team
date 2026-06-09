@@ -749,13 +749,31 @@ function onPhotoPick(ev){
     cv.getContext("2d").drawImage(img,0,0,w,h);
     mealPhoto=cv.toDataURL("image/jpeg",0.6);
     document.getElementById("mealPhotoPreview").innerHTML=
-      `<img src="${mealPhoto}" style="max-width:120px;border-radius:8px;border:1px solid var(--line)"> <span class="x" style="color:#b5564e;cursor:pointer" onclick="clearMealPhoto()">移除</span>`;
+      `<img src="${mealPhoto}" style="max-width:120px;border-radius:8px;border:1px solid var(--line)"> <span class="x" style="color:#b5564e;cursor:pointer" onclick="clearMealPhoto()">移除</span>`
+      +`<div style="margin-top:6px;"><button class="ghost sm" onclick="analyzePhoto()">✨ AI 辨識熱量</button> <span id="aiHint" class="hint" style="display:inline">AI 估算僅供參考，可再手動微調</span></div>`;
     URL.revokeObjectURL(img.src);
   };
   img.src=URL.createObjectURL(file);
   ev.target.value="";
 }
 function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPreview").innerHTML=""; }
+async function analyzePhoto(){
+  if(!mealPhoto){ alert("請先拍照或選圖"); return; }
+  const h=document.getElementById("aiHint");
+  if(h){ h.textContent="🔎 辨識中…約 3–8 秒"; }
+  try{
+    const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto})});
+    // 以每 100g 為基底存入動態食物庫，再以辨識份量加入購物車
+    const g=r.grams||100, sc=100/g;
+    const base=[Math.round(r.kcal*sc),+(r.protein*sc).toFixed(1),+(r.fat*sc).toFixed(1),+(r.carb*sc).toFixed(1)];
+    const name="✨ "+r.name;
+    FOODS_DYN[name]=base;
+    addToCart(name,g);
+    if(h){ h.textContent=`已加入：${r.name} ${g}g／${r.kcal} kcal（可微調克數）`; }
+  }catch(e){
+    if(h){ h.textContent="辨識失敗："+e.message; }
+  }
+}
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
   const date=selDate(), meal=val("mealType");
