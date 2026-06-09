@@ -414,6 +414,64 @@ app.post("/api/analyze", auth, async (req, res) => {
   }
 });
 
+/* ---------- 營養標示 OCR（Gemini 代理，回傳每100g） ---------- */
+app.post("/api/label", auth, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
+    let img = String(req.body.image || "");
+    if (!img) return res.status(400).json({ error: "缺少照片" });
+    let mime = "image/jpeg";
+    const m = img.match(/^data:(image\/[a-zA-Z]+);base64,(.*)$/);
+    if (m) { mime = m[1]; img = m[2]; }
+
+    const prompt =
+      "這是一張食品包裝的『營養標示』。請讀出表格數值，全部換算成『每 100 公克』的數值。" +
+      "若標示只有『每份』與『每包』，請用每份數值除以每份公克數再乘 100 換算成每 100 公克。" +
+      "只回傳 JSON，不要說明文字、不要 markdown 圍欄。格式：" +
+      '{"name":"商品名稱(看得到就填,看不到填空字串)","kcal":每100g熱量,"protein":每100g蛋白質克,"fat":每100g脂肪克,"carb":每100g碳水克}。' +
+      "數字一律阿拉伯數字、不含單位；讀不到的欄位填 0。";
+
+    const r = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: img } }] }],
+          generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+        }),
+      }
+    );
+    if (!r.ok) {
+      const t = await r.text();
+      console.error("Gemini label error", r.status, t);
+      return res.status(502).json({ error: "辨識服務錯誤" });
+    }
+    const data = await r.json();
+    const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(txt); }
+    catch {
+      const j = txt.match(/\{[\s\S]*\}/);
+      if (!j) return res.status(502).json({ error: "無法解析標示" });
+      parsed = JSON.parse(j[0]);
+    }
+    const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
+    res.json({
+      ok: true,
+      name: String(parsed.name || "").slice(0, 40),
+      kcal: Math.round(num(parsed.kcal)),
+      protein: num(parsed.protein),
+      fat: num(parsed.fat),
+      carb: num(parsed.carb),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 取得自己的所有資料 ---------- */
 app.get("/api/me/all", auth, async (req, res) => {
   try {

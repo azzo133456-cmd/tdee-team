@@ -268,7 +268,10 @@
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
+        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="document.getElementById('labelInput').click()">📋 拍營養標示</button></div>
       </div>
+      <input id="labelInput" type="file" accept="image/*" style="display:none;" onchange="onLabelPick(event)">
+      <div class="hint" id="labelHint" style="display:none;"></div>
       <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
         <label>食物名稱</label>
         <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
@@ -732,7 +735,8 @@ async function onBarcode(code){
       alert("查到商品「"+r.n+"」但沒有營養數值，請照標籤手動填。");
     }else{
       document.getElementById("cfName").value="商品 "+code;
-      alert("資料庫查無此條碼（"+code+"），請照標籤手動填，建立後會記住。");
+      document.getElementById("customBox").style.display="block";
+      alert("資料庫查無此條碼（"+code+"）。可改按「📋 拍營養標示」用 AI 自動帶入，或手動填，建立後會記住。");
     }
   }catch(e){ alert("查詢失敗："+e.message); }
 }
@@ -757,6 +761,43 @@ function onPhotoPick(ev){
   ev.target.value="";
 }
 function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPreview").innerHTML=""; }
+function compressImg(file){
+  return new Promise((res)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const max=900, scale=Math.min(1,max/Math.max(img.width,img.height));
+      const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+      cv.getContext("2d").drawImage(img,0,0,w,h);
+      const url=cv.toDataURL("image/jpeg",0.7);
+      URL.revokeObjectURL(img.src); res(url);
+    };
+    img.src=URL.createObjectURL(file);
+  });
+}
+async function onLabelPick(ev){
+  const file=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!file) return;
+  const h=document.getElementById("labelHint");
+  h.style.display="block"; h.textContent="🔎 辨識營養標示中…約 3–8 秒";
+  try{
+    const dataUrl=await compressImg(file);
+    const r=await api("/api/label",{method:"POST",body:JSON.stringify({image:dataUrl})});
+    // 打開自訂食物表單並填入每100g數值
+    document.getElementById("customBox").style.display="block";
+    document.getElementById("cfUnit").value="100";
+    cfUnitChange();
+    if(r.name) document.getElementById("cfName").value=r.name;
+    document.getElementById("cfK").value=r.kcal;
+    document.getElementById("cfP").value=r.protein;
+    document.getElementById("cfF").value=r.fat;
+    document.getElementById("cfC").value=r.carb;
+    h.innerHTML=`已讀取（每100g）：<b>${r.kcal} kcal / 蛋${r.protein} / 脂${r.fat} / 碳${r.carb}</b>。確認名稱與數值後按「建立並選用」。`;
+    document.getElementById("customBox").scrollIntoView({behavior:"smooth",block:"center"});
+  }catch(e){
+    h.textContent="辨識失敗："+e.message+"（可改手動填）";
+    document.getElementById("customBox").style.display="block";
+  }
+}
 async function analyzePhoto(){
   if(!mealPhoto){ alert("請先拍照或選圖"); return; }
   const h=document.getElementById("aiHint");
