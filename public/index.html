@@ -11,6 +11,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="foods_tw.js"></script>
+<script src="foods_chain.js"></script>
 <style>
   :root{
     --bg:#faf8f3; --card:#ffffff; --ink:#2b2b2b; --sub:#6b6b6b;
@@ -263,7 +264,6 @@
       <div class="suggest" id="foodSuggest"></div>
       <div class="hint">點搜尋結果就直接加入下方清單（預設 100g），克數在清單裡直接改。</div>
       <div class="row">
-        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
@@ -288,7 +288,6 @@
         </div>
         <button class="sm" style="width:100%;" onclick="addCustom()">建立並選用（同時存成最愛）</button>
       </div>
-      <div class="foodlist" id="usdaResults"></div>
       <div class="foodlist" id="foodItems"></div>
       <div class="result" id="foodTotal" style="display:none;"></div>
       <div id="mealAddBox">
@@ -304,7 +303,7 @@
         <div class="hint">可只拍照不輸入食物，當作飲食日記；有照片時按「＋加入」即可。</div>
       </div>
       <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
-      <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆中文）＋常見品項概估＋USDA 線上查詢。皆為每 100g，僅供參考。</div>
+      <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆）＋台灣連鎖餐點包＋常見品項概估。連鎖餐點點選後預設帶入「一份」的份量，可在清單調整。皆為概估，僅供參考。</div>
     </div>
 
     <!-- 今日飲食（在計算機下方） -->
@@ -459,7 +458,17 @@ function macroKcal(p,f,c){ return p*4 + f*9 + c*4; }
 // 線上查到後暫存的食物
 const FOODS_DYN = {};
 const FOODS_TW = window.FOODS_TW || {};
-// 統一查詢：手動 → 線上暫存 → 台灣FDA
+const SERVINGS = {};  // 食物 → 預設一份的克數
+// 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
+(function(){
+  const C = window.FOODS_CHAIN || {};
+  for(const n in C){
+    const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
+    FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
+    SERVINGS[n]=G;
+  }
+})();
+// 統一查詢：手動 → 連鎖/暫存 → 台灣FDA
 function foodData(n){ return FOODS[n] || FOODS_DYN[n] || FOODS_TW[n] || null; }
 
 /* ---------- 運動資料庫（MET 值；kcal/分 = MET×3.5×體重/200） ---------- */
@@ -576,13 +585,13 @@ function foodSuggest(){
   let res=[...new Set(allFoodNames())].filter(n=>n.toLowerCase().includes(ql));
   res.sort((a,b)=>(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1));
   res=res.slice(0,30); window.__fs=res;
-  if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 試試「USDA 線上查」或「自訂食物」</div>'; box.style.display="block"; return; }
+  if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 用「📷 掃條碼」或「✏️ 自訂食物」建立</div>'; box.style.display="block"; return; }
   box.innerHTML=res.map((n,i)=>{ const d=foodData(n); return `<div class="sg" onclick="pickFood(${i})">${n}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
   box.style.display="block";
 }
 function pickFood(i){
   const n=window.__fs[i]; if(n==null) return;
-  addToCart(n,100);
+  addToCart(n, SERVINGS[n]||100);   // 連鎖餐點預設一份
   document.getElementById("foodPick").value="";
   document.getElementById("foodSuggest").style.display="none";
 }
@@ -610,26 +619,6 @@ function renderFood(){
   }else{ el.style.display="none"; sb.style.display="none"; }
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
-async function usdaSearch(){
-  const q=val("foodPick").trim();
-  const box=document.getElementById("usdaResults");
-  if(!q){ box.innerHTML='<div class="hint">先在上面輸入要查的食物（建議英文，如 chicken breast）</div>'; return; }
-  box.innerHTML='<div class="hint">線上查詢中…</div>';
-  try{
-    const r=await api("/api/foodsearch?q="+encodeURIComponent(q));
-    if(!r.items.length){ box.innerHTML='<div class="hint">查無結果，換個關鍵字（英文較準）</div>'; return; }
-    box.innerHTML=r.items.map((it,i)=>{
-      const nm=(it.n+(it.brand?(" · "+it.brand):"")).replace(/'/g,"");
-      window.__usda=window.__usda||{}; window.__usda[i]={n:nm,d:[it.k,it.p,it.f,it.c]};
-      return `<div class="foodrow"><span class="nm">${nm}</span><span class="kc">${Math.round(it.k)} kcal/100g</span><span class="x" style="color:var(--accent)" onclick="pickUsda(${i})">選</span></div>`;
-    }).join("");
-  }catch(e){ box.innerHTML='<div class="hint">查詢失敗：'+e.message+'</div>'; }
-}
-function pickUsda(i){
-  const it=window.__usda[i]; if(!it) return;
-  FOODS_DYN[it.n]=it.d; addToCart(it.n,100);
-  document.getElementById("usdaResults").innerHTML="";
-}
 function selDate(){ return val("foodDate")||todayStr(); }
 function toggleCard(h){ h.parentElement.classList.toggle("collapsed"); }
 function showTab(name){
