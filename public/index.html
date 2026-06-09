@@ -423,7 +423,7 @@
     <!-- 所有紀錄 -->
     <div class="card">
       <h2>所有紀錄</h2>
-      <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>攝取</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
+      <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>攝取</th><th>運動</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
       <div class="empty" id="tblEmpty">尚無資料</div>
     </div>
   </div>
@@ -1286,7 +1286,7 @@ function renderTable(){
     const tr=document.createElement("tr");
     const burn=burnByDate(r.date.slice(0,10));
     const net=r.kcal!=null? (+r.kcal-burn) : null;
-    tr.innerHTML=`<td>${r.date.slice(0,10)}</td><td>${r.weight??"—"}</td><td>${r.weight_pm??"—"}</td><td>${r.kcal??"—"}</td><td>${net!=null?net.toLocaleString():"—"}</td><td><span class="del" onclick="delRecord(${r.id})">刪除</span></td>`;
+    tr.innerHTML=`<td>${r.date.slice(0,10)}</td><td>${r.weight??"—"}</td><td>${r.weight_pm??"—"}</td><td>${r.kcal??"—"}</td><td>${burn>0?"−"+burn.toLocaleString():"—"}</td><td>${net!=null?net.toLocaleString():"—"}</td><td><span class="del" onclick="delRecord(${r.id})">刪除</span></td>`;
     tb.appendChild(tr);
   });
 }
