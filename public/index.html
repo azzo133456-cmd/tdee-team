@@ -763,13 +763,14 @@ async function analyzePhoto(){
   if(h){ h.textContent="🔎 辨識中…約 3–8 秒"; }
   try{
     const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto})});
-    // 以每 100g 為基底存入動態食物庫，再以辨識份量加入購物車
-    const g=r.grams||100, sc=100/g;
-    const base=[Math.round(r.kcal*sc),+(r.protein*sc).toFixed(1),+(r.fat*sc).toFixed(1),+(r.carb*sc).toFixed(1)];
-    const name="✨ "+r.name;
-    FOODS_DYN[name]=base;
-    addToCart(name,g);
-    if(h){ h.innerHTML=`已加入：<b>${r.name} ${g}g／${r.kcal} kcal</b>。可在下方清單改克數（幾人份就乘幾），確認後按「＋加入」存檔。`; }
+    const items=r.items||[]; let tot=0;
+    items.forEach(it=>{
+      const g=it.grams||100, sc=100/g;
+      const name="✨ "+it.name;
+      FOODS_DYN[name]=[Math.round(it.kcal*sc),+(it.protein*sc).toFixed(1),+(it.fat*sc).toFixed(1),+(it.carb*sc).toFixed(1)];
+      addToCart(name,g); tot+=it.kcal||0;
+    });
+    if(h){ h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`; }
   }catch(e){
     if(h){ h.textContent="辨識失敗："+e.message; }
   }

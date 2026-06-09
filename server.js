@@ -359,10 +359,11 @@ app.post("/api/analyze", auth, async (req, res) => {
     if (m) { mime = m[1]; img = m[2]; }
 
     const prompt =
-      "你是營養師。看這張食物照片，估計整盤/整份食物的營養。" +
-      "只回傳 JSON，不要任何說明文字、不要 markdown 圍欄。格式：" +
-      '{"name":"中文品名","grams":整份重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}。' +
-      "若無法判斷就用合理概估，數字一律為阿拉伯數字（不含單位）。";
+      "你是營養師。看這張食物照片，把畫面中的每一道菜／品項分別列出（例如烤雞腿、炒冬粉各算一筆，不要全部加總成一筆）。" +
+      "每筆估計其重量與營養。只回傳 JSON 陣列，不要任何說明文字、不要 markdown 圍欄。格式：" +
+      '[{"name":"中文品名","grams":該品項重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]。' +
+      "name 可帶簡短說明（如「烤雞腿(醬燒)」）。若只有單一品項就回傳只含一筆的陣列。" +
+      "數字一律為阿拉伯數字（不含單位），無法判斷就用合理概估。";
 
     const r = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key,
@@ -391,20 +392,22 @@ app.post("/api/analyze", auth, async (req, res) => {
     try {
       parsed = JSON.parse(txt);
     } catch {
-      const j = txt.match(/\{[\s\S]*\}/);
+      const j = txt.match(/\[[\s\S]*\]/) || txt.match(/\{[\s\S]*\}/);
       if (!j) return res.status(502).json({ error: "無法解析辨識結果" });
       parsed = JSON.parse(j[0]);
     }
     const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
-    res.json({
-      ok: true,
-      name: String(parsed.name || "辨識食物").slice(0, 40),
-      grams: Math.max(1, Math.round(num(parsed.grams) || 100)),
-      kcal: Math.round(num(parsed.kcal)),
-      protein: num(parsed.protein),
-      fat: num(parsed.fat),
-      carb: num(parsed.carb),
-    });
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const items = arr.filter((p) => p && (p.name || p.kcal)).map((p) => ({
+      name: String(p.name || "辨識食物").slice(0, 40),
+      grams: Math.max(1, Math.round(num(p.grams) || 100)),
+      kcal: Math.round(num(p.kcal)),
+      protein: num(p.protein),
+      fat: num(p.fat),
+      carb: num(p.carb),
+    }));
+    if (items.length === 0) return res.status(502).json({ error: "無法辨識內容" });
+    res.json({ ok: true, items });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
