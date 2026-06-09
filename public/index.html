@@ -275,6 +275,19 @@
       </div>
       <input id="labelInput" type="file" accept="image/*" style="display:none;" onchange="onLabelPick(event)">
       <div class="hint" id="labelHint" style="display:none;"></div>
+      <details style="margin-top:8px;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;">
+        <summary style="cursor:pointer;font-size:14px;">🧋 甜度速算（用無糖茶底＋自己加糖）</summary>
+        <div class="hint" style="margin:6px 0;">先選無糖茶／無糖品項加入，再用這裡補糖的熱量。糖：每 1g ≈ 4 kcal（全碳水）。</div>
+        <div class="row">
+          <div><label>容量</label>
+            <select id="sugarMl"><option value="500">中杯 500ml</option><option value="700" selected>大杯 700ml</option><option value="1000">特大 1000ml</option></select>
+          </div>
+          <div><label>甜度</label>
+            <select id="sugarLv"><option value="0.3">微糖 30%</option><option value="0.5">半糖 50%</option><option value="0.7" selected>少糖 70%</option><option value="1">全糖 100%</option></select>
+          </div>
+        </div>
+        <button class="ghost sm" style="width:100%;margin-top:6px;" onclick="addSugar()">＋ 加入糖的熱量</button>
+      </details>
       <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
         <label>食物名稱</label>
         <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
@@ -587,13 +600,21 @@ function drawMacroBar(barId,legId,p,f,c){
 /* ---------- 食物計算機 ---------- */
 function fillFoodList(){}  // 已改用自訂下拉，保留空函式相容
 function allFoodNames(){ return Object.keys(FOODS).concat(Object.keys(FOODS_DYN)).concat(Object.keys(FOODS_TW)); }
+// 別名/同義詞正規化：讓「五十嵐」找得到「50嵐」等
+const SEARCH_ALIAS=[["五十嵐","50嵐"],["五0嵐","50嵐"],["可可","可不可"],["coco","都可"],["cama","cama"],["7-11","超商"],["711","超商"],["小七","超商"],["7-eleven","超商"],["全家","超商"],["星巴克","starbucks 星巴克"],["路易莎","louisa 路易莎"]];
+function normSearch(s){
+  s=s.toLowerCase();
+  for(const [a,b] of SEARCH_ALIAS){ if(s.includes(a)) s+=" "+b; }
+  return s;
+}
 function foodSuggest(){
   const q=val("foodPick").trim(), box=document.getElementById("foodSuggest");
   if(!q){ box.style.display="none"; box.innerHTML=""; return; }
   const ql=q.toLowerCase();
-  let res=[...new Set(allFoodNames())].filter(n=>n.toLowerCase().includes(ql));
+  const toks=normSearch(q).split(/\s+/).filter(Boolean);  // 多關鍵字：全部命中才算
+  let res=[...new Set(allFoodNames())].filter(n=>{ const nn=normSearch(n); return toks.every(t=>nn.includes(t)); });
   res.sort((a,b)=>(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1));
-  res=res.slice(0,30); window.__fs=res;
+  res=res.slice(0,50); window.__fs=res;
   if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 用「📷 掃條碼」或「✏️ 自訂食物」建立</div>'; box.style.display="block"; return; }
   box.innerHTML=res.map((n,i)=>{ const d=foodData(n); return `<div class="sg" onclick="pickFood(${i})">${n}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
   box.style.display="block";
@@ -764,6 +785,16 @@ function onPhotoPick(ev){
   ev.target.value="";
 }
 function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPreview").innerHTML=""; }
+function addSugar(){
+  const ml=+val("sugarMl")||700, lv=+val("sugarLv")||1;
+  // 手搖全糖約每 100ml 含 8g 糖
+  const grams=Math.round(ml/100*8*lv);
+  if(grams<=0){ alert("無糖免加"); return; }
+  const name=`糖(${Math.round(lv*100)}% / ${ml}ml)`;
+  FOODS_DYN[name]=[400,0,0,100];  // 每100g糖=400kcal、純碳水
+  addToCart(name,grams);
+  alert(`已加入 ${grams}g 糖（約 ${grams*4} kcal）`);
+}
 function compressImg(file){
   return new Promise((res)=>{
     const img=new Image();

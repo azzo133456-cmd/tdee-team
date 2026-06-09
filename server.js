@@ -448,15 +448,21 @@ app.post("/api/label", auth, async (req, res) => {
     if (!r.ok) {
       const t = await r.text();
       console.error("Gemini label error", r.status, t);
-      return res.status(502).json({ error: "辨識服務錯誤" });
+      return res.status(502).json({ error: "辨識服務錯誤(" + r.status + ")：" + t.slice(0, 160) });
     }
     const data = await r.json();
-    const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const cand = data?.candidates?.[0];
+    const txt = cand?.content?.parts?.[0]?.text || "";
+    if (!txt) {
+      const reason = cand?.finishReason || data?.promptFeedback?.blockReason || "無回應";
+      console.error("Gemini label empty", JSON.stringify(data).slice(0, 300));
+      return res.status(502).json({ error: "辨識無結果（" + reason + "），請拍清楚一點再試" });
+    }
     let parsed;
     try { parsed = JSON.parse(txt); }
     catch {
       const j = txt.match(/\{[\s\S]*\}/);
-      if (!j) return res.status(502).json({ error: "無法解析標示" });
+      if (!j) return res.status(502).json({ error: "無法解析標示：" + txt.slice(0, 120) });
       parsed = JSON.parse(j[0]);
     }
     const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
