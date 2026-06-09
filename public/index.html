@@ -215,13 +215,17 @@
     <div class="foodlist" id="usdaResults"></div>
     <div class="foodlist" id="foodItems"></div>
     <div class="result" id="foodTotal" style="display:none;"></div>
-    <div id="mealAddBox" style="display:none;">
+    <div id="mealAddBox">
       <div class="row" style="margin-top:10px;">
         <div><label>加到哪一餐</label>
           <select id="mealType"><option value="早餐">早餐</option><option value="午餐">午餐</option><option value="晚餐">晚餐</option><option value="點心">點心</option></select>
         </div>
         <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
       </div>
+      <input id="mealPhotoInput" type="file" accept="image/*" capture="environment" style="display:none;" onchange="onPhotoPick(event)">
+      <button class="ghost sm" style="margin-top:8px;" onclick="document.getElementById('mealPhotoInput').click()">📷 為這一餐拍照／選圖</button>
+      <div id="mealPhotoPreview" style="margin-top:8px;"></div>
+      <div class="hint">可只拍照不輸入食物，當作飲食日記；有照片時按「＋加入」即可。</div>
     </div>
     <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
     <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆中文）＋常見品項概估＋USDA 線上查詢。皆為每 100g，僅供參考。</div>
@@ -548,10 +552,10 @@ function renderFood(){
   document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>
     `<div class="foodrow"><span class="nm">${it.n} <span style="color:var(--sub)">${it.g}g</span></span><span class="kc">${Math.round(it.k)} kcal</span><span class="x" onclick="rmFood(${i})">✕</span></div>`).join("");
   const tot=foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
-  const el=document.getElementById("foodTotal"), mb=document.getElementById("mealAddBox"), sb=document.getElementById("saveRecipeBtn");
-  if(foodCart.length){ el.style.display="block"; mb.style.display="block"; sb.style.display="block";
+  const el=document.getElementById("foodTotal"), sb=document.getElementById("saveRecipeBtn");
+  if(foodCart.length){ el.style.display="block"; sb.style.display="block";
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
-  }else{ el.style.display="none"; mb.style.display="none"; sb.style.display="none"; }
+  }else{ el.style.display="none"; sb.style.display="none"; }
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
 async function usdaSearch(){
@@ -692,17 +696,43 @@ async function onBarcode(code){
 }
 
 /* ---------- 餐別飲食 ---------- */
+let mealPhoto=null; // 壓縮後的 data URL
+function onPhotoPick(ev){
+  const file=ev.target.files&&ev.target.files[0]; if(!file) return;
+  const img=new Image();
+  img.onload=()=>{
+    const max=700, scale=Math.min(1,max/Math.max(img.width,img.height));
+    const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+    const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+    cv.getContext("2d").drawImage(img,0,0,w,h);
+    mealPhoto=cv.toDataURL("image/jpeg",0.6);
+    document.getElementById("mealPhotoPreview").innerHTML=
+      `<img src="${mealPhoto}" style="max-width:120px;border-radius:8px;border:1px solid var(--line)"> <span class="x" style="color:#b5564e;cursor:pointer" onclick="clearMealPhoto()">移除</span>`;
+    URL.revokeObjectURL(img.src);
+  };
+  img.src=URL.createObjectURL(file);
+  ev.target.value="";
+}
+function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPreview").innerHTML=""; }
 async function addMeal(){
-  if(!foodCart.length){ alert("清單是空的，先在上面加入食物"); return; }
+  if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
   const date=selDate(), meal=val("mealType");
   const items=foodCart.map(it=>({name:it.n+(it.g?` ${it.g}g`:""),kcal:Math.round(it.k),protein:+it.p.toFixed(1),fat:+it.f.toFixed(1),carb:+it.c.toFixed(1)}));
   try{
-    await api("/api/meal",{method:"POST",body:JSON.stringify({date,meal,items})});
-    foodCart=[]; renderFood(); await reload();
+    await api("/api/meal",{method:"POST",body:JSON.stringify({date,meal,items,photo:mealPhoto})});
+    foodCart=[]; renderFood(); clearMealPhoto(); await reload();
     document.getElementById("mealGroups").scrollIntoView({behavior:"smooth"});
   }catch(e){ alert(e.message); }
 }
 async function delMeal(id){ await api("/api/meal/"+id,{method:"DELETE"}); await reload(); }
+function viewPhoto(id){
+  const m=(store.meals||[]).find(x=>String(x.id)===String(id)); if(!m||!m.photo) return;
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px";
+  ov.onclick=()=>ov.remove();
+  ov.innerHTML=`<img src="${m.photo}" style="max-width:100%;max-height:100%;border-radius:10px">`;
+  document.body.appendChild(ov);
+}
 const MEAL_ORDER=["早餐","午餐","晚餐","點心"];
 function renderMeals(date){
   const box=document.getElementById("mealGroups");
@@ -712,8 +742,10 @@ function renderMeals(date){
   for(const mt of MEAL_ORDER){
     const g=list.filter(m=>m.meal===mt); if(!g.length) continue;
     const sub=g.reduce((a,b)=>a+(+b.kcal||0),0);
+    const photos=g.filter(m=>m.photo).map(m=>`<img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer;margin:6px 6px 0 0">`).join("");
     html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal</span></div>`+
-      g.map(m=>`<div class="foodrow"><span class="nm">${m.name}</span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+`</div>`;
+      g.map(m=>`<div class="foodrow"><span class="nm">${m.name}</span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+
+      (photos?`<div style="display:flex;flex-wrap:wrap">${photos}</div>`:"")+`</div>`;
   }
   box.innerHTML=html;
 }

@@ -8,6 +8,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Pool } = pg;
 
 // Railway 會自動注入 DATABASE_URL（加了 Postgres 外掛之後）
+if (!process.env.DATABASE_URL) {
+  console.error("❌ 錯誤: 找不到環境變數 DATABASE_URL。");
+  console.error("如果您是在 Railway 部署，請確保您已經在專案中新增了 PostgreSQL 資料庫。");
+  console.error("如果您是在本機測試，請先設定 DATABASE_URL 環境變數。");
+  process.exit(1);
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes("localhost")
@@ -46,6 +53,7 @@ async function initDb() {
       kcal INT, protein REAL, fat REAL, carb REAL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE meals ADD COLUMN IF NOT EXISTS photo TEXT;
     CREATE TABLE IF NOT EXISTS exercises (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -216,13 +224,21 @@ app.put("/api/favorites", auth, async (req, res) => {
 /* ---------- 餐別飲食（批次） ---------- */
 app.post("/api/meal", auth, async (req, res) => {
   try {
-    const { date, meal, items } = req.body;
-    if (!date || !meal || !Array.isArray(items) || items.length === 0)
-      return res.status(400).json({ error: "需要日期、餐別與內容" });
-    for (const it of items) {
+    let { date, meal, items, photo } = req.body;
+    if (!date || !meal) return res.status(400).json({ error: "需要日期與餐別" });
+    if (!Array.isArray(items)) items = [];
+    // 允許只拍照、不輸入食物
+    if (items.length === 0) {
+      if (!photo) return res.status(400).json({ error: "需要內容或照片" });
+      items = [{ name: "📷 照片紀錄", kcal: null, protein: null, fat: null, carb: null }];
+    }
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      // 照片只存在該批第一筆，避免重複占空間
+      const ph = i === 0 ? (photo ?? null) : null;
       await pool.query(
-        "INSERT INTO meals(user_id,date,meal,name,kcal,protein,fat,carb) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-        [req.user.id, date, meal, it.name || "食物", it.kcal ?? null, it.protein ?? null, it.fat ?? null, it.carb ?? null]
+        "INSERT INTO meals(user_id,date,meal,name,kcal,protein,fat,carb,photo) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [req.user.id, date, meal, it.name || "食物", it.kcal ?? null, it.protein ?? null, it.fat ?? null, it.carb ?? null, ph]
       );
     }
     res.json({ ok: true });
