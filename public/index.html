@@ -141,6 +141,11 @@
         <select id="goalRate"><option value="0.1">溫和 10%</option><option value="0.2" selected>標準 20%</option><option value="0.25">積極 25%</option></select>
       </div>
     </div>
+    <label>TDEE 基準</label>
+    <select id="tdeeBasis">
+      <option value="gross" selected>含運動（維持目前運動量）</option>
+      <option value="base">不含運動（運動另外加回）</option>
+    </select>
     <div class="result">
       <div class="lbl">建議每日攝取</div>
       <div class="big" id="goalKcal">—</div>
@@ -344,7 +349,7 @@ async function doAuth(){
 function logout(){ localStorage.removeItem(SKEY); session=null; location.reload(); }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate"];
+const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis"];
 function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); }
 function readProfile(){ const o={}; pIds.forEach(id=> o[id]=val(id)); return o; }
 let saveTimer=null;
@@ -365,23 +370,31 @@ function calcMifflin(){
 }
 
 /* ---------- 目標建議 ---------- */
+// 依使用者選的基準回傳要用的 TDEE
 function baseTDEE(){
   const R=calcReal(store.records, store.exercises);
-  if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE(含運動)"};
-  return {tdee:calcMifflin(), src:"公式估算"};
+  const mode=val("tdeeBasis")||"gross";
+  if(mode==="base" && R.tdeeBase) return {tdee:R.tdeeBase, src:"基礎 TDEE(不含運動)", mode:"base"};
+  if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE(含運動)", mode:"gross"};
+  return {tdee:calcMifflin(), src:"公式估算", mode:"gross"};
+}
+function applyGoal(tdee){
+  const goal=val("goal"), rate=+val("goalRate");
+  if(goal==="cut") return Math.round(tdee*(1-rate));
+  if(goal==="bulk") return Math.round(tdee*(1+rate*0.5));
+  return tdee;
 }
 function calcGoal(){
   const base=baseTDEE();
   if(!base.tdee){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
-  const goal=val("goal"), rate=+val("goalRate");
-  let target=base.tdee;
-  if(goal==="cut") target=Math.round(base.tdee*(1-rate));
-  if(goal==="bulk") target=Math.round(base.tdee*(1+rate*0.5));
+  const goal=val("goal"), target=applyGoal(base.tdee);
   const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||60 : 60);
   const protein=Math.round(w*2.0), fatKcal=target*0.25, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
   set("goalKcal", target.toLocaleString()+" kcal");
-  set("goalBasis", `基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${({cut:"減脂",maintain:"維持",bulk:"增肌"})[goal]}`);
+  let basis=`基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${({cut:"減脂",maintain:"維持",bulk:"增肌"})[goal]}`;
+  if(base.mode==="base") basis+="　→ 這是「沒運動」的量，有運動的當天請把消耗加回去再吃。";
+  set("goalBasis", basis);
   drawMacroBar("goalBar","goalLeg",protein,fat,carb);
 }
 function drawMacroBar(barId,legId,p,f,c){
@@ -503,14 +516,16 @@ function renderNet(){
   const burn=burnByDate(date);
   if(intake==null&&burn===0){ box.style.display="none"; return; }
   const net=(intake||0)-burn;
-  const base=baseTDEE(), goal=val("goal");
-  let target=base.tdee;
-  if(target){ const rate=+val("goalRate"); if(goal==="cut")target=Math.round(target*(1-rate)); if(goal==="bulk")target=Math.round(target*(1+rate*0.5)); }
+  const base=baseTDEE();
+  const target=base.tdee?applyGoal(base.tdee):null;
+  // 含運動基準：目標已含運動，拿原始攝取比；不含運動基準：拿淨熱量比
+  const cmpVal=base.mode==="base"?net:(intake||0);
+  const cmpLbl=base.mode==="base"?"淨熱量":"攝取";
   box.style.display="block";
   box.innerHTML=`<div class="lbl">${date.slice(5)} 淨熱量（攝取 − 運動消耗）</div>`+
     `<div class="big">${net.toLocaleString()} kcal</div>`+
     `<div class="hint">攝取 ${intake!=null?intake.toLocaleString():"—"} − 運動 ${burn.toLocaleString()}`+
-    (target?` ｜ 目標 ${target.toLocaleString()}　${net<=target?`<span style="color:var(--green)">↓ 低於目標 ${(target-net).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${(net-target).toLocaleString()}</span>`}`:"")+`</div>`;
+    (target?`<br>對目標（${base.mode==="base"?"不含運動":"含運動"}基準 ${target.toLocaleString()}，比${cmpLbl} ${cmpVal.toLocaleString()}）　${cmpVal<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-cmpVal).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${(cmpVal-target).toLocaleString()}</span>`}`:"")+`</div>`;
 }
 async function delRecord(rid){
   if(!confirm("刪除這筆紀錄？")) return;
