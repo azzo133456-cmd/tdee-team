@@ -36,6 +36,7 @@
     border-radius:10px; background:#fff; color:var(--ink); font-family:inherit;
   }
   input:focus,select:focus{outline:none; border-color:var(--accent);}
+  input[type=date]{width:auto; min-width:160px; text-align:left; -webkit-appearance:none; appearance:none;}
   .row{display:flex; gap:10px;}
   .row>div{flex:1;}
   button{
@@ -309,8 +310,10 @@
     <!-- 今日飲食（在計算機下方） -->
     <div class="card">
       <h2>🍽️ 今日飲食</h2>
-      <label>日期</label>
-      <input id="foodDate" type="date" onchange="renderDay()">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <label style="margin:0;">日期</label>
+        <input id="foodDate" type="date" onchange="renderDay()">
+      </div>
       <div class="rings" id="rings" style="margin-top:12px;"></div>
       <div class="result" id="netBox" style="display:none;"></div>
       <div id="mealGroups"></div>
