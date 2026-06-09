@@ -461,8 +461,9 @@ app.post("/api/label", auth, async (req, res) => {
     const prompt =
       "這是一張食品包裝的『營養標示』。請讀出表格數值，全部換算成『每 100 公克』的數值。" +
       "若標示只有『每份』與『每包』，請用每份數值除以每份公克數再乘 100 換算成每 100 公克。" +
+      "另外請判斷『一份的公克數』(serving，看標示『每一份量 X 公克』；若是飲料用毫升數近似；讀不到填 0)。" +
       "只回傳 JSON，不要說明文字、不要 markdown 圍欄。格式：" +
-      '{"name":"商品名稱(看得到就填,看不到填空字串)","kcal":每100g熱量,"protein":每100g蛋白質克,"fat":每100g脂肪克,"carb":每100g碳水克}。' +
+      '{"name":"商品名稱(看得到就填,看不到填空字串)","serving":一份公克數,"kcal":每100g熱量,"protein":每100g蛋白質克,"fat":每100g脂肪克,"carb":每100g碳水克}。' +
       "數字一律阿拉伯數字、不含單位；讀不到的欄位填 0。";
 
     const g = await geminiVision(key, prompt, mime, img, 0.1);
@@ -491,6 +492,7 @@ app.post("/api/label", auth, async (req, res) => {
     res.json({
       ok: true,
       name: String(parsed.name || "").slice(0, 40),
+      serving: Math.max(0, Math.round(num(parsed.serving))),
       kcal: Math.round(num(parsed.kcal)),
       protein: num(parsed.protein),
       fat: num(parsed.fat),

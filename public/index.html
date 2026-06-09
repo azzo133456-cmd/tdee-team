@@ -278,27 +278,14 @@
       </div>
       <div class="suggest" id="foodSuggest"></div>
       <div class="hint">點搜尋結果就直接加入下方清單（記住你上次的克數），克數在清單裡直接改。🕘=常用 · 👥=共享庫 · 💪高蛋白 🍬高糖 🧈高脂</div>
-      <div class="row">
+      <div class="row" style="flex-wrap:wrap;">
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="document.getElementById('labelInput').click()">📋 拍營養標示</button></div>
       </div>
       <input id="labelInput" type="file" accept="image/*" style="display:none;" onchange="onLabelPick(event)">
-      <div class="hint" id="labelHint" style="display:none;"></div>
-      <details style="margin-top:8px;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;">
-        <summary style="cursor:pointer;font-size:14px;">🧋 甜度速算（用無糖茶底＋自己加糖）</summary>
-        <div class="hint" style="margin:6px 0;">先選無糖茶／無糖品項加入，再用這裡補糖的熱量。糖：每 1g ≈ 4 kcal（全碳水）。</div>
-        <div class="row">
-          <div><label>容量</label>
-            <select id="sugarMl"><option value="500">中杯 500ml</option><option value="700" selected>大杯 700ml</option><option value="1000">特大 1000ml</option></select>
-          </div>
-          <div><label>甜度</label>
-            <select id="sugarLv"><option value="0.1">1分糖 10%</option><option value="0.3">微糖 30%</option><option value="0.5">半糖 50%</option><option value="0.7" selected>少糖 70%</option><option value="1">全糖 100%</option></select>
-          </div>
-        </div>
-        <button class="ghost sm" style="width:100%;margin-top:6px;" onclick="addSugar()">＋ 加入糖的熱量</button>
-      </details>
+      <div class="hint" id="labelHint" style="display:none; overflow-wrap:anywhere; word-break:break-word;"></div>
       <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
         <label>食物名稱</label>
         <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
@@ -908,16 +895,6 @@ function onPhotoPick(ev){
   ev.target.value="";
 }
 function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPreview").innerHTML=""; }
-function addSugar(){
-  const ml=+val("sugarMl")||700, lv=+val("sugarLv")||1;
-  // 手搖全糖約每 100ml 含 8g 糖
-  const grams=Math.round(ml/100*8*lv);
-  if(grams<=0){ alert("無糖免加"); return; }
-  const name=`糖(${Math.round(lv*100)}% / ${ml}ml)`;
-  FOODS_DYN[name]=[400,0,0,100];  // 每100g糖=400kcal、純碳水
-  addToCart(name,grams);
-  alert(`已加入 ${grams}g 糖（約 ${grams*4} kcal）`);
-}
 function compressImg(file){
   return new Promise((res)=>{
     const img=new Image();
@@ -944,20 +921,14 @@ async function runLabel(){
   h.style.display="block"; h.textContent="🔎 辨識營養標示中…約 3–8 秒";
   try{
     const r=await api("/api/label",{method:"POST",body:JSON.stringify({image:lastLabelImg})});
-    // 打開自訂食物表單並填入每100g數值
-    document.getElementById("customBox").style.display="block";
-    document.getElementById("cfUnit").value="100";
-    cfUnitChange();
-    if(r.name) document.getElementById("cfName").value=r.name;
-    document.getElementById("cfK").value=r.kcal;
-    document.getElementById("cfP").value=r.protein;
-    document.getElementById("cfF").value=r.fat;
-    document.getElementById("cfC").value=r.carb;
-    h.innerHTML=`已讀取（每100g）：<b>${r.kcal} kcal / 蛋${r.protein} / 脂${r.fat} / 碳${r.carb}</b>。確認名稱與數值後按「建立並選用」。`;
-    document.getElementById("customBox").scrollIntoView({behavior:"smooth",block:"center"});
+    // 直接建立食物並加入清單（預設帶「一份」的克數，沒讀到就 100g）；不必再碰 100g/份 切換
+    const name=(r.name&&r.name.trim())?r.name.trim():("商品 "+new Date().toLocaleTimeString().slice(0,5));
+    const serv=r.serving>0?r.serving:100;
+    registerFood(name,[r.kcal,r.protein,r.fat,r.carb],serv);   // per100g，預設份量=一份
+    h.innerHTML=`已加入「<b>${name}</b>」：每100g ${r.kcal}kcal／蛋${r.protein} 脂${r.fat} 碳${r.carb}。`+
+      `下方清單已帶入 <b>${serv}g</b>${r.serving>0?"（=標示一份）":"（預設值，請改成你吃的克數）"}，可直接調整。`;
   }catch(e){
-    h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="runLabel()">🔁 再試一次</button>（也可手動填）`;
-    document.getElementById("customBox").style.display="block";
+    h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="runLabel()">🔁 再試一次</button>（也可按✏️自訂食物手動填）`;
   }
 }
 async function analyzePhoto(){
@@ -1058,8 +1029,9 @@ function renderMeals(date){
     const g=list.filter(m=>m.meal===mt); if(!g.length) continue;
     const sub=g.reduce((a,b)=>a+(+b.kcal||0),0);
     const photos=g.filter(m=>m.photo).map(m=>`<div style="position:relative;display:inline-block;margin:6px 6px 0 0"><img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer"><span onclick="delMealPhoto(${m.id})" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;line-height:18px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:50%;color:#b5564e;font-size:12px;cursor:pointer">✕</span></div>`).join("");
-    html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal</span></div>`+
-      g.map(m=>`<div class="foodrow"><span class="nm">${m.name}</span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+
+    const subP=g.reduce((a,b)=>a+(+b.protein||0),0), subF=g.reduce((a,b)=>a+(+b.fat||0),0), subC=g.reduce((a,b)=>a+(+b.carb||0),0);
+    html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal <span style="color:var(--sub);font-weight:400;font-size:11px">P${Math.round(subP)}·F${Math.round(subF)}·C${Math.round(subC)}</span></span></div>`+
+      g.map(m=>`<div class="foodrow"><span class="nm">${m.name}<br><span style="color:var(--sub);font-size:11px">P${Math.round(m.protein||0)} F${Math.round(m.fat||0)} C${Math.round(m.carb||0)}</span></span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+
       (photos?`<div style="display:flex;flex-wrap:wrap">${photos}</div>`:"")+`</div>`;
   }
   box.innerHTML=html;
