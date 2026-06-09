@@ -346,6 +346,33 @@ app.get("/api/barcode", auth, async (req, res) => {
   }
 });
 
+/* ---------- Gemini 共用呼叫：多模型備援 + 503/429 退避重試 ---------- */
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function geminiVision(key, prompt, mime, imgB64, temperature) {
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: imgB64 } }] }],
+    generationConfig: { temperature, responseMimeType: "application/json" },
+  });
+  let lastErr = { status: 502, text: "未知錯誤" };
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + key,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body }
+      );
+      if (r.ok) return { data: await r.json(), model };
+      const text = await r.text();
+      lastErr = { status: r.status, text };
+      console.error("Gemini fail", model, r.status, text.slice(0, 160));
+      // 503/429 = 過載/限流：退避後重試；其餘錯誤直接換下一個模型
+      if (r.status === 503 || r.status === 429) { await sleep(700 * (attempt + 1)); continue; }
+      break;
+    }
+  }
+  return { error: lastErr };
+}
+
 /* ---------- AI 食物照片辨識（Gemini 代理） ---------- */
 app.post("/api/analyze", auth, async (req, res) => {
   try {
@@ -367,28 +394,14 @@ app.post("/api/analyze", auth, async (req, res) => {
       "數字一律為阿拉伯數字（不含單位），無法判斷就用合理概估。" +
       (hint ? "使用者提供的補充提示（請優先採信並據此修正辨識）：「" + hint + "」。" : "");
 
-    const r = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mime, data: img } },
-            ],
-          }],
-          generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
-        }),
-      }
-    );
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("Gemini error", r.status, t);
-      return res.status(502).json({ error: "辨識服務錯誤" });
+    const g = await geminiVision(key, prompt, mime, img, 0.2);
+    if (g.error) {
+      const msg = g.error.status === 503 || g.error.status === 429
+        ? "AI 服務目前流量壅塞，請稍候幾秒再試一次"
+        : "辨識服務錯誤(" + g.error.status + ")";
+      return res.status(502).json({ error: msg });
     }
-    const data = await r.json();
+    const data = g.data;
     const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     let parsed;
     try {
@@ -434,23 +447,14 @@ app.post("/api/label", auth, async (req, res) => {
       '{"name":"商品名稱(看得到就填,看不到填空字串)","kcal":每100g熱量,"protein":每100g蛋白質克,"fat":每100g脂肪克,"carb":每100g碳水克}。' +
       "數字一律阿拉伯數字、不含單位；讀不到的欄位填 0。";
 
-    const r = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: img } }] }],
-          generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
-        }),
-      }
-    );
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("Gemini label error", r.status, t);
-      return res.status(502).json({ error: "辨識服務錯誤(" + r.status + ")：" + t.slice(0, 160) });
+    const g = await geminiVision(key, prompt, mime, img, 0.1);
+    if (g.error) {
+      const msg = g.error.status === 503 || g.error.status === 429
+        ? "AI 服務目前流量壅塞，請稍候幾秒再試一次"
+        : "辨識服務錯誤(" + g.error.status + ")";
+      return res.status(502).json({ error: msg });
     }
-    const data = await r.json();
+    const data = g.data;
     const cand = data?.candidates?.[0];
     const txt = cand?.content?.parts?.[0]?.text || "";
     if (!txt) {
