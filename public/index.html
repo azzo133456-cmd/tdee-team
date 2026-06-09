@@ -82,6 +82,13 @@
   .prog{height:10px; border-radius:6px; background:var(--soft); overflow:hidden; margin-top:6px;}
   .prog i{display:block; height:100%; background:var(--green);}
   .err{color:#b5564e; font-size:13px; margin-top:8px; min-height:18px;}
+  .rings{display:flex; justify-content:space-around; flex-wrap:wrap; gap:6px; margin:4px 0 12px;}
+  .ring{text-align:center; width:72px;}
+  .ring svg{display:block; margin:0 auto;}
+  .ring .rv{font-size:12px; font-weight:700; margin-top:2px;}
+  .ring .rk{font-size:11px; color:var(--sub);}
+  .mealgrp{margin-top:10px;}
+  .mealgrp .mh{font-size:13px; font-weight:600; color:var(--accent); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:3px;}
 </style>
 </head>
 <body>
@@ -165,6 +172,7 @@
   <!-- ③ 食物熱量計算機 -->
   <div class="card">
     <h2>③ 食物熱量計算機</h2>
+    <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
     <label>選食物（可打字搜尋）</label>
     <input id="foodPick" list="foodList" placeholder="例如：白飯 / 雞胸肉" autocomplete="off">
     <datalist id="foodList"></datalist>
@@ -173,11 +181,21 @@
       <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addFood()">＋ 加入</button></div>
     </div>
     <div class="hint" id="foodPreview"></div>
-    <button class="ghost sm" style="margin-top:8px;" onclick="usdaSearch()">🌐 線上查 USDA（英文、品項最多）</button>
+    <div class="row">
+      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
+      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
+    </div>
     <div class="foodlist" id="usdaResults"></div>
     <div class="foodlist" id="foodItems"></div>
     <div class="result" id="foodTotal" style="display:none;"></div>
-    <button class="ghost" id="useFoodBtn" style="display:none;" onclick="useFoodAsIntake()">↧ 帶入今天的攝取與營養素</button>
+    <div id="mealAddBox" style="display:none;">
+      <div class="row" style="margin-top:10px;">
+        <div><label>加到哪一餐</label>
+          <select id="mealType"><option value="早餐">早餐</option><option value="午餐">午餐</option><option value="晚餐">晚餐</option><option value="點心">點心</option></select>
+        </div>
+        <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
+      </div>
+    </div>
     <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
     <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆中文）＋常見品項概估＋USDA 線上查詢。皆為每 100g，僅供參考。</div>
   </div>
@@ -186,7 +204,7 @@
   <div class="card">
     <h2>📖 我的食譜 <span class="pill" id="recipeCount"></span></h2>
     <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
-    <div class="hint">套用後會載入到食物計算機清單，可再按「帶入今天的攝取」。</div>
+    <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
   </div>
 
   <!-- ④ 每日紀錄 -->
@@ -208,6 +226,30 @@
     <button onclick="addRecord()">＋ 新增 / 更新當日紀錄</button>
     <div class="hint">早/晚至少填一個。趨勢與反推 TDEE 以「早上體重」為準（最穩定）。</div>
     <div class="result" id="netBox" style="display:none;"></div>
+  </div>
+
+  <!-- 今日營養素達成環 + 餐別 -->
+  <div class="card">
+    <h2>🍽️ 今日飲食 <span class="pill" id="dayLabel"></span></h2>
+    <div class="rings" id="rings"></div>
+    <div id="mealGroups"></div>
+    <div class="hint">在上方③食物計算機組好，選餐別「加入」即可分餐記錄；環圈為對②目標的達成度。</div>
+  </div>
+
+  <!-- 飲水 -->
+  <div class="card">
+    <h2>💧 飲水紀錄</h2>
+    <div class="result" style="margin-top:0;">
+      <div class="big" id="waterOut">0 ml</div>
+      <div class="hint" id="waterGoal"></div>
+    </div>
+    <div class="prog"><i id="waterBar" style="width:0%"></i></div>
+    <div class="row" style="margin-top:10px;">
+      <div><button class="ghost sm" onclick="addWater(250)">＋250</button></div>
+      <div><button class="ghost sm" onclick="addWater(500)">＋500</button></div>
+      <div><button class="ghost sm" onclick="addWater(-250)">－250</button></div>
+      <div><button class="ghost sm" onclick="addWater(0,true)">歸零</button></div>
+    </div>
   </div>
 
   <!-- ⑤ 運動紀錄與建議 -->
@@ -418,13 +460,18 @@ function applyGoal(tdee){
   if(goal==="bulk") return Math.round(tdee*(1+rate*0.5));
   return tdee;
 }
-function calcGoal(){
-  const base=baseTDEE();
-  if(!base.tdee){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
-  const goal=val("goal"), target=applyGoal(base.tdee);
+function goalTargets(){
+  const base=baseTDEE(); if(!base.tdee) return null;
+  const target=applyGoal(base.tdee);
   const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||60 : 60);
   const protein=Math.round(w*2.0), fatKcal=target*0.25, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
+  return {kcal:target, protein, fat, carb, base};
+}
+function calcGoal(){
+  const t=goalTargets();
+  if(!t){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
+  const base=t.base, goal=val("goal"), target=t.kcal, protein=t.protein, fat=t.fat, carb=t.carb;
   set("goalKcal", target.toLocaleString()+" kcal");
   let basis=`基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${({cut:"減脂",maintain:"維持",bulk:"增肌"})[goal]}`;
   if(base.mode==="base") basis+="　→ 這是「沒運動」的量，有運動的當天請把消耗加回去再吃。";
@@ -462,10 +509,10 @@ function renderFood(){
   document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>
     `<div class="foodrow"><span class="nm">${it.n} <span style="color:var(--sub)">${it.g}g</span></span><span class="kc">${Math.round(it.k)} kcal</span><span class="x" onclick="rmFood(${i})">✕</span></div>`).join("");
   const tot=foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
-  const el=document.getElementById("foodTotal"), btn=document.getElementById("useFoodBtn"), sb=document.getElementById("saveRecipeBtn");
-  if(foodCart.length){ el.style.display="block"; btn.style.display="block"; sb.style.display="block";
+  const el=document.getElementById("foodTotal"), mb=document.getElementById("mealAddBox"), sb=document.getElementById("saveRecipeBtn");
+  if(foodCart.length){ el.style.display="block"; mb.style.display="block"; sb.style.display="block";
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
-  }else{ el.style.display="none"; btn.style.display="none"; sb.style.display="none"; }
+  }else{ el.style.display="none"; mb.style.display="none"; sb.style.display="none"; }
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
 async function usdaSearch(){
@@ -491,13 +538,104 @@ function pickUsda(i){
   foodPreview();
   document.getElementById("foodGram").focus();
 }
-function useFoodAsIntake(){
-  const tot=foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
-  document.getElementById("rKcal").value=Math.round(tot.k);
-  document.getElementById("rProtein").value=tot.p.toFixed(0);
-  document.getElementById("rFat").value=tot.f.toFixed(0);
-  document.getElementById("rCarb").value=tot.c.toFixed(0);
-  document.getElementById("cardRecord").scrollIntoView({behavior:"smooth"});
+function selDate(){ return val("rDate")||todayStr(); }
+
+/* ---------- 我的最愛 ---------- */
+function saveFavs(){ api("/api/favorites",{method:"PUT",body:JSON.stringify(store.favorites||[])}).catch(()=>{}); }
+function addFav(){
+  const n=val("foodPick"), d=foodData(n);
+  if(!d){ alert("先選一個食物再加入最愛"); return; }
+  store.favorites=store.favorites||[];
+  if(store.favorites.find(f=>f.n===n)){ alert("已經在最愛了"); return; }
+  store.favorites.push({n,d}); saveFavs(); renderFavs();
+}
+function removeFav(i){ store.favorites.splice(i,1); saveFavs(); renderFavs(); }
+function useFav(i){
+  const f=store.favorites[i]; if(!f) return;
+  FOODS_DYN[f.n]=f.d;
+  document.getElementById("foodPick").value=f.n;
+  if(!val("foodGram")) document.getElementById("foodGram").value=100;
+  foodPreview(); document.getElementById("foodGram").focus();
+}
+function renderFavs(){
+  const box=document.getElementById("favChips");
+  const favs=store.favorites||[];
+  if(!favs.length){ box.innerHTML='<span class="hint">⭐ 常吃的食物按「加入最愛」，下次一鍵帶入</span>'; return; }
+  box.innerHTML=favs.map((f,i)=>`<span class="chip" onclick="useFav(${i})">${f.n} <b onclick="event.stopPropagation();removeFav(${i})" style="color:#b5564e">✕</b></span>`).join("");
+}
+
+/* ---------- 餐別飲食 ---------- */
+async function addMeal(){
+  if(!foodCart.length){ alert("清單是空的，先在上面加入食物"); return; }
+  const date=selDate(), meal=val("mealType");
+  const items=foodCart.map(it=>({name:it.n+(it.g?` ${it.g}g`:""),kcal:Math.round(it.k),protein:+it.p.toFixed(1),fat:+it.f.toFixed(1),carb:+it.c.toFixed(1)}));
+  try{
+    await api("/api/meal",{method:"POST",body:JSON.stringify({date,meal,items})});
+    foodCart=[]; renderFood(); await reload();
+    document.getElementById("mealGroups").scrollIntoView({behavior:"smooth"});
+  }catch(e){ alert(e.message); }
+}
+async function delMeal(id){ await api("/api/meal/"+id,{method:"DELETE"}); await reload(); }
+const MEAL_ORDER=["早餐","午餐","晚餐","點心"];
+function renderMeals(date){
+  const box=document.getElementById("mealGroups");
+  const list=(store.meals||[]).filter(m=>m.date.slice(0,10)===date);
+  if(!list.length){ box.innerHTML='<div class="empty">今天還沒記錄飲食</div>'; return; }
+  let html="";
+  for(const mt of MEAL_ORDER){
+    const g=list.filter(m=>m.meal===mt); if(!g.length) continue;
+    const sub=g.reduce((a,b)=>a+(+b.kcal||0),0);
+    html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal</span></div>`+
+      g.map(m=>`<div class="foodrow"><span class="nm">${m.name}</span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+`</div>`;
+  }
+  box.innerHTML=html;
+}
+
+/* ---------- 營養素達成環 ---------- */
+function dayNutrition(date){
+  const a=store.mealAgg&&store.mealAgg[date];
+  if(a) return {k:Math.round(a.k),p:Math.round(a.p),f:Math.round(a.f),c:Math.round(a.c)};
+  const r=store.records.find(x=>x.date.slice(0,10)===date);
+  if(r) return {k:r.kcal!=null?+r.kcal:0,p:+r.protein||0,f:+r.fat||0,c:+r.carb||0};
+  return {k:0,p:0,f:0,c:0};
+}
+function ringSvg(pct,color){
+  const r=24,c=2*Math.PI*r,off=c*(1-Math.min(1,Math.max(0,pct)));
+  return `<svg width="56" height="56" viewBox="0 0 56 56"><circle cx="28" cy="28" r="24" fill="none" stroke="#eee5d8" stroke-width="6"/><circle cx="28" cy="28" r="24" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 28 28)"/><text x="28" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#2b2b2b">${Math.round(pct*100)}%</text></svg>`;
+}
+function renderRings(date){
+  const box=document.getElementById("rings");
+  const t=goalTargets(), d=dayNutrition(date);
+  if(!t){ box.innerHTML='<div class="hint">先填基本資料與目標，才能顯示達成環</div>'; return; }
+  const items=[
+    ["熱量","#7c9070",d.k,t.kcal,"kcal"],
+    ["蛋白","#5b8aa6",d.p,t.protein,"g"],
+    ["脂肪","#c98b5e",d.f,t.fat,"g"],
+    ["碳水","#7c9070",d.c,t.carb,"g"]
+  ];
+  box.innerHTML=items.map(([nm,col,v,tg,u])=>
+    `<div class="ring">${ringSvg(tg?v/tg:0,col)}<div class="rv">${v}/${tg}</div><div class="rk">${nm}(${u})</div></div>`).join("");
+}
+
+/* ---------- 飲水 ---------- */
+function waterFor(date){ const r=store.records.find(x=>x.date.slice(0,10)===date); return r&&r.water_ml?+r.water_ml:0; }
+async function addWater(amt,reset){
+  const date=selDate(), cur=waterFor(date);
+  const nv=reset?0:Math.max(0,cur+amt);
+  try{ await api("/api/water",{method:"POST",body:JSON.stringify({date,water_ml:nv})}); await reload(); }
+  catch(e){ alert(e.message); }
+}
+function renderWater(date){
+  const cur=waterFor(date), w=+val("weight")||60, goal=Math.round(w*30/50)*50;
+  set("waterOut", cur.toLocaleString()+" ml");
+  set("waterGoal", `目標約 ${goal.toLocaleString()} ml（體重×30）　${cur>=goal?"✅ 已達標":"還差 "+(goal-cur).toLocaleString()+" ml"}`);
+  document.getElementById("waterBar").style.width=Math.min(100,goal?cur/goal*100:0)+"%";
+}
+
+function renderDay(){
+  const d=selDate();
+  set("dayLabel", d.slice(5));
+  renderNet(); renderRings(d); renderMeals(d); renderWater(d);
 }
 
 /* ---------- 食譜 ---------- */
@@ -741,12 +879,18 @@ function renderEta(){
   set("etaOut", `${y}/${m}/${d}`);
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderNet(); renderRecipes(); }
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderRecipes(); renderFavs(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
+  store.favorites = store.favorites||[]; store.meals = store.meals||[];
+  // 彙整各日餐別營養素，並覆寫當日紀錄的攝取/營養素
+  store.mealAgg={};
+  store.meals.forEach(m=>{ const d=m.date.slice(0,10); const a=store.mealAgg[d]||(store.mealAgg[d]={k:0,p:0,f:0,c:0});
+    a.k+=+m.kcal||0; a.p+=+m.protein||0; a.f+=+m.fat||0; a.c+=+m.carb||0; });
+  store.records.forEach(r=>{ const a=store.mealAgg[r.date.slice(0,10)]; if(a){ r.kcal=Math.round(a.k); r.protein=Math.round(a.p); r.fat=Math.round(a.f); r.carb=Math.round(a.c); } });
   renderAll();
 }
 
@@ -776,7 +920,7 @@ window.addEventListener("DOMContentLoaded", ()=>{
   document.getElementById("exPick").addEventListener("input",exPreview);
   document.getElementById("exMin").addEventListener("input",exPreview);
   document.getElementById("auPass").addEventListener("keydown",e=>{ if(e.key==="Enter") doAuth(); });
-  document.getElementById("rDate").addEventListener("change",renderNet);
+  document.getElementById("rDate").addEventListener("change",renderDay);
   fillFoodList(); fillExList();
   if(session) boot();
 });

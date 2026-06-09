@@ -24,8 +24,10 @@ async function initDb() {
       hash TEXT NOT NULL,
       token TEXT,
       profile JSONB DEFAULT '{}'::jsonb,
+      favorites JSONB DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites JSONB DEFAULT '[]'::jsonb;
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -34,6 +36,16 @@ async function initDb() {
       UNIQUE(user_id, date)
     );
     ALTER TABLE records ADD COLUMN IF NOT EXISTS weight_pm REAL;
+    ALTER TABLE records ADD COLUMN IF NOT EXISTS water_ml INT;
+    CREATE TABLE IF NOT EXISTS meals (
+      id SERIAL PRIMARY KEY,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      meal TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kcal INT, protein REAL, fat REAL, carb REAL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS exercises (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -190,6 +202,62 @@ app.delete("/api/exercise/:eid", auth, async (req, res) => {
   }
 });
 
+/* ---------- 我的最愛 ---------- */
+app.put("/api/favorites", auth, async (req, res) => {
+  try {
+    const favs = Array.isArray(req.body) ? req.body : [];
+    await pool.query("UPDATE users SET favorites=$1 WHERE id=$2", [JSON.stringify(favs), req.user.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 餐別飲食（批次） ---------- */
+app.post("/api/meal", auth, async (req, res) => {
+  try {
+    const { date, meal, items } = req.body;
+    if (!date || !meal || !Array.isArray(items) || items.length === 0)
+      return res.status(400).json({ error: "需要日期、餐別與內容" });
+    for (const it of items) {
+      await pool.query(
+        "INSERT INTO meals(user_id,date,meal,name,kcal,protein,fat,carb) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        [req.user.id, date, meal, it.name || "食物", it.kcal ?? null, it.protein ?? null, it.fat ?? null, it.carb ?? null]
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+app.delete("/api/meal/:mid", auth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM meals WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 飲水（設定當日總量） ---------- */
+app.post("/api/water", auth, async (req, res) => {
+  try {
+    const { date, water_ml } = req.body;
+    if (!date) return res.status(400).json({ error: "需要日期" });
+    await pool.query(
+      `INSERT INTO records(user_id,date,water_ml) VALUES($1,$2,$3)
+       ON CONFLICT (user_id,date) DO UPDATE SET water_ml=EXCLUDED.water_ml`,
+      [req.user.id, date, water_ml ?? 0]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 食譜 ---------- */
 app.post("/api/recipe", auth, async (req, res) => {
   try {
@@ -256,7 +324,8 @@ app.get("/api/me/all", auth, async (req, res) => {
     const recs = await pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]);
     const exs = await pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]);
     const rcp = await pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
-    res.json({ profile: req.user.profile, records: recs.rows, exercises: exs.rows, recipes: rcp.rows });
+    const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
