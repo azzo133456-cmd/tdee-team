@@ -731,13 +731,29 @@ function addToCart(n,g){
   foodCart.push({n, g:g||100, base:[+d[0]||0,+d[1]||0,+d[2]||0,+d[3]||0]});
   renderFood(); return true;
 }
-function cartMacros(it){ const g=it.g, b=it.base; return {k:b[0]*g/100,p:b[1]*g/100,f:b[2]*g/100,c:b[3]*g/100}; }
+function cartMacros(it){
+  const g=it.g, b=it.base;
+  const lv=(it.sugarLv==null?1:it.sugarLv);
+  const cFull=b[3], c=cFull*lv;                 // 把碳水視為糖，按甜度比例保留
+  const k=Math.max(0, b[0]-(cFull-c)*4);        // 扣掉減掉的糖熱量(4kcal/g)
+  return {k:k*g/100, p:b[1]*g/100, f:b[2]*g/100, c:c*g/100};
+}
 function setGram(i,v){ foodCart[i].g=Math.max(0,parseFloat(v)||0); renderFood(); }
+function setSugar(i,v){ foodCart[i].sugarLv=parseFloat(v); renderFood(); }
 function foodPreview(){}  // 已不需要（份量改在清單內調整）
 function renderFood(){
   document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>{
     const m=cartMacros(it);
+    const lv=(it.sugarLv==null?1:it.sugarLv);
+    let sugarSel="";
+    const hasLevel=/(無糖|分糖|微糖|半糖|少糖|全糖)\)/.test(it.n);  // 50嵐/茶湯會已內含甜度，不重複給選單
+    if(foodCat(it.n)==="drink" && !hasLevel){
+      const opts=[[1,"全糖"],[0.7,"少糖"],[0.5,"半糖"],[0.3,"微糖"],[0.1,"1分糖"],[0,"無糖"]]
+        .map(([v,t])=>`<option value="${v}"${v===lv?" selected":""}>${t}</option>`).join("");
+      sugarSel=`<select onchange="setSugar(${i},this.value)" style="padding:5px 4px;font-size:12px;width:64px">${opts}</select>`;
+    }
     return `<div class="foodrow"><span class="nm">${it.n} ${densityTags(it.base)}<br><span style="color:var(--sub);font-size:11px">${portionHint(it.n,it.g)}</span></span>`+
+      sugarSel+
       `<input type="number" inputmode="decimal" value="${it.g}" onchange="setGram(${i},this.value)" style="width:62px;padding:6px 8px;text-align:right;font-size:14px"><span style="color:var(--sub);font-size:12px">g</span>`+
       `<span class="kc" style="min-width:54px;text-align:right">${Math.round(m.k)}</span>`+
       `<span class="x" onclick="rmFood(${i})">✕</span></div>`;
