@@ -284,7 +284,7 @@
             <select id="sugarMl"><option value="500">中杯 500ml</option><option value="700" selected>大杯 700ml</option><option value="1000">特大 1000ml</option></select>
           </div>
           <div><label>甜度</label>
-            <select id="sugarLv"><option value="0.3">微糖 30%</option><option value="0.5">半糖 50%</option><option value="0.7" selected>少糖 70%</option><option value="1">全糖 100%</option></select>
+            <select id="sugarLv"><option value="0.1">1分糖 10%</option><option value="0.3">微糖 30%</option><option value="0.5">半糖 50%</option><option value="0.7" selected>少糖 70%</option><option value="1">全糖 100%</option></select>
           </div>
         </div>
         <button class="ghost sm" style="width:100%;margin-top:6px;" onclick="addSugar()">＋ 加入糖的熱量</button>
@@ -491,7 +491,7 @@ const SERVINGS = {};  // 食物 → 預設一份的克數
     SERVINGS[n]=G;
   }
   // 50嵐 / 茶湯會：依官方糖量熱量表自動產生各甜度版本
-  const LV=[["無糖",0],["微糖30%",0.3],["半糖50%",0.5],["少糖70%",0.7],["全糖",1]];
+  const LV=[["無糖",0],["1分糖10%",0.1],["微糖30%",0.3],["半糖50%",0.5],["少糖70%",0.7],["全糖",1]];
   const ML=700, S=window.FOODS_5050||{};
   for(const brand in S){
     for(const [name,fullK,sugarG] of S[brand]){
@@ -725,12 +725,17 @@ function addCustom(){
   document.getElementById("cfUnit").value="100"; cfUnitChange();
   document.getElementById("customBox").style.display="none";
 }
-// 建立一個食物：登記、存最愛、選用
+// 建立一個食物：登記、存最愛、選用，並上傳到共享食物庫
 function registerFood(n,d,defGram){
-  FOODS_DYN[n]=d;
+  FOODS_DYN[n]=d; SERVINGS[n]=defGram||100;
   store.favorites=store.favorites||[];
   if(!store.favorites.find(x=>x.n===n)){ store.favorites.push({n,d}); saveFavs(); renderFavs(); }
   addToCart(n,defGram||100);
+  shareFood(n,d,defGram||100,"food");
+}
+// 上傳到共享食物庫（全體共用，每100g）；失敗不影響本地使用
+async function shareFood(name,d,grams,kind){
+  try{ await api("/api/sharedfood",{method:"POST",body:JSON.stringify({name,kcal:d[0],protein:d[1],fat:d[2],carb:d[3],grams:grams||100,kind:kind||"food"})}); }catch(e){}
 }
 
 /* ---------- 條碼掃描（ZXing + Open Food Facts） ---------- */
@@ -969,13 +974,19 @@ async function saveRecipe(){
   const name=prompt("食譜名稱（例如：我的早餐）");
   if(!name||!name.trim()) return;
   const t=cartTotal();
+  const nm=name.trim();
   try{
     await api("/api/recipe",{method:"POST",body:JSON.stringify({
-      name:name.trim(), items:foodCart,
+      name:nm, items:foodCart,
       kcal:Math.round(t.k), protein:+t.p.toFixed(1), fat:+t.f.toFixed(1), carb:+t.c.toFixed(1)
     })});
+    // 整份食譜也上架共享食物庫（以整份總重為一份）
+    const totalG=foodCart.reduce((a,it)=>a+(+it.g||0),0)||100;
+    const per100=[t.k*100/totalG, t.p*100/totalG, t.f*100/totalG, t.c*100/totalG];
+    shareFood("🍱 "+nm, per100, Math.round(totalG), "recipe");
+    FOODS_DYN["🍱 "+nm]=per100; SERVINGS["🍱 "+nm]=Math.round(totalG);
     await reload();
-    alert("已存成食譜「"+name.trim()+"」");
+    alert("已存成食譜「"+nm+"」，並上架共享食物庫（可直接搜尋「🍱 "+nm+"」）");
   }catch(e){ alert(e.message); }
 }
 function renderRecipes(){
@@ -1229,6 +1240,12 @@ async function reload(){
   store = await api("/api/me/all");
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
+  // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
+  (store.sharedFoods||[]).forEach(s=>{
+    if(FOODS[s.name]) return;  // 不覆蓋內建
+    FOODS_DYN[s.name]=[+s.kcal||0,+s.protein||0,+s.fat||0,+s.carb||0];
+    SERVINGS[s.name]=+s.grams||100;
+  });
   // 彙整各日餐別營養素，並覆寫當日紀錄的攝取/營養素
   store.mealAgg={};
   store.meals.forEach(m=>{ const d=m.date.slice(0,10); const a=store.mealAgg[d]||(store.mealAgg[d]={k:0,p:0,f:0,c:0});

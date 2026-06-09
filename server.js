@@ -70,6 +70,15 @@ async function initDb() {
       kcal INT, protein REAL, fat REAL, carb REAL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS shared_foods (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      kcal REAL, protein REAL, fat REAL, carb REAL,
+      grams REAL DEFAULT 100,
+      kind TEXT DEFAULT 'food',
+      created_by INT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
   console.log("DB ready");
 }
@@ -484,6 +493,31 @@ app.post("/api/label", auth, async (req, res) => {
   }
 });
 
+/* ---------- 共享食物庫（自訂食物/食譜，全體共用，每100g） ---------- */
+app.post("/api/sharedfood", auth, async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim().slice(0, 60);
+    if (!name) return res.status(400).json({ error: "需要名稱" });
+    const num = (v) => (Number.isFinite(+v) ? +v : 0);
+    const kcal = num(req.body.kcal);
+    if (kcal <= 0) return res.json({ ok: true }); // 沒熱量就不收
+    const grams = Math.max(1, num(req.body.grams) || 100);
+    const kind = req.body.kind === "recipe" ? "recipe" : "food";
+    await pool.query(
+      `INSERT INTO shared_foods(name,kcal,protein,fat,carb,grams,kind,created_by)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (name) DO UPDATE SET
+         kcal=EXCLUDED.kcal, protein=EXCLUDED.protein, fat=EXCLUDED.fat,
+         carb=EXCLUDED.carb, grams=EXCLUDED.grams, kind=EXCLUDED.kind, created_by=EXCLUDED.created_by`,
+      [name, kcal, num(req.body.protein), num(req.body.fat), num(req.body.carb), grams, kind, req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 取得自己的所有資料 ---------- */
 app.get("/api/me/all", auth, async (req, res) => {
   try {
@@ -491,7 +525,8 @@ app.get("/api/me/all", auth, async (req, res) => {
     const exs = await pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]);
     const rcp = await pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
     const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows });
+    const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind FROM shared_foods ORDER BY name");
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
