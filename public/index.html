@@ -482,6 +482,7 @@ function macroKcal(p,f,c){ return p*4 + f*9 + c*4; }
 const FOODS_DYN = {};
 const FOODS_TW = window.FOODS_TW || {};
 const SERVINGS = {};  // 食物 → 預設一份的克數
+const SHARED_NAMES = new Set();  // 來自共享食物庫的品項名
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
   const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {});
@@ -634,7 +635,7 @@ function foodSuggest(){
   res.sort((a,b)=>(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1));
   res=res.slice(0,50); window.__fs=res;
   if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 用「📷 掃條碼」或「✏️ 自訂食物」建立</div>'; box.style.display="block"; return; }
-  box.innerHTML=res.map((n,i)=>{ const d=foodData(n); return `<div class="sg" onclick="pickFood(${i})">${n}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
+  box.innerHTML=res.map((n,i)=>{ const d=foodData(n); const tag=SHARED_NAMES.has(n)?'<span title="共享食物庫" style="color:var(--sub);font-size:11px">👥 </span>':""; return `<div class="sg" onclick="pickFood(${i})">${tag}${n}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
   box.style.display="block";
 }
 function pickFood(i){
@@ -1245,6 +1246,7 @@ async function reload(){
     if(FOODS[s.name]) return;  // 不覆蓋內建
     FOODS_DYN[s.name]=[+s.kcal||0,+s.protein||0,+s.fat||0,+s.carb||0];
     SERVINGS[s.name]=+s.grams||100;
+    SHARED_NAMES.add(s.name);
   });
   // 彙整各日餐別營養素，並覆寫當日紀錄的攝取/營養素
   store.mealAgg={};
