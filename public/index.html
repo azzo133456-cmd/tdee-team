@@ -184,6 +184,22 @@
     <div class="row">
       <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
       <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
+      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
+    </div>
+    <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
+      <div class="hint" style="margin:0 0 6px;">照包裝營養標示輸入「每 100 克」的數值：</div>
+      <label>食物名稱</label>
+      <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
+      <div class="row">
+        <div><label>熱量 (kcal)</label><input id="cfK" type="number" inputmode="decimal" placeholder="380"></div>
+        <div><label>蛋白 (g)</label><input id="cfP" type="number" inputmode="decimal" placeholder="30"></div>
+      </div>
+      <div class="row">
+        <div><label>脂肪 (g)</label><input id="cfF" type="number" inputmode="decimal" placeholder="12"></div>
+        <div><label>碳水 (g)</label><input id="cfC" type="number" inputmode="decimal" placeholder="40"></div>
+      </div>
+      <button class="sm" style="width:100%;" onclick="addCustom()">建立並選用（同時存成最愛）</button>
+      <div class="hint">若標示是「每份」而非每 100g：把份量克數填到上方「份量(克)」，數值仍照每 100g 換算即可。</div>
     </div>
     <div class="foodlist" id="usdaResults"></div>
     <div class="foodlist" id="foodItems"></div>
@@ -562,6 +578,29 @@ function renderFavs(){
   const favs=store.favorites||[];
   if(!favs.length){ box.innerHTML='<span class="hint">⭐ 常吃的食物按「加入最愛」，下次一鍵帶入</span>'; return; }
   box.innerHTML=favs.map((f,i)=>`<span class="chip" onclick="useFav(${i})">${f.n} <b onclick="event.stopPropagation();removeFav(${i})" style="color:#b5564e">✕</b></span>`).join("");
+}
+
+/* ---------- 自訂食物 ---------- */
+function toggleCustom(){
+  const b=document.getElementById("customBox");
+  b.style.display = b.style.display==="none"?"block":"none";
+  if(b.style.display==="block"){ document.getElementById("cfName").value=val("foodPick"); document.getElementById("cfName").focus(); }
+}
+function addCustom(){
+  const n=val("cfName").trim();
+  const k=parseFloat(val("cfK")), p=parseFloat(val("cfP")), f=parseFloat(val("cfF")), c=parseFloat(val("cfC"));
+  if(!n){ alert("請輸入食物名稱"); return; }
+  if(isNaN(k)){ alert("至少要有熱量"); return; }
+  const d=[k, isNaN(p)?0:p, isNaN(f)?0:f, isNaN(c)?0:c];
+  FOODS_DYN[n]=d;
+  // 存成最愛以便重複使用、跨裝置
+  store.favorites=store.favorites||[];
+  if(!store.favorites.find(x=>x.n===n)){ store.favorites.push({n,d}); saveFavs(); renderFavs(); }
+  document.getElementById("foodPick").value=n;
+  if(!val("foodGram")) document.getElementById("foodGram").value=100;
+  ["cfName","cfK","cfP","cfF","cfC"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("customBox").style.display="none";
+  foodPreview(); document.getElementById("foodGram").focus();
 }
 
 /* ---------- 餐別飲食 ---------- */
