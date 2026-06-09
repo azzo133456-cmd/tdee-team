@@ -1,5 +1,6 @@
 import express from "express";
 import pg from "pg";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -16,29 +17,29 @@ const pool = new Pool({
 
 async function initDb() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS groups (
+    CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
-      code TEXT UNIQUE NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS members (
-      id SERIAL PRIMARY KEY,
-      group_id INT REFERENCES groups(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
+      username TEXT UNIQUE NOT NULL,
+      salt TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      token TEXT,
       profile JSONB DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ DEFAULT now(),
-      UNIQUE(group_id, name)
+      created_at TIMESTAMPTZ DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
-      member_id INT REFERENCES members(id) ON DELETE CASCADE,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
       date DATE NOT NULL,
-      weight REAL,
-      kcal INT,
-      protein REAL,
-      fat REAL,
-      carb REAL,
-      UNIQUE(member_id, date)
+      weight REAL, kcal INT, protein REAL, fat REAL, carb REAL,
+      UNIQUE(user_id, date)
+    );
+    CREATE TABLE IF NOT EXISTS exercises (
+      id SERIAL PRIMARY KEY,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      name TEXT NOT NULL,
+      minutes REAL,
+      kcal INT
     );
   `);
   console.log("DB ready");
@@ -48,65 +49,95 @@ const app = express();
 app.use(express.json());
 app.use(express.static(join(__dirname, "public")));
 
-function norm(code) {
-  return String(code || "").trim().toUpperCase();
+/* ---------- 密碼雜湊 ---------- */
+function hashPw(password, salt) {
+  return crypto.scryptSync(password, salt, 64).toString("hex");
+}
+function newToken() {
+  return crypto.randomBytes(24).toString("hex");
 }
 
-// 加入或建立群組 → 回傳 member
-app.post("/api/join", async (req, res) => {
+/* ---------- 驗證中介層 ---------- */
+async function auth(req, res, next) {
   try {
-    const code = norm(req.body.code);
-    const name = String(req.body.name || "").trim();
-    if (!code || !name) return res.status(400).json({ error: "需要群組代碼與名字" });
+    const token = req.headers["x-token"];
+    if (!token) return res.status(401).json({ error: "未登入" });
+    const u = await pool.query("SELECT * FROM users WHERE token=$1", [token]);
+    if (u.rowCount === 0) return res.status(401).json({ error: "登入已失效，請重新登入" });
+    req.user = u.rows[0];
+    next();
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+}
 
-    let g = await pool.query("SELECT id FROM groups WHERE code=$1", [code]);
-    if (g.rowCount === 0)
-      g = await pool.query("INSERT INTO groups(code) VALUES($1) RETURNING id", [code]);
-    const groupId = g.rows[0].id;
-
-    let m = await pool.query(
-      "SELECT * FROM members WHERE group_id=$1 AND name=$2",
-      [groupId, name]
+/* ---------- 註冊 / 登入 ---------- */
+app.post("/api/register", async (req, res) => {
+  try {
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "");
+    if (username.length < 2 || password.length < 4)
+      return res.status(400).json({ error: "帳號至少 2 字、密碼至少 4 字" });
+    const exists = await pool.query("SELECT 1 FROM users WHERE username=$1", [username]);
+    if (exists.rowCount > 0) return res.status(409).json({ error: "這個帳號已被註冊" });
+    const salt = crypto.randomBytes(16).toString("hex");
+    const hash = hashPw(password, salt);
+    const token = newToken();
+    const u = await pool.query(
+      "INSERT INTO users(username,salt,hash,token) VALUES($1,$2,$3,$4) RETURNING id,username,profile",
+      [username, salt, hash, token]
     );
-    if (m.rowCount === 0)
-      m = await pool.query(
-        "INSERT INTO members(group_id,name) VALUES($1,$2) RETURNING *",
-        [groupId, name]
-      );
-    const member = m.rows[0];
-    res.json({ memberId: member.id, groupId, code, name: member.name, profile: member.profile });
+    res.json({ token, userId: u.rows[0].id, username, profile: u.rows[0].profile });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
   }
 });
 
-// 更新個人資料
-app.put("/api/member/:id/profile", async (req, res) => {
+app.post("/api/login", async (req, res) => {
   try {
-    await pool.query("UPDATE members SET profile=$1 WHERE id=$2", [
-      req.body || {},
-      req.params.id,
-    ]);
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "");
+    const u = await pool.query("SELECT * FROM users WHERE username=$1", [username]);
+    if (u.rowCount === 0) return res.status(401).json({ error: "帳號或密碼錯誤" });
+    const user = u.rows[0];
+    const hash = hashPw(password, user.salt);
+    const ok =
+      hash.length === user.hash.length &&
+      crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(user.hash));
+    if (!ok) return res.status(401).json({ error: "帳號或密碼錯誤" });
+    const token = newToken();
+    await pool.query("UPDATE users SET token=$1 WHERE id=$2", [token, user.id]);
+    res.json({ token, userId: user.id, username: user.username, profile: user.profile });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 個人資料 ---------- */
+app.put("/api/profile", auth, async (req, res) => {
+  try {
+    await pool.query("UPDATE users SET profile=$1 WHERE id=$2", [req.body || {}, req.user.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
 });
 
-// 新增/更新當日紀錄
-app.post("/api/member/:id/record", async (req, res) => {
+/* ---------- 每日紀錄 ---------- */
+app.post("/api/record", auth, async (req, res) => {
   try {
     const { date, weight, kcal, protein, fat, carb } = req.body;
     if (!date) return res.status(400).json({ error: "需要日期" });
     await pool.query(
-      `INSERT INTO records(member_id,date,weight,kcal,protein,fat,carb)
+      `INSERT INTO records(user_id,date,weight,kcal,protein,fat,carb)
        VALUES($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (member_id,date) DO UPDATE SET
+       ON CONFLICT (user_id,date) DO UPDATE SET
          weight=COALESCE(EXCLUDED.weight, records.weight),
          kcal=EXCLUDED.kcal, protein=EXCLUDED.protein,
          fat=EXCLUDED.fat, carb=EXCLUDED.carb`,
-      [req.params.id, date, weight ?? null, kcal ?? null, protein ?? null, fat ?? null, carb ?? null]
+      [req.user.id, date, weight ?? null, kcal ?? null, protein ?? null, fat ?? null, carb ?? null]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -115,50 +146,46 @@ app.post("/api/member/:id/record", async (req, res) => {
   }
 });
 
-app.delete("/api/record/:rid", async (req, res) => {
+app.delete("/api/record/:rid", auth, async (req, res) => {
   try {
-    await pool.query("DELETE FROM records WHERE id=$1", [req.params.rid]);
+    await pool.query("DELETE FROM records WHERE id=$1 AND user_id=$2", [req.params.rid, req.user.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
 });
 
-// 取得單一成員的紀錄
-app.get("/api/member/:id/records", async (req, res) => {
+/* ---------- 運動紀錄 ---------- */
+app.post("/api/exercise", auth, async (req, res) => {
   try {
-    const r = await pool.query(
-      "SELECT * FROM records WHERE member_id=$1 ORDER BY date",
-      [req.params.id]
+    const { date, name, minutes, kcal } = req.body;
+    if (!date || !name) return res.status(400).json({ error: "需要日期與運動項目" });
+    await pool.query(
+      "INSERT INTO exercises(user_id,date,name,minutes,kcal) VALUES($1,$2,$3,$4,$5)",
+      [req.user.id, date, name, minutes ?? null, kcal ?? null]
     );
-    res.json(r.rows);
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
 });
 
-// 取得整個群組的成員 + 每人紀錄（給排行 / 比較用）
-app.get("/api/group/:code/all", async (req, res) => {
+app.delete("/api/exercise/:eid", auth, async (req, res) => {
   try {
-    const code = norm(req.params.code);
-    const g = await pool.query("SELECT id FROM groups WHERE code=$1", [code]);
-    if (g.rowCount === 0) return res.json({ members: [] });
-    const groupId = g.rows[0].id;
-    const ms = await pool.query(
-      "SELECT id,name,profile FROM members WHERE group_id=$1 ORDER BY created_at",
-      [groupId]
-    );
-    const out = [];
-    for (const m of ms.rows) {
-      const rs = await pool.query(
-        "SELECT * FROM records WHERE member_id=$1 ORDER BY date",
-        [m.id]
-      );
-      out.push({ ...m, records: rs.rows });
-    }
-    res.json({ members: out });
+    await pool.query("DELETE FROM exercises WHERE id=$1 AND user_id=$2", [req.params.eid, req.user.id]);
+    res.json({ ok: true });
   } catch (e) {
-    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 取得自己的所有資料 ---------- */
+app.get("/api/me/all", auth, async (req, res) => {
+  try {
+    const recs = await pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]);
+    const exs = await pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]);
+    res.json({ profile: req.user.profile, records: recs.rows, exercises: exs.rows });
+  } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
 });
