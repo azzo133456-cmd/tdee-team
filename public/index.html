@@ -927,7 +927,7 @@ function renderExercises(){
   const box=document.getElementById("exItems");
   if(!store.exercises.length){ box.innerHTML=""; return; }
   box.innerHTML=store.exercises.slice(0,12).map(e=>
-    `<div class="foodrow"><span class="nm">${e.date.slice(5)} ${e.name} <span style="color:var(--sub)">${e.minutes||"—"}分</span></span><span class="kc">${e.kcal||0} kcal</span><span class="x" onclick="delExercise(${e.id})">✕</span></div>`).join("");
+    `<div class="foodrow"><span class="nm">${e.date.slice(5,10)} ${e.name} <span style="color:var(--sub)">${e.minutes||"—"}分</span></span><span class="kc">${e.kcal||0} kcal</span><span class="x" onclick="delExercise(${e.id})">✕</span></div>`).join("");
 }
 function renderExRec(){
   const goal=val("goal")||"maintain";
@@ -1026,7 +1026,7 @@ function renderTable(){
     const tr=document.createElement("tr");
     const burn=burnByDate(r.date.slice(0,10));
     const net=r.kcal!=null? (+r.kcal-burn) : null;
-    tr.innerHTML=`<td>${r.date.slice(5)}</td><td>${r.weight??"—"}</td><td>${r.weight_pm??"—"}</td><td>${r.kcal??"—"}</td><td>${net!=null?net.toLocaleString():"—"}</td><td><span class="del" onclick="delRecord(${r.id})">刪除</span></td>`;
+    tr.innerHTML=`<td>${r.date.slice(0,10)}</td><td>${r.weight??"—"}</td><td>${r.weight_pm??"—"}</td><td>${r.kcal??"—"}</td><td>${net!=null?net.toLocaleString():"—"}</td><td><span class="del" onclick="delRecord(${r.id})">刪除</span></td>`;
     tb.appendChild(tr);
   });
 }
@@ -1066,7 +1066,7 @@ function drawChart(){
   const recs=store.records.filter(r=>r.weight!=null), cv=document.getElementById("chart");
   if(recs.length<2){ cv.style.display="none"; show("chartEmpty"); if(chart){chart.destroy();chart=null;} return; }
   cv.style.display="block"; hide("chartEmpty");
-  const labels=recs.map(r=>r.date.slice(5)), data=recs.map(r=>+r.weight);
+  const labels=recs.map(r=>r.date.slice(5,10)), data=recs.map(r=>+r.weight);
   const t0=new Date(recs[0].date).getTime(), xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
   const n=xs.length,mx=avg(xs),my=avg(data); let num=0,den=0;
   for(let i=0;i<n;i++){num+=(xs[i]-mx)*(data[i]-my);den+=(xs[i]-mx)**2;}
