@@ -4,7 +4,13 @@
 14 天體重斜率反推真實 TDEE，含食物熱量計算機、目標建議、運動紀錄與每週運動建議。
 支援早上／晚上各記一次體重，並計算「當日淨熱量＝攝取−運動消耗」。
 
-> 食物營養數值為手動整理的每 100g 概估值（參考 USDA／台灣 FDA 常見基準），非串接官方 API。
+### 食物資料來源（三合一）
+1. **台灣 FDA 食品營養成分資料庫**：2,181 筆中文食材，已轉成 `public/foods_tw.js` 隨 app 打包（離線即時）。
+   來源 https://data.gov.tw/dataset/8543
+2. **常見品項概估**：手動整理的台式餐點/飲料（滷肉飯、珍奶等 FDA 沒有的現成餐點）。
+3. **USDA FoodData Central**：app 內按「線上查 USDA」即時查 60 萬+ 品項（英文）。
+   透過後端 `/api/foodsearch` 代理。可選設定環境變數 `USDA_API_KEY`（免費，未設則用 `DEMO_KEY`，有流量限制）。
+   申請：https://fdc.nal.usda.gov/api-key-signup.html
 
 ## 架構
 - 後端：Node + Express（`server.js`）

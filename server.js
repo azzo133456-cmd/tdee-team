@@ -182,6 +182,40 @@ app.delete("/api/exercise/:eid", auth, async (req, res) => {
   }
 });
 
+/* ---------- USDA 線上食物查詢（代理，隱藏金鑰、避開 CORS） ---------- */
+app.get("/api/foodsearch", auth, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.json({ items: [] });
+    const key = process.env.USDA_API_KEY || "DEMO_KEY";
+    const url =
+      "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=" + key +
+      "&pageSize=15&dataType=Foundation,SR%20Legacy,Survey%20(FNDDS)&query=" +
+      encodeURIComponent(q);
+    const r = await fetch(url);
+    if (!r.ok) return res.status(502).json({ error: "USDA 查詢失敗（可能是流量限制）" });
+    const data = await r.json();
+    const pick = (nutrients, names) => {
+      const n = (nutrients || []).find((x) =>
+        names.some((nm) => (x.nutrientName || "").toLowerCase().includes(nm))
+      );
+      return n ? Math.round((n.value || 0) * 10) / 10 : 0;
+    };
+    const items = (data.foods || []).map((f) => ({
+      n: f.description,
+      brand: f.brandOwner || f.foodCategory || "",
+      k: pick(f.foodNutrients, ["energy"]),
+      p: pick(f.foodNutrients, ["protein"]),
+      f: pick(f.foodNutrients, ["total lipid", "fat"]),
+      c: pick(f.foodNutrients, ["carbohydrate"]),
+    })).filter((x) => x.k > 0);
+    res.json({ items });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 取得自己的所有資料 ---------- */
 app.get("/api/me/all", auth, async (req, res) => {
   try {
