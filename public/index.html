@@ -89,6 +89,11 @@
   .ring .rk{font-size:11px; color:var(--sub);}
   .mealgrp{margin-top:10px;}
   .mealgrp .mh{font-size:13px; font-weight:600; color:var(--accent); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:3px;}
+  #scanOverlay{position:fixed; inset:0; background:#000; z-index:50; display:none; flex-direction:column;}
+  #scanOverlay video{width:100%; flex:1; object-fit:cover;}
+  #scanBar{padding:14px; color:#fff; text-align:center; font-size:14px;}
+  #scanBar button{width:auto; padding:9px 18px; margin-top:8px; background:#fff; color:#2b2b2b;}
+  .scanframe{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; height:30%; border:2px solid #fff; border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,.35);}
 </style>
 </head>
 <body>
@@ -185,6 +190,7 @@
       <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
       <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
       <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
+      <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
     </div>
     <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
       <label>食物名稱</label>
@@ -345,6 +351,18 @@
     <h2>⑧ 所有紀錄</h2>
     <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>攝取</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
     <div class="empty" id="tblEmpty">尚無資料</div>
+  </div>
+</div>
+
+<!-- 條碼掃描 -->
+<div id="scanOverlay">
+  <div style="position:relative; flex:1; display:flex;">
+    <video id="scanVideo" playsinline muted autoplay></video>
+    <div class="scanframe"></div>
+  </div>
+  <div id="scanBar">
+    <div id="scanStatus">把條碼對準框內…</div>
+    <button onclick="stopScan()">取消</button>
   </div>
 </div>
 
@@ -609,17 +627,68 @@ function addCustom(){
     const r=v=>Math.round(v*100/servG*10)/10;   // 換算成每100g
     k=r(k); p=r(p); f=r(f); c=r(c); defGram=servG;
   }
-  const d=[k,p,f,c];
-  FOODS_DYN[n]=d;
-  // 存成最愛以便重複使用、跨裝置
-  store.favorites=store.favorites||[];
-  if(!store.favorites.find(x=>x.n===n)){ store.favorites.push({n,d}); saveFavs(); renderFavs(); }
-  document.getElementById("foodPick").value=n;
-  document.getElementById("foodGram").value=defGram;
+  registerFood(n,[k,p,f,c],defGram);
   ["cfName","cfK","cfP","cfF","cfC","cfServ"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("cfUnit").value="100"; cfUnitChange();
   document.getElementById("customBox").style.display="none";
+}
+// 建立一個食物：登記、存最愛、選用
+function registerFood(n,d,defGram){
+  FOODS_DYN[n]=d;
+  store.favorites=store.favorites||[];
+  if(!store.favorites.find(x=>x.n===n)){ store.favorites.push({n,d}); saveFavs(); renderFavs(); }
+  document.getElementById("foodPick").value=n;
+  document.getElementById("foodGram").value=defGram||100;
   foodPreview(); document.getElementById("foodGram").focus();
+}
+
+/* ---------- 條碼掃描（ZXing + Open Food Facts） ---------- */
+let zxingReader=null, zxingLoaded=false;
+function loadZXing(){
+  if(zxingLoaded) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+    s.onload=()=>{ zxingLoaded=true; res(); }; s.onerror=()=>rej(new Error("掃碼元件載入失敗"));
+    document.head.appendChild(s);
+  });
+}
+async function startScan(){
+  const ov=document.getElementById("scanOverlay");
+  ov.style.display="flex";
+  set("scanStatus","啟動相機中…");
+  try{
+    await loadZXing();
+    zxingReader=new ZXing.BrowserMultiFormatReader();
+    set("scanStatus","把條碼對準框內…");
+    await zxingReader.decodeFromConstraints(
+      {video:{facingMode:"environment"}},
+      "scanVideo",
+      (result,err)=>{ if(result){ const code=result.getText(); stopScan(); onBarcode(code); } }
+    );
+  }catch(e){
+    set("scanStatus","無法開啟相機："+e.message);
+  }
+}
+function stopScan(){
+  try{ if(zxingReader) zxingReader.reset(); }catch(e){}
+  document.getElementById("scanOverlay").style.display="none";
+}
+async function onBarcode(code){
+  document.getElementById("customBox").style.display="block";
+  try{
+    const r=await api("/api/barcode?code="+encodeURIComponent(code));
+    if(r.found && r.k>0){
+      registerFood(r.n,[r.k,r.p,r.f,r.c],100);
+      alert("已帶入：「"+r.n+"」（每100g "+r.k+" kcal），確認份量後加入餐別即可。");
+    }else if(r.found){
+      document.getElementById("cfName").value=r.n;
+      alert("查到商品「"+r.n+"」但沒有營養數值，請照標籤手動填。");
+    }else{
+      document.getElementById("cfName").value="商品 "+code;
+      alert("資料庫查無此條碼（"+code+"），請照標籤手動填，建立後會記住。");
+    }
+  }catch(e){ alert("查詢失敗："+e.message); }
 }
 
 /* ---------- 餐別飲食 ---------- */

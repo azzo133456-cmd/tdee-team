@@ -284,6 +284,37 @@ app.delete("/api/recipe/:rid", auth, async (req, res) => {
   }
 });
 
+/* ---------- 條碼查詢（Open Food Facts 代理） ---------- */
+app.get("/api/barcode", auth, async (req, res) => {
+  try {
+    const code = String(req.query.code || "").replace(/[^0-9]/g, "");
+    if (!code) return res.status(400).json({ error: "缺少條碼" });
+    const r = await fetch(
+      "https://world.openfoodfacts.org/api/v2/product/" + code +
+        ".json?fields=product_name,product_name_zh,brands,nutriments",
+      { headers: { "User-Agent": "TDEE-Tracker/1.0 (personal use)" } }
+    );
+    if (!r.ok) return res.status(502).json({ error: "查詢失敗" });
+    const data = await r.json();
+    if (data.status !== 1 || !data.product) return res.json({ found: false, code });
+    const p = data.product, nu = p.nutriments || {};
+    const name =
+      p.product_name_zh || p.product_name ||
+      (p.brands ? p.brands.split(",")[0] : "") || ("商品 " + code);
+    res.json({
+      found: true, code,
+      n: name,
+      k: Math.round((nu["energy-kcal_100g"] ?? 0) * 10) / 10,
+      p: Math.round((nu["proteins_100g"] ?? 0) * 10) / 10,
+      f: Math.round((nu["fat_100g"] ?? 0) * 10) / 10,
+      c: Math.round((nu["carbohydrates_100g"] ?? 0) * 10) / 10,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- USDA 線上食物查詢（代理，隱藏金鑰、避開 CORS） ---------- */
 app.get("/api/foodsearch", auth, async (req, res) => {
   try {
