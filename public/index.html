@@ -15,6 +15,7 @@
 <script src="foods_drinks.js"></script>
 <script src="foods_breakfast.js"></script>
 <script src="foods_convenience.js"></script>
+<script src="foods_5050.js"></script>
 <style>
   :root{
     --bg:#faf8f3; --card:#ffffff; --ink:#2b2b2b; --sub:#6b6b6b;
@@ -488,6 +489,23 @@ const SERVINGS = {};  // 食物 → 預設一份的克數
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
     SERVINGS[n]=G;
+  }
+  // 50嵐 / 茶湯會：依官方糖量熱量表自動產生各甜度版本
+  const LV=[["無糖",0],["微糖30%",0.3],["半糖50%",0.5],["少糖70%",0.7],["全糖",1]];
+  const ML=700, S=window.FOODS_5050||{};
+  for(const brand in S){
+    for(const [name,fullK,sugarG] of S[brand]){
+      const nonSugar=Math.max(0,fullK-sugarG*4);     // 茶底＋奶/料的固定熱量
+      const fat=Math.round(nonSugar/9*10)/10;          // 推估：非糖熱量視為脂肪
+      const fac=100/ML;
+      for(const [lvName,lv] of LV){
+        const sg=Math.round(sugarG*lv*10)/10;          // 該甜度的糖量(g)
+        const kcal=Math.round(nonSugar+sg*4);
+        const key=`${brand} ${name}(${lvName})`;
+        FOODS_DYN[key]=[Math.round(kcal*fac*10)/10, 0, Math.round(fat*fac*10)/10, Math.round(sg*fac*10)/10];
+        SERVINGS[key]=ML;
+      }
+    }
   }
 })();
 // 統一查詢：手動 → 連鎖/暫存 → 台灣FDA
