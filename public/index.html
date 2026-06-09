@@ -89,11 +89,12 @@
   .ring .rk{font-size:11px; color:var(--sub);}
   .mealgrp{margin-top:10px;}
   .mealgrp .mh{font-size:13px; font-weight:600; color:var(--accent); display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:3px;}
-  #scanOverlay{position:fixed; inset:0; background:#000; z-index:50; display:none; flex-direction:column;}
-  #scanOverlay video{width:100%; flex:1; object-fit:cover;}
-  #scanBar{padding:14px; color:#fff; text-align:center; font-size:14px;}
-  #scanBar button{width:auto; padding:9px 18px; margin-top:8px; background:#fff; color:#2b2b2b;}
-  .scanframe{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; height:30%; border:2px solid #fff; border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,.35);}
+  #scanOverlay{position:fixed; inset:0; height:100vh; height:100dvh; width:100vw; background:#000; z-index:60; display:none; flex-direction:column;}
+  #scanWrap{position:relative; flex:1 1 auto; min-height:0; display:flex; overflow:hidden;}
+  #scanOverlay video{width:100%; height:100%; object-fit:cover;}
+  #scanBar{flex:0 0 auto; padding:14px 14px calc(14px + env(safe-area-inset-bottom)); color:#fff; text-align:center; font-size:14px;}
+  #scanBar button{width:auto; padding:11px 22px; margin-top:8px; background:#fff; color:#2b2b2b;}
+  .scanframe{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:78%; height:26%; border:2px solid #fff; border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,.35); pointer-events:none;}
   .chips{display:flex; flex-wrap:wrap; gap:6px;}
   .chip{font-size:13px; padding:6px 10px; border-radius:20px; background:var(--soft); cursor:pointer;}
   /* 可折疊卡片 */
@@ -257,14 +258,10 @@
     <div class="card">
       <h2>食物熱量計算機</h2>
       <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
-      <label>搜尋食物（打字即出現選單）</label>
+      <label>搜尋食物（打字 → 點結果即加入）</label>
       <input id="foodPick" placeholder="例如：白飯 / 雞胸肉" autocomplete="off" oninput="foodSuggest()">
       <div class="suggest" id="foodSuggest"></div>
-      <div class="row">
-        <div><label>份量 (克)</label><input id="foodGram" type="number" inputmode="decimal" placeholder="100"></div>
-        <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addFood()">＋ 加入</button></div>
-      </div>
-      <div class="hint" id="foodPreview"></div>
+      <div class="hint">點搜尋結果就直接加入下方清單（預設 100g），克數在清單裡直接改。</div>
       <div class="row">
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="usdaSearch()">🌐 USDA 線上查</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
@@ -400,7 +397,7 @@
 
 <!-- 條碼掃描 -->
 <div id="scanOverlay">
-  <div style="position:relative; flex:1; display:flex;">
+  <div id="scanWrap">
     <video id="scanVideo" playsinline muted autoplay></video>
     <div class="scanframe"></div>
   </div>
@@ -585,30 +582,28 @@ function foodSuggest(){
 }
 function pickFood(i){
   const n=window.__fs[i]; if(n==null) return;
-  document.getElementById("foodPick").value=n;
+  addToCart(n,100);
+  document.getElementById("foodPick").value="";
   document.getElementById("foodSuggest").style.display="none";
-  if(!val("foodGram")) document.getElementById("foodGram").value=100;
-  foodPreview(); document.getElementById("foodGram").focus();
 }
-function foodPreview(){
-  const n=val("foodPick"), g=+val("foodGram"), d=foodData(n);
-  if(!d||!g){ set("foodPreview",""); return; }
-  const [k,p,f,c]=d;
-  set("foodPreview", `${g}g ≈ ${Math.round(k*g/100)} kcal（蛋 ${(p*g/100).toFixed(1)} / 脂 ${(f*g/100).toFixed(1)} / 碳 ${(c*g/100).toFixed(1)}）`);
+// 把食物加入清單（預設克數），克數可在清單內調整
+function addToCart(n,g){
+  const d=foodData(n); if(!d) return false;
+  foodCart.push({n, g:g||100, base:[+d[0]||0,+d[1]||0,+d[2]||0,+d[3]||0]});
+  renderFood(); return true;
 }
-function addFood(){
-  const n=val("foodPick"), g=+val("foodGram"), d=foodData(n);
-  if(!d){ alert("找不到這個食物，請從清單選，或用「線上查 USDA」"); return; }
-  if(!g){ alert("請輸入份量"); return; }
-  const [k,p,f,c]=d;
-  foodCart.push({n,g,k:k*g/100,p:p*g/100,f:f*g/100,c:c*g/100});
-  document.getElementById("foodPick").value=""; document.getElementById("foodGram").value=""; set("foodPreview","");
-  document.getElementById("foodSuggest").style.display="none"; renderFood();
-}
+function cartMacros(it){ const g=it.g, b=it.base; return {k:b[0]*g/100,p:b[1]*g/100,f:b[2]*g/100,c:b[3]*g/100}; }
+function setGram(i,v){ foodCart[i].g=Math.max(0,parseFloat(v)||0); renderFood(); }
+function foodPreview(){}  // 已不需要（份量改在清單內調整）
 function renderFood(){
-  document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>
-    `<div class="foodrow"><span class="nm">${it.n} <span style="color:var(--sub)">${it.g}g</span></span><span class="kc">${Math.round(it.k)} kcal</span><span class="x" onclick="rmFood(${i})">✕</span></div>`).join("");
-  const tot=foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0});
+  document.getElementById("foodItems").innerHTML=foodCart.map((it,i)=>{
+    const m=cartMacros(it);
+    return `<div class="foodrow"><span class="nm">${it.n}</span>`+
+      `<input type="number" inputmode="decimal" value="${it.g}" onchange="setGram(${i},this.value)" style="width:62px;padding:6px 8px;text-align:right;font-size:14px"><span style="color:var(--sub);font-size:12px">g</span>`+
+      `<span class="kc" style="min-width:54px;text-align:right">${Math.round(m.k)}</span>`+
+      `<span class="x" onclick="rmFood(${i})">✕</span></div>`;
+  }).join("");
+  const tot=foodCart.reduce((a,b)=>{const m=cartMacros(b);return {k:a.k+m.k,p:a.p+m.p,f:a.f+m.f,c:a.c+m.c};},{k:0,p:0,f:0,c:0});
   const el=document.getElementById("foodTotal"), sb=document.getElementById("saveRecipeBtn");
   if(foodCart.length){ el.style.display="block"; sb.style.display="block";
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
@@ -632,11 +627,8 @@ async function usdaSearch(){
 }
 function pickUsda(i){
   const it=window.__usda[i]; if(!it) return;
-  FOODS_DYN[it.n]=it.d;
-  document.getElementById("foodPick").value=it.n;
+  FOODS_DYN[it.n]=it.d; addToCart(it.n,100);
   document.getElementById("usdaResults").innerHTML="";
-  foodPreview();
-  document.getElementById("foodGram").focus();
 }
 function selDate(){ return val("foodDate")||todayStr(); }
 function toggleCard(h){ h.parentElement.classList.toggle("collapsed"); }
@@ -658,10 +650,7 @@ function addFav(){
 function removeFav(i){ store.favorites.splice(i,1); saveFavs(); renderFavs(); }
 function useFav(i){
   const f=store.favorites[i]; if(!f) return;
-  FOODS_DYN[f.n]=f.d;
-  document.getElementById("foodPick").value=f.n;
-  if(!val("foodGram")) document.getElementById("foodGram").value=100;
-  foodPreview(); document.getElementById("foodGram").focus();
+  FOODS_DYN[f.n]=f.d; addToCart(f.n,100);
 }
 function renderFavs(){
   const box=document.getElementById("favChips");
@@ -704,9 +693,7 @@ function registerFood(n,d,defGram){
   FOODS_DYN[n]=d;
   store.favorites=store.favorites||[];
   if(!store.favorites.find(x=>x.n===n)){ store.favorites.push({n,d}); saveFavs(); renderFavs(); }
-  document.getElementById("foodPick").value=n;
-  document.getElementById("foodGram").value=defGram||100;
-  foodPreview(); document.getElementById("foodGram").focus();
+  addToCart(n,defGram||100);
 }
 
 /* ---------- 條碼掃描（ZXing + Open Food Facts） ---------- */
@@ -780,7 +767,7 @@ function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPre
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
   const date=selDate(), meal=val("mealType");
-  const items=foodCart.map(it=>({name:it.n+(it.g?` ${it.g}g`:""),kcal:Math.round(it.k),protein:+it.p.toFixed(1),fat:+it.f.toFixed(1),carb:+it.c.toFixed(1)}));
+  const items=foodCart.map(it=>{const m=cartMacros(it);return {name:it.n+` ${it.g}g`,kcal:Math.round(m.k),protein:+m.p.toFixed(1),fat:+m.f.toFixed(1),carb:+m.c.toFixed(1)};});
   try{
     await api("/api/meal",{method:"POST",body:JSON.stringify({date,meal,items,photo:mealPhoto})});
     foodCart=[]; renderFood(); clearMealPhoto(); await reload();
@@ -862,7 +849,7 @@ function renderDay(){
 }
 
 /* ---------- 食譜 ---------- */
-function cartTotal(){ return foodCart.reduce((a,b)=>({k:a.k+b.k,p:a.p+b.p,f:a.f+b.f,c:a.c+b.c}),{k:0,p:0,f:0,c:0}); }
+function cartTotal(){ return foodCart.reduce((a,b)=>{const m=cartMacros(b);return {k:a.k+m.k,p:a.p+m.p,f:a.f+m.f,c:a.c+m.c};},{k:0,p:0,f:0,c:0}); }
 async function saveRecipe(){
   if(!foodCart.length){ alert("清單是空的"); return; }
   const name=prompt("食譜名稱（例如：我的早餐）");
@@ -892,7 +879,12 @@ function renderRecipes(){
 }
 function applyRecipe(id){
   const r=(store.recipes||[]).find(x=>x.id===id); if(!r) return;
-  foodCart=(r.items||[]).map(it=>({n:it.n,g:it.g,k:it.k,p:it.p,f:it.f,c:it.c}));
+  foodCart=(r.items||[]).map(it=>{
+    const g=it.g||100;
+    let base=it.base;
+    if(!base) base=(it.k!=null)?[it.k/g*100,(it.p||0)/g*100,(it.f||0)/g*100,(it.c||0)/g*100]:(foodData(it.n)||[0,0,0,0]);
+    return {n:it.n, g, base:base.map(Number)};
+  });
   renderFood();
   document.getElementById("foodTotal").scrollIntoView({behavior:"smooth"});
 }
@@ -1152,7 +1144,6 @@ async function boot(){
 
 window.addEventListener("DOMContentLoaded", ()=>{
   pIds.forEach(id=> document.getElementById(id).addEventListener("input",saveProfile));
-  document.getElementById("foodGram").addEventListener("input",foodPreview);
   document.getElementById("exMin").addEventListener("input",exPreview);
   document.getElementById("auPass").addEventListener("keydown",e=>{ if(e.key==="Enter") doAuth(); });
   if(session) boot();
