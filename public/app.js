@@ -234,6 +234,82 @@ function planContext(){
     dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText
   };
 }
+// 依資料自動判斷減重計畫的階段
+const PLAN_STEPS=[["base","建基準"],["cut","執行赤字"],["stall","停滯處理"],["finish","收尾"],["done","達標"]];
+function planPhase(){
+  const P=planContext();
+  const R=calcReal(store.records, store.exercises);
+  const dist=(P.weight!=null&&P.targetWeight!=null)?+(P.weight-P.targetWeight).toFixed(1):null;
+  const obs=P.weeklyObservedKg;                 // 實測每週體重變化（負=下降）
+  const enoughForStall=R.days>=12 && obs!=null; // 至少約 2 週體重資料才談停滯
+  if(P.goal!=="cut") return {key:"non-cut",P,R,dist,obs};
+  if(dist!=null && dist<=0.1) return {key:"done",P,R,dist,obs};
+  if(!R.tdee) return {key:"base",P,R,dist,obs};
+  if(dist!=null && dist<=2) return {key:"finish",P,R,dist,obs};
+  if(enoughForStall && obs>-0.1) return {key:"stall",P,R,dist,obs};
+  return {key:"cut",P,R,dist,obs};
+}
+function renderPlan(){
+  const box=document.getElementById("planBox"); if(!box) return;
+  const ph=planPhase(), P=ph.P, R=ph.R, pill=document.getElementById("planPhasePill");
+  if(ph.key==="non-cut"){
+    if(pill) pill.textContent="維持/增肌";
+    box.innerHTML=`<div class="hint">目前目標為「${({maintain:"維持",bulk:"增肌"})[P.goal]||P.goal}」。要啟用減重計畫，請到 ①基本資料 把「目標」改成<b>減脂</b>。</div>`;
+    return;
+  }
+  const STEP_LABEL={base:"建基準",cut:"執行赤字",stall:"停滯處理",finish:"收尾",done:"達標"};
+  if(pill) pill.textContent=STEP_LABEL[ph.key]||"";
+  // 階段進度條（停滯時把游標停在「執行赤字↔停滯處理」之間）
+  const idx=PLAN_STEPS.findIndex(s=>s[0]===ph.key);
+  const stepper=`<div style="display:flex;gap:4px;margin-bottom:12px;font-size:11px;text-align:center;">`+
+    PLAN_STEPS.map(([k,lbl],i)=>{
+      const on=i===idx, done=i<idx;
+      const col=on?"var(--accent)":done?"var(--green)":"var(--line)";
+      const txt=on?"var(--accent)":done?"var(--green)":"var(--sub)";
+      return `<div style="flex:1;"><div style="height:4px;border-radius:2px;background:${col};"></div>`+
+        `<div style="margin-top:4px;color:${txt};font-weight:${on?"700":"400"}">${lbl}</div></div>`;
+    }).join("")+`</div>`;
+  const num=(v)=>v==null?"—":v.toLocaleString();
+  const tdeeStr=P.tdee?num(P.tdee)+(P.tdeeIsReal?" kcal（實測）":" kcal（公式估*）"):"—";
+  const wkObs=ph.obs!=null?(ph.obs>0?"+":"")+ph.obs+"kg/週":"資料不足";
+  let title,body,actions=[];
+  if(ph.key==="base"){
+    const wDays=(store.records||[]).filter(r=>r.weight!=null).length;
+    const kDays=(store.records||[]).filter(r=>r.weight!=null&&r.kcal!=null).length;
+    const needW=Math.max(0,7-wDays), needK=Math.max(0,3-kDays);
+    const cd=(needW>0&&needK>0)?`還差 ${needW} 天體重 + ${needK} 天飲食`:needW>0?`還差 ${needW} 天體重`:needK>0?`還差 ${needK} 天飲食`:"再記一天即可";
+    title="🧪 第 0 階段：建立基準";
+    body=`先<b>正常吃、認真記</b>，讓系統用你的體重趨勢＋實際攝取反推出<b>真正的 TDEE</b>，之後的赤字才會準。現在的目標只是公式估的暫定值，先別在意短期體重波動。`;
+    actions=[`📌 ${cd}就能算出實測 TDEE`,`每天記體重（固定早上空腹）＋當天吃的東西`];
+  }else if(ph.key==="cut"){
+    title="🔥 執行赤字中";
+    const slow=(ph.obs!=null && P.weeklyTargetKg!=null && ph.obs>-Math.abs(P.weeklyTargetKg)*0.6);
+    body=`用實測 TDEE 抓赤字、蛋白吃滿（目標 ${num(P.target&&P.target.protein)}g）。每日攝取目標 <b>${num(P.target&&P.target.kcal)} kcal</b>（赤字約 ${num(P.dailyDeficitTarget)}）。`+
+      `目標週速度 ${P.weeklyTargetKg!=null?(-Math.abs(P.weeklyTargetKg))+"kg":"—"}、實際 <b>${wkObs}</b>。`+
+      (slow?`<br>⚠ 下降偏慢，可再收緊一點攝取或增加活動量。`:`<br>✅ 方向不錯，穩住就好。`);
+    actions=[`每週看一次「實際 vs 目標週速度」，差很多才調`,`別靠運動硬湊赤字；重訓保肌、有氧加成`];
+    if(P.etaText) actions.push(`依目前速度預計達標：${P.etaText}`);
+  }else if(ph.key==="stall"){
+    title="⏸ 疑似停滯期";
+    const maint=R.tdee?num(R.tdee):"你的維持熱量";
+    body=`近 2 週體重幾乎沒動（<b>${wkObs}</b>）。常見原因：<b>代謝適應</b>（長期赤字身體下修消耗）、<b>記錄低估</b>、或水分/賀爾蒙波動。`+
+      `<br>建議來個 <b>diet break</b>：回到<b>維持熱量（約 ${maint} kcal）</b>吃 1–2 週，讓代謝與賀爾蒙回升，再重啟赤字往往又會開始掉。`;
+    actions=[`回維持熱量約 ${maint} kcal、吃 1–2 週（不是放縱，是吃到 TDEE）`,`同時檢查：份量是否低估、量測是否同條件（早上空腹）`,`兩週後仍想減，再把目標切回減脂續跑`];
+  }else if(ph.key==="finish"){
+    title="🎯 收尾階段";
+    body=`距目標僅 <b>${ph.dist}kg</b>，越接近越該<b>放慢</b>，避免反彈與掉肌。建議把赤字縮小（①目標速率改「溫和 10%」），或準備轉成維持。`;
+    actions=[`赤字改溫和（10%），速度放緩更穩`,`規劃達標後的維持熱量（約 ${R.tdee?num(R.tdee):"實測 TDEE"} kcal）`];
+  }else if(ph.key==="done"){
+    title="🎉 已達標！";
+    body=`恭喜到達目標體重。接下來重點是<b>不反彈</b>：把攝取拉回<b>維持熱量（約 ${R.tdee?num(R.tdee):"實測 TDEE"} kcal）</b>，持續記錄 1–2 週確認體重穩定。`;
+    actions=[`目標改「維持」，吃到實測 TDEE`,`持續記 1–2 週，體重穩了就成功收尾`];
+  }
+  box.innerHTML=stepper+
+    `<div style="font-weight:600;margin-bottom:6px;">${title}</div>`+
+    `<div class="hint" style="color:var(--ink);line-height:1.6;">${body}</div>`+
+    (actions.length?`<ul style="margin:8px 0 0;padding-left:18px;font-size:13px;line-height:1.7;">`+actions.map(a=>`<li>${a}</li>`).join("")+`</ul>`:"")+
+    `<div class="hint" style="margin-top:8px;">目前 TDEE：${tdeeStr}${P.tdeeIsReal?"":"　·　多記幾天會自動轉實測"}</div>`;
+}
 function calcGoal(){
   const t=goalTargets();
   if(!t){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
@@ -1378,7 +1454,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
