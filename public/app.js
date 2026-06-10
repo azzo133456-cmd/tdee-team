@@ -643,6 +643,11 @@ async function addWater(amt,reset){
   try{ await api("/api/water",{method:"POST",body:JSON.stringify({date,water_ml:nv})}); await reload(); }
   catch(e){ alert(e.message); }
 }
+async function addWaterCustom(){
+  const el=document.getElementById("waterCustom"), amt=parseInt(el.value,10);
+  if(!amt){ alert("請輸入 ml"); return; }
+  el.value=""; await addWater(amt);
+}
 function renderWater(date){
   const cur=waterFor(date), w=+val("weight")||60, goal=Math.round(w*45/50)*50;
   set("waterOut", cur.toLocaleString()+" ml");
