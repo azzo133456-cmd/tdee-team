@@ -138,8 +138,10 @@ async function initDb() {
       logged INT DEFAULT 0, kcal_hit INT DEFAULT 0, protein_hit INT DEFAULT 0,
       exercised INT DEFAULT 0, water_hit INT DEFAULT 0,
       ex_count INT DEFAULT 0, volume REAL DEFAULT 0, weight REAL,
+      water_pct REAL,
       UNIQUE(user_id, date)
     );
+    ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS water_pct REAL;
   `);
   console.log("DB ready");
 }
@@ -845,7 +847,13 @@ function scoreMember(rows, metric, since, until) {
   };
   if (metric === "streak") { const s = streakOf(); return { score: s, detail: s + " 天" }; }
   if (metric === "protein") { const n = win.reduce((a, r) => a + (r.protein_hit || 0), 0); return { score: n, detail: n + " 天達標" }; }
-  if (metric === "water") { const n = win.reduce((a, r) => a + (r.water_hit || 0), 0); return { score: n, detail: n + " 天達標" }; }
+  if (metric === "water") {
+    // 平均每日喝水達成率（已喝ML ÷ 該喝ML）；只計有記錄的天
+    const ws = win.filter((r) => r.water_pct != null);
+    if (!ws.length) return { score: 0, detail: "尚無紀錄" };
+    const avg = ws.reduce((a, r) => a + (+r.water_pct || 0), 0) / ws.length;
+    return { score: Math.round(avg), detail: Math.round(avg) + "%（平均達成率）" };
+  }
   const disc = win.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
   if (metric === "all") {
     const exc = win.reduce((a, r) => a + (r.ex_count || 0), 0);
@@ -876,14 +884,15 @@ app.post("/api/dailystats", auth, async (req, res) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
       const b = (v) => (v ? 1 : 0);
       await pool.query(
-        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (user_id,date) DO UPDATE SET
            logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
            exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
-           volume=EXCLUDED.volume,weight=EXCLUDED.weight`,
+           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct`,
         [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
-         Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null]
+         Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null,
+         r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null]
       );
     }
     res.json({ ok: true });
