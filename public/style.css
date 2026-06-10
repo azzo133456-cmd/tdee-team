@@ -108,22 +108,28 @@
   .bottomnav .nav{flex:1; text-align:center; padding:7px 0 9px; font-size:20px; color:var(--sub); cursor:pointer; line-height:1.1;}
   .bottomnav .nav span{display:block; font-size:11px; margin-top:2px;}
   .bottomnav .nav.on{color:var(--accent);}
-  /* 名稱特效（積分解鎖） */
-  .namefx{display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:10px; position:relative;}
-  .namefx::after{content:attr(data-emoji);}
-  .namefx.fx0{padding:0;}
-  .namefx.fx1{text-shadow:0 0 6px rgba(91,138,166,.6);}
-  .namefx.fx2{background:linear-gradient(90deg,#ffe0ec,#fff0f5); border:1px solid #f4c6d8;}
-  .namefx.fx3 b{color:#e0632e;} .namefx.fx3{text-shadow:0 0 8px rgba(224,99,46,.55);}
-  .namefx.fx4{background:linear-gradient(90deg,#d4f1f4,#e8e0f7); border:1px solid #add; box-shadow:0 0 10px rgba(120,180,200,.5);}
-  .namefx.fx4 b{background:linear-gradient(90deg,#2aa7c0,#7d6cae); -webkit-background-clip:text; background-clip:text; color:transparent;}
-  .namefx.fx5{border:1px solid #c9a8ee; box-shadow:0 0 12px rgba(180,120,230,.5);}
-  .namefx.fx5 b{background:linear-gradient(90deg,#b86cd9,#6c8ee0); -webkit-background-clip:text; background-clip:text; color:transparent;}
-  .namefx.fx6 b{color:#caa53b; text-shadow:0 0 8px rgba(212,175,55,.7);}
-  .namefx.fx7{animation:fxhue 4s linear infinite;}
-  .namefx.fx7 b{background:linear-gradient(90deg,#ff5a5a,#ffb14a,#ffe24a,#5ad17c,#5b8aa6,#9b7cb6); -webkit-background-clip:text; background-clip:text; color:transparent; background-size:200% auto; animation:fxslide 4s linear infinite;}
-  @keyframes fxhue{to{filter:hue-rotate(360deg);}}
-  @keyframes fxslide{to{background-position:200% center;}}
+  /* 名稱特效（積分解鎖）— 用 color/text-shadow，對 <b> 與一般文字皆適用 */
+  .namefx{display:inline-flex; align-items:center; gap:2px; padding:0 3px; border-radius:9px; position:relative; overflow:visible;}
+  .namefx::after{content:attr(data-emoji); font-size:.95em;}
+  .namefx.fx1{text-shadow:0 0 6px rgba(91,138,166,.7);}
+  .namefx.fx2{color:#d46a90; text-shadow:0 0 6px rgba(212,106,144,.5);}
+  .namefx.fx3{color:#e08a3c; text-shadow:0 0 5px rgba(224,138,60,.5);}
+  .namefx.fx4{color:#e0632e; text-shadow:0 0 9px rgba(224,99,46,.75); animation:fxflick 1.6s ease-in-out infinite;}
+  .namefx.fx5{color:#3a9d6b; text-shadow:0 0 8px rgba(58,157,107,.65);}
+  .namefx.fx6{color:#2aa7c0; text-shadow:0 0 9px rgba(60,170,200,.7);}
+  .namefx.fx6::before{content:"🫧"; position:absolute; left:-3px; top:-7px; font-size:.6em; animation:fxbub 2.2s ease-in infinite;}
+  .namefx.fx7{color:#d2722e; text-shadow:0 0 8px rgba(210,114,46,.6);}
+  .namefx.fx8{color:#9b6cd9; text-shadow:0 0 10px rgba(155,108,217,.7);}
+  .namefx.fx9{color:#caa11e; text-shadow:0 0 10px rgba(255,210,40,.85); animation:fxflick .9s ease-in-out infinite;}
+  .namefx.fx10{color:#caa53b; text-shadow:0 0 10px rgba(212,175,55,.85);}
+  .namefx.fx10::before{content:"✨"; position:absolute; right:-5px; top:-8px; font-size:.65em; animation:fxtwk 1.4s ease-in-out infinite;}
+  .namefx.fx11{color:#c0392b; text-shadow:0 0 11px rgba(212,80,55,.8),0 0 4px rgba(255,200,60,.7); animation:fxflick 1.3s ease-in-out infinite;}
+  .namefx.fx12{animation:fxrainbow 3.5s linear infinite; text-shadow:0 0 9px rgba(0,0,0,.12);}
+  .namefx.fx13{color:#3fd0e0; text-shadow:0 0 10px rgba(120,230,245,.9),0 0 4px #fff; animation:fxtwk 1.8s ease-in-out infinite;}
+  @keyframes fxflick{0%,100%{opacity:1;}50%{opacity:.72;}}
+  @keyframes fxbub{0%{transform:translateY(4px);opacity:0;}30%{opacity:1;}100%{transform:translateY(-13px);opacity:0;}}
+  @keyframes fxtwk{0%,100%{opacity:.35;transform:scale(.8);}50%{opacity:1;transform:scale(1.25);}}
+  @keyframes fxrainbow{0%{color:#ff5a5a;}16%{color:#ffb14a;}33%{color:#ffe24a;}50%{color:#5ad17c;}66%{color:#5b8aa6;}83%{color:#b86cd9;}100%{color:#ff5a5a;}}
   /* 結算慶祝 */
   .celebrate{position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); overflow:hidden;}
   .cele-card{background:#fff; border-radius:16px; padding:24px 28px; text-align:center; max-width:300px; box-shadow:0 10px 40px rgba(0,0,0,.3); animation:celepop .4s cubic-bezier(.2,1.3,.5,1);}

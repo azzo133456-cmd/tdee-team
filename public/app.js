@@ -930,14 +930,15 @@ function renderGroups(){
     const race=g.members.map((m,i)=>{
       const p=Math.round(Math.abs(m.score-worst)/range*92);   // 0~92%，留尾端給🏁
       const an=RACE_ANIMALS[i%RACE_ANIMALS.length];
+      const fx=m.fx?` namefx ${m.fx}`:"";
       return `<div style="position:relative;height:24px;margin:3px 0;border-bottom:1px dashed var(--line);">`+
         `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:0;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:17px;">${an}</span>`+
-        `<span style="position:absolute;right:0;top:3px;font-size:11px;color:${m.me?'var(--accent)':'var(--sub)'};font-weight:${m.me?700:400}">${m.name}${m.me?"(我)":""} ${m.detail}${m.trophies?` 🏆×${m.trophies}`:""}</span></div>`;
+        `<span style="position:absolute;right:0;top:3px;font-size:11px;color:${m.me?'var(--accent)':'var(--sub)'};font-weight:${m.me?700:400}"><span class="${fx.trim()}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"(我)":""} ${m.detail}${m.trophies?` 🏆×${m.trophies}`:""}</span></div>`;
     }).join("");
     const raceBox=`<div style="position:relative;margin:8px 0;padding-right:18px;">${race}<span style="position:absolute;right:0;top:0;bottom:0;display:flex;align-items:center;font-size:14px;">🏁</span></div>`;
-    // 排行清單（含獎盃）
+    // 排行清單（含獎盃、各自特效）
     const board=g.members.map((m,i)=>
-      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} ${m.name}${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
+      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} <span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
     let teamBar="";
     if(isTeam&&g.team){
       const pct=Math.min(100,g.team.goal?Math.round(g.team.total/g.team.goal*100):0);
@@ -968,14 +969,20 @@ function renderGroups(){
 
 /* ---------- 積分制 + 名稱特效 ---------- */
 const FX_TIERS=[
-  {min:0,    cls:"fx0", name:"新手",     emoji:""},
-  {min:50,   cls:"fx1", name:"微光",     emoji:"✨"},
-  {min:150,  cls:"fx2", name:"花環",     emoji:"🌸"},
-  {min:350,  cls:"fx3", name:"火焰",     emoji:"🔥"},
-  {min:700,  cls:"fx4", name:"小美人魚", emoji:"🧜‍♀️"},
-  {min:1200, cls:"fx5", name:"獨角獸",   emoji:"🦄"},
-  {min:2000, cls:"fx6", name:"皇冠",     emoji:"👑"},
-  {min:3500, cls:"fx7", name:"彩虹傳說", emoji:"🌈"},
+  {min:0,    cls:"fx0",  name:"新手",     emoji:""},
+  {min:50,   cls:"fx1",  name:"微光",     emoji:"✨"},
+  {min:120,  cls:"fx2",  name:"花環",     emoji:"🌸"},
+  {min:220,  cls:"fx3",  name:"貓咪",     emoji:"🐱"},
+  {min:350,  cls:"fx4",  name:"火焰",     emoji:"🔥"},
+  {min:500,  cls:"fx5",  name:"幼龍",     emoji:"🐉"},
+  {min:700,  cls:"fx6",  name:"小美人魚", emoji:"🧜‍♀️"},
+  {min:950,  cls:"fx7",  name:"靈狐",     emoji:"🦊"},
+  {min:1200, cls:"fx8",  name:"獨角獸",   emoji:"🦄"},
+  {min:1600, cls:"fx9",  name:"雷霆",     emoji:"⚡"},
+  {min:2000, cls:"fx10", name:"皇冠",     emoji:"👑"},
+  {min:2800, cls:"fx11", name:"神龍",     emoji:"🐲"},
+  {min:3500, cls:"fx12", name:"彩虹傳說", emoji:"🌈"},
+  {min:5000, cls:"fx13", name:"鑽石傳奇", emoji:"💎"},
 ];
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
 function computePoints(){
@@ -1003,6 +1010,7 @@ function computePoints(){
   return {points:activity+trophies*100, activity, trophies};
 }
 function tierFor(points){ let cur=FX_TIERS[0]; for(const t of FX_TIERS){ if(points>=t.min) cur=t; } return cur; }
+function fxEmoji(cls){ const t=FX_TIERS.find(t=>t.cls===cls); return t?t.emoji:""; }
 function applyNameFx(){
   const el=document.getElementById("nameFrame"); if(!el) return;
   const {points}=computePoints();

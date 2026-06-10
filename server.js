@@ -844,6 +844,13 @@ function scoreMember(rows, metric, since, until) {
   // discipline（自律分）
   return { score: disc, detail: disc + " 分" };
 }
+// 名稱特效階級（與前端 FX_TIERS 對齊）：[最低分, cls]
+const FX_MINS = [[0,"fx0"],[50,"fx1"],[120,"fx2"],[220,"fx3"],[350,"fx4"],[500,"fx5"],[700,"fx6"],[950,"fx7"],[1200,"fx8"],[1600,"fx9"],[2000,"fx10"],[2800,"fx11"],[3500,"fx12"],[5000,"fx13"]];
+function clsForPoints(pts) { let c = "fx0"; for (const [m, cls] of FX_MINS) if (pts >= m) c = cls; return c; }
+function memberPoints(rows, trophyCount) {
+  const act = rows.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
+  return act + (trophyCount || 0) * 100;
+}
 function genCode() {
   const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = "";
   for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
@@ -960,7 +967,11 @@ app.get("/api/groups", auth, async (req, res) => {
       const trophies = {};
       const allSeasons = await pool.query("SELECT winner FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
       allSeasons.rows.forEach((s) => { trophies[s.winner] = (trophies[s.winner] || 0) + 1; });
-      board.forEach((m) => { m.trophies = trophies[m.name] || 0; });
+      const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });
+      board.forEach((m) => {
+        m.trophies = trophies[m.name] || 0;
+        m.fx = clsForPoints(memberPoints(rowsByUser[uidByName[m.name]] || [], m.trophies));   // 各自積分特效
+      });
       out.push({
         id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period,
         isOwner: g.created_by === req.user.id, stakes: g.stakes || "",
