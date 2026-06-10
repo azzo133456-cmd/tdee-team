@@ -93,6 +93,15 @@ async function initDb() {
       created_by INT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS weekly_reviews (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL,
+      week_start DATE NOT NULL,
+      summary TEXT,
+      actions JSONB DEFAULT '[]',
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(user_id, week_start)
+    );
   `);
   console.log("DB ready");
 }
@@ -728,6 +737,26 @@ app.post("/api/coach", auth, async (req, res) => {
   }
 });
 
+/* ---------- 每週覆盤：儲存一週的教練點評（每使用者每週一筆） ---------- */
+app.post("/api/review", auth, async (req, res) => {
+  try {
+    const ws = String(req.body.week_start || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ws)) return res.status(400).json({ error: "週起日格式錯誤" });
+    const summary = String(req.body.summary || "").slice(0, 600);
+    const actions = Array.isArray(req.body.actions) ? req.body.actions.slice(0, 5).map((s) => String(s).slice(0, 120)) : [];
+    await pool.query(
+      `INSERT INTO weekly_reviews(user_id, week_start, summary, actions)
+       VALUES($1,$2,$3,$4)
+       ON CONFLICT (user_id, week_start) DO UPDATE SET summary=EXCLUDED.summary, actions=EXCLUDED.actions, created_at=now()`,
+      [req.user.id, ws, summary, JSON.stringify(actions)]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 營養標示『批次』辨識：一次多張，回傳陣列 ---------- */
 app.post("/api/labels", auth, async (req, res) => {
   try {
@@ -815,7 +844,8 @@ app.get("/api/me/all", auth, async (req, res) => {
     const rcp = await pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
     const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
     const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name");
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows });
+    const rvw = await pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]);
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }

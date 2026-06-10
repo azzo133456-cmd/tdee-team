@@ -798,6 +798,71 @@ function coachHtml(r){
   }
   return html;
 }
+
+/* ---------- 每週覆盤（每週一自動產生上週點評，存後端可回看） ---------- */
+function mondayOf(dateStr){ const d=new Date(dateStr+"T00:00:00"); const dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); return isoLocal(d); }
+function prevWeekStart(){ const m=new Date(mondayOf(todayStr())+"T00:00:00"); m.setDate(m.getDate()-7); return isoLocal(m); }
+function addDaysIso(iso,n){ const d=new Date(iso+"T00:00:00"); d.setDate(d.getDate()+n); return isoLocal(d); }
+// 算某一週(7天)的覆盤資料包
+function weekStats(since,until){
+  const recs=(store.records||[]).filter(r=>{const d=r.date.slice(0,10);return d>=since&&d<=until;});
+  const exs=(store.exercises||[]).filter(e=>{const d=e.date.slice(0,10);return d>=since&&d<=until;});
+  const intakeDays=recs.filter(r=>r.kcal!=null);
+  const wRecs=recs.filter(r=>r.weight!=null);
+  return {
+    intakeDays, exs, hasData:intakeDays.length>0,
+    avgI:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.kcal||0))):0,
+    avgP:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.protein||0))):0,
+    avgF:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.fat||0))):0,
+    avgC:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.carb||0))):0,
+    avgBurn:Math.round(exs.reduce((a,b)=>a+(+b.kcal||0),0)/7),
+    wDelta:wRecs.length>=2?+(+wRecs[wRecs.length-1].weight-+wRecs[0].weight).toFixed(1):null,
+  };
+}
+// 產生並儲存某週覆盤；manual=true 會顯示載入訊息與錯誤
+async function genWeeklyReview(weekStart,manual){
+  const until=addDaysIso(weekStart,6);
+  const s=weekStats(weekStart,until);
+  const listBox=document.getElementById("reviewList");
+  if(!s.hasData){ if(manual&&listBox) alert("那一週沒有飲食紀錄，沒東西可覆盤。"); return false; }
+  if(manual&&listBox) listBox.innerHTML=`<div class="hint">🤖 產生 ${weekStart} 那週的覆盤中…約 3–6 秒</div>`+listBox.innerHTML;
+  const t=goalTargets();
+  try{
+    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"report",days:7,
+      avg:{kcal:s.avgI,protein:s.avgP,fat:s.avgF,carb:s.avgC},
+      target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
+      avgBurn:s.avgBurn, avgNet:s.avgI-s.avgBurn, weightDelta:s.wDelta, goal:val("goal"), plan:planContext()})});
+    await api("/api/review",{method:"POST",body:JSON.stringify({week_start:weekStart, summary:r.summary||"", actions:r.actions||[]})});
+    // 本地更新（避免整頁 reload）
+    store.reviews=(store.reviews||[]).filter(x=>x.week_start.slice(0,10)!==weekStart);
+    store.reviews.unshift({week_start:weekStart, summary:r.summary||"", actions:r.actions||[]});
+    store.reviews.sort((a,b)=>b.week_start.slice(0,10)<a.week_start.slice(0,10)?-1:1);
+    renderReviews();
+    return true;
+  }catch(e){
+    if(manual&&listBox) listBox.innerHTML=`<div class="hint" style="color:#b5564e">覆盤失敗：${e.message} <button class="ghost sm" onclick="genWeeklyReview('${weekStart}',true)">🔁 再試</button></div>`+ (listBox.innerHTML.replace(/^<div class="hint">🤖[\s\S]*?<\/div>/,""));
+    return false;
+  }
+}
+// 開 App 時：若上一個完整週(週一~週日)還沒覆盤、且那週有資料，自動補產生
+async function maybeWeeklyReview(){
+  const ws=prevWeekStart();
+  if((store.reviews||[]).some(r=>r.week_start.slice(0,10)===ws)) return;
+  await genWeeklyReview(ws,false);
+}
+function renderReviews(){
+  const box=document.getElementById("reviewList"); if(!box) return;
+  const list=store.reviews||[];
+  const pill=document.getElementById("reviewCount"); if(pill) pill.textContent=list.length?list.length+" 篇":"";
+  if(!list.length){ box.innerHTML='<div class="empty">還沒有覆盤。每週一開 App 會自動產生上週點評，或按上方按鈕手動產生。</div>'; return; }
+  box.innerHTML=list.map(r=>{
+    const ws=r.week_start.slice(0,10), we=addDaysIso(ws,6);
+    const acts=(r.actions||[]).length?`<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7;">`+r.actions.map(a=>`<li>${a}</li>`).join("")+`</ul>`:"";
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;">`+
+      `<div style="font-weight:600;font-size:13px;color:var(--accent);margin-bottom:4px;">${ws.slice(5)} ~ ${we.slice(5)} 那週</div>`+
+      `<div class="hint" style="color:var(--ink);line-height:1.6;">${(r.summary||"").replace(/\n/g,"<br>")}</div>${acts}</div>`;
+  }).join("");
+}
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
   const date=selDate(), meal=val("mealType");
@@ -1454,7 +1519,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReviews(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
@@ -1494,6 +1559,7 @@ async function boot(){
   renderDerived();
   restoreCards();
   applyTips();
+  maybeWeeklyReview();   // 背景補產生上週覆盤（有資料且尚未產生時）
 }
 
 window.addEventListener("DOMContentLoaded", ()=>{

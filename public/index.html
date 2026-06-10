@@ -361,6 +361,17 @@
       <div class="cardbody"><div id="planBox"></div></div>
     </div>
 
+    <!-- 每週覆盤（每週一自動產生上週點評） -->
+    <div class="card collapsed">
+      <h2 class="ch" data-ck="reviews" onclick="toggleCard(this)">📝 每週覆盤 <span class="pill" id="reviewCount"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="chipbar">
+          <button class="ghost sm" onclick="genWeeklyReview(prevWeekStart(),true)">產生上週覆盤</button>
+        </div>
+        <div id="reviewList"></div>
+      </div>
+    </div>
+
     <!-- 週/月報表 -->
     <div class="card">
       <h2>📊 報表</h2>
