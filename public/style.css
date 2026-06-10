@@ -111,6 +111,8 @@
   /* 名稱特效（積分解鎖）— 用 color/text-shadow，對 <b> 與一般文字皆適用 */
   .namefx{display:inline-flex; align-items:center; gap:2px; padding:0 3px; border-radius:9px; position:relative; overflow:visible;}
   .namefx::after{content:attr(data-emoji); font-size:.95em;}
+  .avatar{width:30px; height:30px; border-radius:50%; object-fit:cover; border:2px solid var(--accent); flex:0 0 auto;}
+  .avatar.sm{width:20px; height:20px; border-width:1px; vertical-align:middle; margin-right:3px;}
   .namefx .fxdec{position:absolute; pointer-events:none;}  /* 動態點綴 */
   .namefx.fx1{text-shadow:0 0 6px rgba(91,138,166,.7);}
   .namefx.fx2{color:#d46a90; text-shadow:0 0 6px rgba(212,106,144,.5);}

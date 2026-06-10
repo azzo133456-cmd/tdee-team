@@ -933,12 +933,12 @@ function renderGroups(){
       const fx=m.fx?` namefx ${m.fx}`:"";
       return `<div style="position:relative;height:24px;margin:3px 0;border-bottom:1px dashed var(--line);">`+
         `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:0;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:17px;">${an}</span>`+
-        `<span style="position:absolute;right:0;top:3px;font-size:11px;color:${m.me?'var(--accent)':'var(--sub)'};font-weight:${m.me?700:400}"><span class="${fx.trim()}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"(我)":""} ${m.detail}${m.trophies?` 🏆×${m.trophies}`:""}</span></div>`;
+        `<span style="position:absolute;right:0;top:3px;font-size:11px;color:${m.me?'var(--accent)':'var(--sub)'};font-weight:${m.me?700:400}">${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="${fx.trim()}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"(我)":""} ${m.detail}${m.trophies?` 🏆×${m.trophies}`:""}</span></div>`;
     }).join("");
     const raceBox=`<div style="position:relative;margin:8px 0;padding-right:18px;">${race}<span style="position:absolute;right:0;top:0;bottom:0;display:flex;align-items:center;font-size:14px;">🏁</span></div>`;
     // 排行清單（含獎盃、各自特效）
     const board=g.members.map((m,i)=>
-      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} <span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
+      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} ${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
     let teamBar="";
     if(isTeam&&g.team){
       const pct=Math.min(100,g.team.goal?Math.round(g.team.total/g.team.goal*100):0);
@@ -1024,6 +1024,23 @@ function applyNameFx(){
   el.setAttribute("data-emoji", tier.emoji||"");
 }
 function chooseFx(cls){ try{ localStorage.setItem("tdee_fx",cls); }catch(e){} applyNameFx(); renderPoints(); }
+// 自訂頭像（積分獎勵，滿 AV_MIN 解鎖）
+const AV_MIN=1000;
+function applyAvatar(){ const el=document.getElementById("myAvatar"); if(!el) return; if(store.avatar){ el.src=store.avatar; el.style.display=""; } else { el.style.display="none"; } }
+function compressAvatar(file){
+  return new Promise((res)=>{ const img=new Image(); img.onload=()=>{ const s=96, cv=document.createElement("canvas"); cv.width=s; cv.height=s;
+    const ctx=cv.getContext("2d"), m=Math.min(img.width,img.height), sx=(img.width-m)/2, sy=(img.height-m)/2;
+    ctx.drawImage(img,sx,sy,m,m,0,0,s,s); const url=cv.toDataURL("image/jpeg",0.72); URL.revokeObjectURL(img.src); res(url); }; img.src=URL.createObjectURL(file); });
+}
+async function uploadAvatar(ev){
+  const f=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!f) return;
+  const img=await compressAvatar(f);
+  try{ await api("/api/avatar",{method:"POST",body:JSON.stringify({image:img})}); store.avatar=img; applyAvatar(); renderPoints(); }
+  catch(e){ alert("上傳失敗："+e.message); }
+}
+async function removeAvatar(){
+  try{ await api("/api/avatar",{method:"POST",body:JSON.stringify({image:""})}); store.avatar=null; applyAvatar(); renderPoints(); }catch(e){ alert(e.message); }
+}
 function renderPoints(){
   const box=document.getElementById("pointsBox"); if(!box){ applyNameFx(); return; }
   const {points,activity,trophies}=computePoints();
@@ -1048,8 +1065,18 @@ function renderPoints(){
     (next?`<div class="prog" style="margin-top:6px;"><i style="width:${prog}%"></i></div>`:"")+
     `<div style="font-weight:500;font-size:13px;margin:10px 0 6px;">名稱特效（點選已解鎖的套用）</div>`+
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${gallery}</div>`+
+    avatarSection(points)+
     `<div class="hint tip" style="margin-top:6px;">積分＝每天的自律分(記飲食/熱量達標/蛋白達標/運動/飲水)累積 ＋ 每座競賽冠軍 100 分。</div>`;
-  applyNameFx();
+  applyNameFx(); applyAvatar();
+}
+function avatarSection(points){
+  const head=`<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🖼️ 自訂頭像 ${points>=AV_MIN?"（已解鎖）":`（滿 ${AV_MIN} 分解鎖，還差 ${AV_MIN-points} 分）`}</div>`;
+  if(points<AV_MIN) return head+`<div class="hint">達到 ${AV_MIN} 分後可上傳一張圖當頭像，顯示在名字旁與競賽排行榜。`+`<div class="prog" style="margin-top:6px;"><i style="width:${Math.round(points/AV_MIN*100)}%"></i></div></div>`;
+  const cur=store.avatar?`<img class="avatar" src="${store.avatar}" style="width:48px;height:48px;">`:`<span class="hint">尚未設定</span>`;
+  return head+`<div style="display:flex;align-items:center;gap:10px;">`+cur+
+    `<input id="avatarInput" type="file" accept="image/*" style="display:none;" onchange="uploadAvatar(event)">`+
+    `<button class="ghost sm" onclick="document.getElementById('avatarInput').click()">${store.avatar?"更換":"上傳"}頭像</button>`+
+    (store.avatar?`<button class="ghost sm" onclick="removeAvatar()">移除</button>`:"")+`</div>`;
 }
 
 /* ---------- 賽季結算慶祝 ---------- */

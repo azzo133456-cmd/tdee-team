@@ -34,6 +34,7 @@ async function initDb() {
       favorites JSONB DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites JSONB DEFAULT '[]'::jsonb;
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
@@ -798,6 +799,17 @@ app.post("/api/review", auth, async (req, res) => {
   }
 });
 
+/* ---------- 自訂頭像（積分獎勵；小圖存 base64） ---------- */
+app.post("/api/avatar", auth, async (req, res) => {
+  try {
+    let img = String(req.body.image || "");
+    if (img && !/^data:image\/[a-zA-Z]+;base64,/.test(img)) return res.status(400).json({ error: "圖片格式錯誤" });
+    if (img.length > 90000) return res.status(413).json({ error: "圖片太大，請換小一點的" });
+    await pool.query("UPDATE users SET avatar=$1 WHERE id=$2", [img || null, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 /* ---------- 群組競賽（不暴露彼此體重，只比分數/相對%） ---------- */
 const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
 const roundLen = (period) => (period === "day" ? 1 : period === "month" ? 30 : 7);
@@ -922,7 +934,8 @@ app.get("/api/groups", auth, async (req, res) => {
     const out = [];
     for (const g of mine.rows) {
       const mem = await pool.query(
-        `SELECT u.id,u.username FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
+        `SELECT u.id,u.username,u.avatar FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
+      const avatarByName = {}; mem.rows.forEach((u) => { if (u.avatar) avatarByName[u.username] = u.avatar; });
       // 一次抓齊各成員統計
       const rowsByUser = {};
       for (const u of mem.rows) {
@@ -971,6 +984,7 @@ app.get("/api/groups", auth, async (req, res) => {
       board.forEach((m) => {
         m.trophies = trophies[m.name] || 0;
         m.fx = clsForPoints(memberPoints(rowsByUser[uidByName[m.name]] || [], m.trophies));   // 各自積分特效
+        if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
       });
       out.push({
         id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period,
@@ -1071,7 +1085,7 @@ app.get("/api/me/all", auth, async (req, res) => {
     const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
     const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name");
     const rvw = await pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]);
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows });
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, avatar: req.user.avatar || null });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
