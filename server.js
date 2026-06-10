@@ -112,6 +112,18 @@ async function initDb() {
       created_by INT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS season_start DATE DEFAULT CURRENT_DATE;
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS round_no INT DEFAULT 1;
+    ALTER TABLE groups ADD COLUMN IF NOT EXISTS stakes TEXT;
+    CREATE TABLE IF NOT EXISTS group_seasons (
+      id SERIAL PRIMARY KEY,
+      group_id INT REFERENCES groups(id) ON DELETE CASCADE,
+      round_no INT NOT NULL,
+      start_date DATE, end_date DATE,
+      winner TEXT, results JSONB DEFAULT '[]',
+      settled_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(group_id, round_no)
+    );
     CREATE TABLE IF NOT EXISTS group_members (
       group_id INT REFERENCES groups(id) ON DELETE CASCADE,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -788,15 +800,12 @@ app.post("/api/review", auth, async (req, res) => {
 
 /* ---------- 群組競賽（不暴露彼此體重，只比分數/相對%） ---------- */
 const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
-function windowStart(period) {
-  const d = new Date();
-  if (period === "day") return isoD(d);
-  if (period === "month") { d.setDate(d.getDate() - 29); return isoD(d); }
-  d.setDate(d.getDate() - 6); return isoD(d); // week
-}
-function scoreMember(rows, metric, period) {
-  const since = windowStart(period), today = isoD(new Date());
-  const win = rows.filter((r) => r.date >= since);
+const roundLen = (period) => (period === "day" ? 1 : period === "month" ? 30 : 7);
+const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoD(d); };
+// 在 [since, until] 窗內計分
+function scoreMember(rows, metric, since, until) {
+  const today = isoD(new Date());
+  const win = rows.filter((r) => r.date >= since && r.date <= until);
   if (metric === "exercise") {
     const cnt = win.reduce((a, r) => a + (r.ex_count || 0), 0);
     const vol = win.reduce((a, r) => a + (+r.volume || 0), 0);
@@ -810,9 +819,10 @@ function scoreMember(rows, metric, period) {
   }
   const streakOf = () => {
     const set = new Set(rows.filter((r) => r.logged).map((r) => r.date));
-    let s = 0; const d = new Date();
-    if (!set.has(today)) d.setDate(d.getDate() - 1);
-    for (let i = 0; i < 400; i++) { if (set.has(isoD(d))) { s++; d.setDate(d.getDate() - 1); } else break; }
+    const end = until < today ? until : today;       // 賽季窗的尾端（過去輪用 until，本輪用今天）
+    let s = 0; const d = new Date(end + "T00:00:00");
+    if (!set.has(isoD(d))) d.setDate(d.getDate() - 1);
+    for (let i = 0; i < 400; i++) { const ds = isoD(d); if (ds < since) break; if (set.has(ds)) { s++; d.setDate(d.getDate() - 1); } else break; }
     return s;
   };
   if (metric === "streak") { const s = streakOf(); return { score: s, detail: s + " 天" }; }
@@ -862,7 +872,8 @@ app.post("/api/group", auth, async (req, res) => {
     const period = ["day", "week", "month"].includes(req.body.period) ? req.body.period : "week";
     let code, ok = false;
     for (let i = 0; i < 5 && !ok; i++) { code = genCode(); const e = await pool.query("SELECT 1 FROM groups WHERE code=$1", [code]); if (!e.rows[0]) ok = true; }
-    const g = await pool.query("INSERT INTO groups(name,code,metric,period,created_by) VALUES($1,$2,$3,$4,$5) RETURNING id", [name, code, metric, period, req.user.id]);
+    const stakes = String(req.body.stakes || "").trim().slice(0, 120) || null;
+    const g = await pool.query("INSERT INTO groups(name,code,metric,period,created_by,season_start,round_no,stakes) VALUES($1,$2,$3,$4,$5,CURRENT_DATE,1,$6) RETURNING id", [name, code, metric, period, req.user.id, stakes]);
     await pool.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [g.rows[0].id, req.user.id]);
     res.json({ ok: true, id: g.rows[0].id, code });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
@@ -894,26 +905,62 @@ app.get("/api/groups", auth, async (req, res) => {
       `SELECT g.* FROM groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=$1 ORDER BY g.created_at DESC`,
       [req.user.id]
     );
+    const today = isoD(new Date());
     const out = [];
     for (const g of mine.rows) {
       const mem = await pool.query(
         `SELECT u.id,u.username FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
-      const board = [];
+      // 一次抓齊各成員統計
+      const rowsByUser = {};
       for (const u of mem.rows) {
         const st = await pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight FROM daily_stats WHERE user_id=$1 ORDER BY date", [u.id]);
-        const r = scoreMember(st.rows, g.metric, g.period);
-        board.push({ name: u.username, me: u.id === req.user.id, score: r.score, detail: r.detail });
+        rowsByUser[u.id] = st.rows;
       }
+      const len = roundLen(g.period);
       const asc = g.metric === "weightpct";
-      board.sort((a, b) => asc ? a.score - b.score : b.score - a.score);
-      // 團隊合作：算總分與目標（人數 × 期間天數 × 5 分滿分）
-      let team = null;
-      if (g.metric === "team") {
-        const days = g.period === "day" ? 1 : g.period === "month" ? 30 : 7;
-        const total = board.reduce((a, m) => a + (m.score || 0), 0);
-        team = { total, goal: board.length * days * 5 };
+      const buildBoard = (since, until) => {
+        const b = mem.rows.map((u) => { const r = scoreMember(rowsByUser[u.id], g.metric, since, until); return { name: u.username, me: u.id === req.user.id, score: r.score, detail: r.detail }; });
+        b.sort((a, b2) => asc ? a.score - b2.score : b2.score - a.score);
+        return b;
+      };
+      // === 賽季結算：把已結束的輪次寫入 group_seasons，並把 season_start 推進到含今天的輪 ===
+      let seasonStart = (g.season_start instanceof Date ? isoD(g.season_start) : String(g.season_start)).slice(0, 10);
+      let roundNo = g.round_no || 1;
+      let guard = 0;
+      while (guard++ < 24) {
+        const end = addDays(seasonStart, len - 1);
+        if (today <= end) break;                      // 本輪還沒結束
+        const finalBoard = buildBoard(seasonStart, end);
+        const winner = finalBoard.length && (finalBoard[0].score !== 0 || g.metric === "weightpct") ? finalBoard[0].name : null;
+        await pool.query(
+          `INSERT INTO group_seasons(group_id,round_no,start_date,end_date,winner,results) VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (group_id,round_no) DO NOTHING`,
+          [g.id, roundNo, seasonStart, end, winner, JSON.stringify(finalBoard.slice(0, 10))]
+        );
+        seasonStart = addDays(end, 1);
+        roundNo += 1;
       }
-      out.push({ id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period, isOwner: g.created_by === req.user.id, members: board, team });
+      if (seasonStart !== (g.season_start instanceof Date ? isoD(g.season_start) : String(g.season_start).slice(0, 10)) || roundNo !== (g.round_no || 1)) {
+        await pool.query("UPDATE groups SET season_start=$1, round_no=$2 WHERE id=$3", [seasonStart, roundNo, g.id]);
+      }
+      // 本輪排行
+      const seasonEnd = addDays(seasonStart, len - 1);
+      const board = buildBoard(seasonStart, seasonEnd);
+      // 團隊合作：總分與目標
+      let team = null;
+      if (g.metric === "team") team = { total: board.reduce((a, m) => a + (m.score || 0), 0), goal: board.length * len * 5 };
+      // 戰績：歷屆冠軍 + 獎盃統計
+      const seasons = await pool.query("SELECT round_no,start_date::text,end_date::text,winner FROM group_seasons WHERE group_id=$1 ORDER BY round_no DESC LIMIT 8", [g.id]);
+      const trophies = {};
+      const allSeasons = await pool.query("SELECT winner FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
+      allSeasons.rows.forEach((s) => { trophies[s.winner] = (trophies[s.winner] || 0) + 1; });
+      board.forEach((m) => { m.trophies = trophies[m.name] || 0; });
+      out.push({
+        id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period,
+        isOwner: g.created_by === req.user.id, stakes: g.stakes || "",
+        roundNo, seasonStart, seasonEnd, members: board, team,
+        history: seasons.rows.map((s) => ({ round: s.round_no, start: s.start_date, end: s.end_date, winner: s.winner })),
+      });
     }
     res.json({ groups: out });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }

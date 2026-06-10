@@ -912,37 +912,64 @@ async function loadGroups(){
   try{ const r=await api("/api/groups"); myGroups=r.groups||[]; }catch(e){ myGroups=[]; }
   renderGroups();
 }
+const RACE_ANIMALS=["🐎","🐇","🐅","🐕","🐖","🐐","🦊","🐱","🐢","🦄"];
+function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
 function renderGroups(){
   const box=document.getElementById("groupList"); if(!box) return;
   const pill=document.getElementById("groupCount"); if(pill) pill.textContent=myGroups.length?myGroups.length+" 組":"";
   if(!myGroups.length){ box.innerHTML='<div class="empty">還沒加入競賽。建立一個或用邀請碼加入，揪朋友一起比！</div>'; return; }
   const medal=(i)=>["🥇","🥈","🥉"][i]||(i+1)+".";
+  const today=todayStr();
   box.innerHTML=myGroups.map(g=>{
-    const isTeam=g.metric==="team";
+    const isTeam=g.metric==="team", asc=g.metric==="weightpct";
+    // 賽馬跑道：依分數相對名次定位（領先=最右）
+    const scores=g.members.map(m=>m.score);
+    const best=asc?Math.min(...scores):Math.max(...scores);
+    const worst=asc?Math.max(...scores):Math.min(...scores);
+    const range=Math.abs(best-worst)||1;
+    const race=g.members.map((m,i)=>{
+      const p=Math.round(Math.abs(m.score-worst)/range*92);   // 0~92%，留尾端給🏁
+      const an=RACE_ANIMALS[i%RACE_ANIMALS.length];
+      return `<div style="position:relative;height:24px;margin:3px 0;border-bottom:1px dashed var(--line);">`+
+        `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:0;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:17px;">${an}</span>`+
+        `<span style="position:absolute;right:0;top:3px;font-size:11px;color:${m.me?'var(--accent)':'var(--sub)'};font-weight:${m.me?700:400}">${m.name}${m.me?"(我)":""} ${m.detail}${m.trophies?` 🏆×${m.trophies}`:""}</span></div>`;
+    }).join("");
+    const raceBox=`<div style="position:relative;margin:8px 0;padding-right:18px;">${race}<span style="position:absolute;right:0;top:0;bottom:0;display:flex;align-items:center;font-size:14px;">🏁</span></div>`;
+    // 排行清單（含獎盃）
     const board=g.members.map((m,i)=>
-      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} ${m.name}${m.me?"（我）":""}</span><span>${m.detail}</span></div>`).join("");
+      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} ${m.name}${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
     let teamBar="";
     if(isTeam&&g.team){
       const pct=Math.min(100,g.team.goal?Math.round(g.team.total/g.team.goal*100):0);
       teamBar=`<div style="margin:6px 0 8px;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span>團隊總分</span><b>${g.team.total} / ${g.team.goal}</b></div>`+
         `<div class="prog"><i style="width:${pct}%"></i></div><div class="hint">大家一起衝，達 ${g.team.goal} 分過關（${pct}%）</div></div>`;
     }
+    const left=g.seasonEnd?daysBetween(today,g.seasonEnd):null;
+    const cd=left==null?"":left<0?"結算中…":left===0?"今天結算！":`距結算還有 ${left} 天`;
+    const hist=(g.history||[]).filter(h=>h.winner);
+    const histHtml=hist.length?`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">🏆 歷屆冠軍（${hist.length}）</summary>`+
+      hist.map(h=>`<div class="hint" style="margin-top:2px;">第 ${h.round} 輪（${h.start.slice(5)}~${h.end.slice(5)}）：<b>${h.winner}</b></div>`).join("")+`</details>`:"";
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">`+
-      `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">`+
-        `<b>${g.name}</b><span class="pill">${PERIOD_LABEL[g.period]}·${METRIC_LABEL[g.metric]}</span></div>`+
-      teamBar+board+
+      `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">`+
+        `<b>${g.name}</b><span class="pill">${PERIOD_LABEL[g.period]}·${METRIC_LABEL[g.metric]}</span><span class="pill" style="background:var(--soft);color:var(--accent)">第 ${g.roundNo} 輪</span></div>`+
+      `<div class="hint" style="margin-bottom:4px;">${cd}${g.stakes?`　·　🎁 ${g.stakes}`:""}</div>`+
+      (isTeam?teamBar:raceBox)+board+
+      histHtml+
       `<div class="chipbar" style="margin-top:8px;">`+
-        `<button class="ghost sm" onclick="copyInvite('${g.code}')">🔗 複製邀請連結</button>`+
+        `<button class="ghost sm" onclick="loadGroups()">🔄 更新</button>`+
+        `<button class="ghost sm" onclick="copyInvite('${g.code}')">🔗 邀請連結</button>`+
         `<button class="ghost sm" onclick="leaveGroup(${g.id},${g.isOwner})">${g.isOwner?"解散":"離開"}</button>`+
       `</div>`+
       `<div class="hint">邀請碼 <b>${g.code}</b></div></div>`;
   }).join("");
+  // 賽馬動畫：插入後再把跑者移到目標位置，觸發過場
+  requestAnimationFrame(()=>{ box.querySelectorAll(".runner").forEach(el=>{ el.style.left=(el.dataset.p||0)+"%"; }); });
 }
 async function createGroup(){
   const name=val("grpName").trim()||"減重小隊";
-  const metric=val("grpMetric"), period=val("grpPeriod");
+  const metric=val("grpMetric"), period=val("grpPeriod"), stakes=val("grpStakes").trim();
   try{
-    const r=await api("/api/group",{method:"POST",body:JSON.stringify({name,metric,period})});
+    const r=await api("/api/group",{method:"POST",body:JSON.stringify({name,metric,period,stakes})});
     document.getElementById("grpName").value="";
     await loadGroups();
     copyInvite(r.code);
