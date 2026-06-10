@@ -808,16 +808,25 @@ function scoreMember(rows, metric, period) {
     const pct = +(((+w[w.length - 1].weight - +w[0].weight) / +w[0].weight) * 100).toFixed(1);
     return { score: pct, detail: (pct > 0 ? "+" : "") + pct + "%", sortAsc: true };
   }
-  if (metric === "streak") {
+  const streakOf = () => {
     const set = new Set(rows.filter((r) => r.logged).map((r) => r.date));
     let s = 0; const d = new Date();
-    if (!set.has(today)) d.setDate(d.getDate() - 1); // 今天還沒記也算，從昨天起算
+    if (!set.has(today)) d.setDate(d.getDate() - 1);
     for (let i = 0; i < 400; i++) { if (set.has(isoD(d))) { s++; d.setDate(d.getDate() - 1); } else break; }
-    return { score: s, detail: s + " 天" };
+    return s;
+  };
+  if (metric === "streak") { const s = streakOf(); return { score: s, detail: s + " 天" }; }
+  if (metric === "protein") { const n = win.reduce((a, r) => a + (r.protein_hit || 0), 0); return { score: n, detail: n + " 天達標" }; }
+  if (metric === "water") { const n = win.reduce((a, r) => a + (r.water_hit || 0), 0); return { score: n, detail: n + " 天達標" }; }
+  const disc = win.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
+  if (metric === "all") {
+    const exc = win.reduce((a, r) => a + (r.ex_count || 0), 0);
+    const total = disc + streakOf() + exc;
+    return { score: total, detail: total + " 分（自律" + disc + "·連" + streakOf() + "·動" + exc + "）" };
   }
+  if (metric === "team") return { score: disc, detail: disc + " 分" }; // 合作：個人貢獻，前端加總
   // discipline（自律分）
-  const sc = win.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
-  return { score: sc, detail: sc + " 分" };
+  return { score: disc, detail: disc + " 分" };
 }
 function genCode() {
   const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = "";
@@ -849,7 +858,7 @@ app.post("/api/dailystats", auth, async (req, res) => {
 app.post("/api/group", auth, async (req, res) => {
   try {
     const name = String(req.body.name || "").trim().slice(0, 40) || "減重小隊";
-    const metric = ["discipline", "streak", "weightpct", "exercise"].includes(req.body.metric) ? req.body.metric : "discipline";
+    const metric = ["discipline", "streak", "weightpct", "exercise", "all", "protein", "water", "team"].includes(req.body.metric) ? req.body.metric : "discipline";
     const period = ["day", "week", "month"].includes(req.body.period) ? req.body.period : "week";
     let code, ok = false;
     for (let i = 0; i < 5 && !ok; i++) { code = genCode(); const e = await pool.query("SELECT 1 FROM groups WHERE code=$1", [code]); if (!e.rows[0]) ok = true; }
@@ -897,7 +906,14 @@ app.get("/api/groups", auth, async (req, res) => {
       }
       const asc = g.metric === "weightpct";
       board.sort((a, b) => asc ? a.score - b.score : b.score - a.score);
-      out.push({ id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period, isOwner: g.created_by === req.user.id, members: board });
+      // 團隊合作：算總分與目標（人數 × 期間天數 × 5 分滿分）
+      let team = null;
+      if (g.metric === "team") {
+        const days = g.period === "day" ? 1 : g.period === "month" ? 30 : 7;
+        const total = board.reduce((a, m) => a + (m.score || 0), 0);
+        team = { total, goal: board.length * days * 5 };
+      }
+      out.push({ id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period, isOwner: g.created_by === req.user.id, members: board, team });
     }
     res.json({ groups: out });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }

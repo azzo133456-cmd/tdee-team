@@ -879,7 +879,7 @@ function renderReviews(){
 
 /* ---------- 群組競賽 ---------- */
 let myGroups=[];
-const METRIC_LABEL={discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數"};
+const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數",protein:"蛋白王",water:"喝水王",team:"團隊挑戰"};
 const PERIOD_LABEL={day:"每日",week:"每週",month:"每月"};
 // 計算自己近 35 天的隱私安全統計並上傳（flag 由本機算，體重只供算個人%）
 async function syncDailyStats(){
@@ -918,12 +918,19 @@ function renderGroups(){
   if(!myGroups.length){ box.innerHTML='<div class="empty">還沒加入競賽。建立一個或用邀請碼加入，揪朋友一起比！</div>'; return; }
   const medal=(i)=>["🥇","🥈","🥉"][i]||(i+1)+".";
   box.innerHTML=myGroups.map(g=>{
+    const isTeam=g.metric==="team";
     const board=g.members.map((m,i)=>
-      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${medal(i)} ${m.name}${m.me?"（我）":""}</span><span>${m.detail}</span></div>`).join("");
+      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} ${m.name}${m.me?"（我）":""}</span><span>${m.detail}</span></div>`).join("");
+    let teamBar="";
+    if(isTeam&&g.team){
+      const pct=Math.min(100,g.team.goal?Math.round(g.team.total/g.team.goal*100):0);
+      teamBar=`<div style="margin:6px 0 8px;"><div style="display:flex;justify-content:space-between;font-size:13px;"><span>團隊總分</span><b>${g.team.total} / ${g.team.goal}</b></div>`+
+        `<div class="prog"><i style="width:${pct}%"></i></div><div class="hint">大家一起衝，達 ${g.team.goal} 分過關（${pct}%）</div></div>`;
+    }
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">`+
       `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">`+
         `<b>${g.name}</b><span class="pill">${PERIOD_LABEL[g.period]}·${METRIC_LABEL[g.metric]}</span></div>`+
-      board+
+      teamBar+board+
       `<div class="chipbar" style="margin-top:8px;">`+
         `<button class="ghost sm" onclick="copyInvite('${g.code}')">🔗 複製邀請連結</button>`+
         `<button class="ghost sm" onclick="leaveGroup(${g.id},${g.isOwner})">${g.isOwner?"解散":"離開"}</button>`+
