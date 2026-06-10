@@ -85,6 +85,14 @@ async function initDb() {
       created_by INT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS barcodes (
+      code TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kcal REAL, protein REAL, fat REAL, carb REAL,
+      source TEXT DEFAULT 'user',
+      created_by INT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
   console.log("DB ready");
 }
@@ -372,6 +380,13 @@ app.get("/api/barcode", auth, async (req, res) => {
   try {
     const code = String(req.query.code || "").replace(/[^0-9]/g, "");
     if (!code) return res.status(400).json({ error: "缺少條碼" });
+    // 1) 先查自建條碼庫（含先前手填／標籤辨識／OFF 快取），秒回
+    const local = await pool.query("SELECT name,kcal,protein,fat,carb FROM barcodes WHERE code=$1", [code]);
+    if (local.rows[0]) {
+      const b = local.rows[0];
+      return res.json({ found: true, code, n: b.name, k: b.kcal ?? 0, p: b.protein ?? 0, f: b.fat ?? 0, c: b.carb ?? 0, src: "db" });
+    }
+    // 2) 查不到才打 Open Food Facts
     const r = await fetch(
       "https://world.openfoodfacts.org/api/v2/product/" + code +
         ".json?fields=product_name,product_name_zh,brands,nutriments",
@@ -384,14 +399,42 @@ app.get("/api/barcode", auth, async (req, res) => {
     const name =
       p.product_name_zh || p.product_name ||
       (p.brands ? p.brands.split(",")[0] : "") || ("商品 " + code);
-    res.json({
-      found: true, code,
-      n: name,
-      k: Math.round((nu["energy-kcal_100g"] ?? 0) * 10) / 10,
-      p: Math.round((nu["proteins_100g"] ?? 0) * 10) / 10,
-      f: Math.round((nu["fat_100g"] ?? 0) * 10) / 10,
-      c: Math.round((nu["carbohydrates_100g"] ?? 0) * 10) / 10,
-    });
+    const k = Math.round((nu["energy-kcal_100g"] ?? 0) * 10) / 10;
+    const pr = Math.round((nu["proteins_100g"] ?? 0) * 10) / 10;
+    const f = Math.round((nu["fat_100g"] ?? 0) * 10) / 10;
+    const c = Math.round((nu["carbohydrates_100g"] ?? 0) * 10) / 10;
+    // 3) OFF 有完整數值就順手存回自建庫，下次秒回、也離線可用
+    if (k > 0) {
+      pool.query(
+        `INSERT INTO barcodes(code,name,kcal,protein,fat,carb,source,created_by)
+         VALUES($1,$2,$3,$4,$5,$6,'off',$7) ON CONFLICT (code) DO NOTHING`,
+        [code, name, k, pr, f, c, req.user.id]
+      ).catch(() => {});
+    }
+    res.json({ found: true, code, n: name, k, p: pr, f, c, src: "off" });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 條碼建檔：標籤辨識／手填後存回，下次秒帶（共享） ---------- */
+app.post("/api/barcode", auth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const code = String(b.code || "").replace(/[^0-9]/g, "");
+    const name = String(b.name || "").trim();
+    if (!code || !name) return res.status(400).json({ error: "缺少條碼或名稱" });
+    const num = (v) => Math.round((Number(v) || 0) * 10) / 10;
+    await pool.query(
+      `INSERT INTO barcodes(code,name,kcal,protein,fat,carb,source,created_by)
+       VALUES($1,$2,$3,$4,$5,$6,'user',$7)
+       ON CONFLICT (code) DO UPDATE SET
+         name=EXCLUDED.name, kcal=EXCLUDED.kcal, protein=EXCLUDED.protein,
+         fat=EXCLUDED.fat, carb=EXCLUDED.carb, source='user'`,
+      [code, name, num(b.kcal), num(b.protein), num(b.fat), num(b.carb), req.user.id]
+    );
+    res.json({ ok: true, code });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });

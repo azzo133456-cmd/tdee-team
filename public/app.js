@@ -380,6 +380,7 @@ function addCustom(){
     k=r(k); p=r(p); f=r(f); c=r(c); defGram=servG;
   }
   registerFood(n,[k,p,f,c],defGram);
+  saveBarcode(n,k,p,f,c);   // 若是掃碼後手填，存回共享條碼庫
   ["cfName","cfK","cfP","cfF","cfC","cfServ"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("cfUnit").value="100"; cfUnitChange();
   document.getElementById("customBox").style.display="none";
@@ -429,22 +430,34 @@ function stopScan(){
   try{ if(zxingReader) zxingReader.reset(); }catch(e){}
   document.getElementById("scanOverlay").style.display="none";
 }
+let pendingBarcode=null; // 尚未建檔的條碼：標籤辨識／手填成功後存回
 async function onBarcode(code){
   document.getElementById("customBox").style.display="block";
+  pendingBarcode=null;
   try{
     const r=await api("/api/barcode?code="+encodeURIComponent(code));
     if(r.found && r.k>0){
       registerFood(r.n,[r.k,r.p,r.f,r.c],100);
-      alert("已帶入：「"+r.n+"」（每100g "+r.k+" kcal），確認份量後加入餐別即可。");
+      alert("已帶入：「"+r.n+"」（每100g "+r.k+" kcal"+(r.src==="db"?"，來自共享條碼庫":"")+"），確認份量後加入餐別即可。");
     }else if(r.found){
       document.getElementById("cfName").value=r.n;
-      alert("查到商品「"+r.n+"」但沒有營養數值，請照標籤手動填。");
+      pendingBarcode=code;
+      alert("查到商品「"+r.n+"」但沒有營養數值，請照標籤手動填或拍標示，建立後會自動記住此條碼。");
     }else{
       document.getElementById("cfName").value="商品 "+code;
       document.getElementById("customBox").style.display="block";
-      alert("資料庫查無此條碼（"+code+"）。可改按「📋 拍營養標示」用 AI 自動帶入，或手動填，建立後會記住。");
+      pendingBarcode=code;
+      alert("資料庫查無此條碼（"+code+"）。可改按「📋 拍營養標示」用 AI 自動帶入，或手動填，建立後會記住此條碼，下次秒帶。");
     }
   }catch(e){ alert("查詢失敗："+e.message); }
+}
+// 把目前條碼（per-100g 營養）存回共享條碼庫
+async function saveBarcode(name,k,p,f,c){
+  if(!pendingBarcode) return;
+  const code=pendingBarcode; pendingBarcode=null;
+  try{
+    await api("/api/barcode",{method:"POST",body:JSON.stringify({code,name,kcal:k,protein:p,fat:f,carb:c})});
+  }catch(e){ pendingBarcode=code; /* 失敗保留，之後可再存 */ }
 }
 
 /* ---------- 餐別飲食 ---------- */
@@ -497,6 +510,7 @@ async function runLabel(){
     const name=(r.name&&r.name.trim())?r.name.trim():("商品 "+new Date().toLocaleTimeString().slice(0,5));
     const serv=r.serving>0?r.serving:100;
     registerFood(name,[r.kcal,r.protein,r.fat,r.carb],serv);   // per100g，預設份量=一份
+    saveBarcode(name,r.kcal,r.protein,r.fat,r.carb);           // 若是掃碼後拍標示，存回條碼庫
     h.innerHTML=`已加入「<b>${name}</b>」：每100g ${r.kcal}kcal／蛋${r.protein} 脂${r.fat} 碳${r.carb}。`+
       `下方清單已帶入 <b>${serv}g</b>${r.serving>0?"（=標示一份）":"（預設值，請改成你吃的克數）"}，可直接調整。`;
   }catch(e){
