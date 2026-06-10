@@ -1518,7 +1518,7 @@ function renderEta(){
   set("etaOut", `${y}/${m}/${d}`);
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); } }
 function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReviews(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
