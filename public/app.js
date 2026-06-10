@@ -496,9 +496,26 @@ function compressImg(file){
 }
 let lastLabelImg=null;
 async function onLabelPick(ev){
-  const file=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!file) return;
-  lastLabelImg=await compressImg(file);
-  await runLabel();
+  const files=ev.target.files?[...ev.target.files]:[]; ev.target.value=""; if(!files.length) return;
+  if(files.length===1){ lastLabelImg=await compressImg(files[0]); await runLabel(); return; }
+  // 多張 → 批次辨識
+  const h=document.getElementById("labelHint");
+  h.style.display="block"; h.textContent=`🔎 批次辨識 ${files.length} 張標示中…約 ${Math.ceil(files.length*1.5)+3} 秒`;
+  try{
+    const imgs=await Promise.all(files.slice(0,6).map(compressImg));
+    const r=await api("/api/labels",{method:"POST",body:JSON.stringify({images:imgs})});
+    const items=r.items||[]; let added=0;
+    items.forEach((it,i)=>{
+      if(!(it.kcal>0)) return;
+      const name=(it.name&&it.name.trim())?it.name.trim():("商品"+(i+1)+" "+new Date().toLocaleTimeString().slice(0,5));
+      const serv=it.serving>0?it.serving:100;
+      registerFood(name,[it.kcal,it.protein,it.fat,it.carb],serv); added++;
+    });
+    h.innerHTML=`已建立 <b>${added}</b> 項食物（共讀 ${items.length} 張），都已加入下方清單與共享庫，可逐筆改克數。`+
+      (files.length>6?`（一次最多 6 張，多的略過）`:"");
+  }catch(e){
+    h.innerHTML=`批次辨識失敗：${e.message} <button class="ghost sm" onclick="document.getElementById('labelInput').click()">🔁 重選</button>`;
+  }
 }
 async function runLabel(){
   if(!lastLabelImg) return;
@@ -535,8 +552,9 @@ async function analyzePhoto(){
       FOODS_DYN[name]=[Math.round(it.kcal*sc),+(it.protein*sc).toFixed(1),+(it.fat*sc).toFixed(1),+(it.carb*sc).toFixed(1)];
       addToCart(name,g); tot+=it.kcal||0;
     });
+    const mealNote=applyMealGuess(r.meal);
     if(h){
-      h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`
+      h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。${mealNote}可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`
         +`<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
         +`<input id="aiFixInput" placeholder="辨識不對？例：這是滷肉飯不是燴飯／雞肉約300g" style="flex:1 1 200px;padding:6px 8px;font-size:13px">`
         +`<button class="ghost sm" onclick="analyzePhoto()">🔁 依提示重新辨識</button>`
@@ -562,7 +580,8 @@ async function estimateText(){
       FOODS_DYN[name]=[Math.round(it.kcal*sc),+(it.protein*sc).toFixed(1),+(it.fat*sc).toFixed(1),+(it.carb*sc).toFixed(1)];
       addToCart(name,g); tot+=it.kcal||0;
     });
-    h.innerHTML=`已估 <b>${items.length}</b> 項、共約 <b>${Math.round(tot)} kcal</b>，已加入下方清單。可改克數後選餐別「＋加入」。 <button class="ghost sm" onclick="saveAiFoods()">💾 存成自訂</button>`;
+    const mealNote=applyMealGuess(r.meal);
+    h.innerHTML=`已估 <b>${items.length}</b> 項、共約 <b>${Math.round(tot)} kcal</b>，已加入下方清單。可改克數後選餐別「＋加入」。${mealNote} <button class="ghost sm" onclick="saveAiFoods()">💾 存成自訂</button>`;
   }catch(e){
     h.innerHTML=`估算失敗：${e.message} <button class="ghost sm" onclick="estimateText()">🔁 再試</button>`;
   }
@@ -581,6 +600,91 @@ function saveAiFoods(){
   });
   saveFavs(); renderFavs();
   alert(`已存 ${saved} 項自訂食物（已加入我的最愛與共享庫，之後可直接搜尋）`);
+}
+// AI 猜的餐別 → 自動選好「加到哪一餐」下拉，回一段提示字
+function applyMealGuess(meal){
+  const m=String(meal||"").trim();
+  if(!["早餐","午餐","晚餐","點心"].includes(m)) return "";
+  const sel=document.getElementById("mealType"); if(sel) sel.value=m;
+  return `已自動選為<b>「${m}」</b>（可改）。`;
+}
+
+/* ---------- AI 教練（每日建議／剩餘額度推薦／週報點評） ---------- */
+// 取常吃食物名稱（給「還能吃什麼」當口味參考）
+function topFoods(n){
+  const ranked=Object.entries(FOOD_STATS||{}).sort((a,b)=>(b[1].c||0)-(a[1].c||0)).map(e=>e[0]);
+  const favs=(store.favorites||[]).map(f=>f.n);
+  return [...new Set([...ranked,...favs])].slice(0,n||10);
+}
+async function coachDaily(){
+  const box=document.getElementById("coachBox");
+  const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能給建議。"; return; }
+  const d=dayNutrition(selDate()), burn=burnByDate(selDate());
+  box.textContent="🤖 AI 教練思考中…約 3–6 秒";
+  try{
+    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"daily",
+      today:{kcal:d.k,protein:d.p,fat:d.f,carb:d.c},
+      target:{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb},
+      burn, goal:val("goal")})});
+    box.innerHTML=coachHtml(r);
+  }catch(e){ box.innerHTML=`建議失敗：${e.message} <button class="ghost sm" onclick="coachDaily()">🔁 再試</button>`; }
+}
+async function coachRemain(){
+  const box=document.getElementById("coachBox");
+  const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
+  const d=dayNutrition(selDate()), burn=burnByDate(selDate());
+  const remain={kcal:Math.round(t.kcal+burn-d.k), protein:Math.round(t.protein-d.p), fat:Math.round(t.fat-d.f), carb:Math.round(t.carb-d.c)};
+  box.textContent="🍱 AI 依你剩餘額度找選擇中…約 3–6 秒";
+  try{
+    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"remain",remain,goal:val("goal"),prefs:topFoods(10)})});
+    const items=r.items||[];
+    if(!items.length){ box.innerHTML="AI 沒有給出建議，稍後再試。"; return; }
+    window.__remain=items;
+    box.innerHTML=`<div style="margin-bottom:6px;">今天還剩 <b>${remain.kcal.toLocaleString()} kcal</b>`+
+      `（蛋白還缺 ${Math.max(0,remain.protein)}g）。AI 推薦：</div>`+
+      items.map((it,i)=>`<div class="foodrow"><span class="nm">${it.name}<br><span style="color:var(--sub);font-size:11px">${it.kcal}kcal · P${it.protein} F${it.fat} C${it.carb}${it.reason?" · "+it.reason:""}</span></span>`+
+        `<span class="x" style="color:var(--accent)" onclick="addRemainItem(${i})">＋加入</span></div>`).join("");
+  }catch(e){ box.innerHTML=`推薦失敗：${e.message} <button class="ghost sm" onclick="coachRemain()">🔁 再試</button>`; }
+}
+// 把 AI 推薦的一項加入下方食物清單（以一份=其重量近似 100g 帶入）
+function addRemainItem(i){
+  const it=(window.__remain||[])[i]; if(!it) return;
+  const name="✨ "+it.name;
+  FOODS_DYN[name]=[it.kcal,it.protein,it.fat,it.carb]; SERVINGS[name]=100;
+  addToCart(name,100);
+  document.getElementById("foodTotal").scrollIntoView({behavior:"smooth"});
+}
+async function coachReport(){
+  const box=document.getElementById("coachReportBox");
+  const t=goalTargets();
+  const since=isoLocal(new Date(new Date(todayStr())-(reportDays-1)*86400000));
+  const recs=(store.records||[]).filter(r=>r.date.slice(0,10)>=since);
+  const exs=(store.exercises||[]).filter(e=>e.date.slice(0,10)>=since);
+  const intakeDays=recs.filter(r=>r.kcal!=null);
+  if(!intakeDays.length){ box.innerHTML="這段期間還沒有飲食紀錄，先記幾天再來點評。"; return; }
+  const avgI=Math.round(avg(intakeDays.map(r=>+r.kcal||0)));
+  const avgP=Math.round(avg(intakeDays.map(r=>+r.protein||0)));
+  const avgF=Math.round(avg(intakeDays.map(r=>+r.fat||0)));
+  const avgC=Math.round(avg(intakeDays.map(r=>+r.carb||0)));
+  const avgBurn=Math.round(exs.reduce((a,b)=>a+(+b.kcal||0),0)/reportDays);
+  const wRecs=recs.filter(r=>r.weight!=null);
+  const wDelta=wRecs.length>=2?+(+wRecs[wRecs.length-1].weight-+wRecs[0].weight).toFixed(1):null;
+  box.textContent="🤖 教練點評產生中…約 3–6 秒";
+  try{
+    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"report",days:reportDays,
+      avg:{kcal:avgI,protein:avgP,fat:avgF,carb:avgC},
+      target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
+      avgBurn, avgNet:avgI-avgBurn, weightDelta:wDelta, goal:val("goal")})});
+    box.innerHTML=coachHtml(r);
+  }catch(e){ box.innerHTML=`點評失敗：${e.message} <button class="ghost sm" onclick="coachReport()">🔁 再試</button>`; }
+}
+// 把 {summary, actions[]} 轉成顯示用 HTML
+function coachHtml(r){
+  let html=`<div style="color:var(--ink);">${(r.summary||"").replace(/\n/g,"<br>")}</div>`;
+  if(r.actions&&r.actions.length){
+    html+=`<ul style="margin:6px 0 0;padding-left:18px;">`+r.actions.map(a=>`<li>${a}</li>`).join("")+`</ul>`;
+  }
+  return html;
 }
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }

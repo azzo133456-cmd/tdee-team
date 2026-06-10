@@ -185,7 +185,7 @@
         <button class="ghost sm" onclick="document.getElementById('labelInput').click()">📋 標示</button>
         <button class="ghost sm" onclick="addFav()">⭐ 最愛</button>
       </div>
-      <input id="labelInput" type="file" accept="image/*" style="display:none;" onchange="onLabelPick(event)">
+      <input id="labelInput" type="file" accept="image/*" multiple style="display:none;" onchange="onLabelPick(event)">
       <div class="hint" id="labelHint" style="display:none; overflow-wrap:anywhere; word-break:break-word;"></div>
       <div style="margin-top:8px;">
         <label>✨ 用一句話估熱量</label>
@@ -242,9 +242,14 @@
         <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天飲食</button>
       </div>
       <div class="rings" id="rings" style="margin-top:12px;"></div>
+      <div class="chipbar">
+        <button class="ghost sm" onclick="coachDaily()">🤖 今日建議</button>
+        <button class="ghost sm" onclick="coachRemain()">🍱 還能吃什麼</button>
+      </div>
+      <div id="coachBox" class="hint" style="overflow-wrap:anywhere;"></div>
       <div class="result" id="netBox" style="display:none;"></div>
       <div id="mealGroups"></div>
-      <div class="hint tip">環圈＝對②目標的達成度。</div>
+      <div class="hint tip">環圈＝對②目標的達成度。AI 建議僅供參考。</div>
     </div>
 
     <!-- 食譜 -->
@@ -356,8 +361,10 @@
       <div class="chipbar">
         <button class="ghost sm fbtn on" id="rep7" onclick="setReport(7,this)">近 7 天</button>
         <button class="ghost sm fbtn" id="rep30" onclick="setReport(30,this)">近 30 天</button>
+        <button class="ghost sm" onclick="coachReport()">🤖 教練點評</button>
       </div>
       <div id="reportBox"></div>
+      <div id="coachReportBox" class="hint" style="overflow-wrap:anywhere; margin-top:8px;"></div>
     </div>
 
     <!-- 所有紀錄 -->

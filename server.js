@@ -498,9 +498,10 @@ app.post("/api/analyze", auth, async (req, res) => {
     const hint = String(req.body.hint || "").trim().slice(0, 200);
     const prompt =
       "你是營養師。看這張食物照片，把畫面中的每一道菜／品項分別列出（例如烤雞腿、炒冬粉各算一筆，不要全部加總成一筆）。" +
-      "每筆估計其重量與營養。只回傳 JSON 陣列，不要任何說明文字、不要 markdown 圍欄。格式：" +
-      '[{"name":"中文品名","grams":該品項重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]。' +
-      "name 可帶簡短說明（如「烤雞腿(醬燒)」）。若只有單一品項就回傳只含一筆的陣列。" +
+      "每筆估計其重量與營養。並從菜色內容判斷這比較像哪一餐 meal（只能是『早餐/午餐/晚餐/點心』其一；判斷不出填空字串）。" +
+      "只回傳 JSON 物件，不要任何說明文字、不要 markdown 圍欄。格式：" +
+      '{"meal":"早餐/午餐/晚餐/點心或空字串","items":[{"name":"中文品名","grams":該品項重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]}。' +
+      "name 可帶簡短說明（如「烤雞腿(醬燒)」）。若只有單一品項 items 就只含一筆。" +
       "數字一律為阿拉伯數字（不含單位），無法判斷就用合理概估。" +
       (hint ? "使用者提供的補充提示（請優先採信並據此修正辨識）：「" + hint + "」。" : "");
 
@@ -513,17 +514,12 @@ app.post("/api/analyze", auth, async (req, res) => {
     }
     const data = g.data;
     const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    let parsed;
-    try {
-      parsed = JSON.parse(txt);
-    } catch {
-      const j = txt.match(/\[[\s\S]*\]/) || txt.match(/\{[\s\S]*\}/);
-      if (!j) return res.status(502).json({ error: "無法解析辨識結果" });
-      parsed = JSON.parse(j[0]);
-    }
+    const parsed = extractJson(txt);
+    if (!parsed) return res.status(502).json({ error: "無法解析辨識結果" });
     const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
-    const arr = Array.isArray(parsed) ? parsed : [parsed];
-    const items = arr.filter((p) => p && (p.name || p.kcal)).map((p) => ({
+    const rawItems = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : [parsed]);
+    const meal = Array.isArray(parsed) ? "" : String(parsed.meal || "").slice(0, 4);
+    const items = rawItems.filter((p) => p && (p.name || p.kcal)).map((p) => ({
       name: String(p.name || "辨識食物").slice(0, 40),
       grams: Math.max(1, Math.round(num(p.grams) || 100)),
       kcal: Math.round(num(p.kcal)),
@@ -532,7 +528,7 @@ app.post("/api/analyze", auth, async (req, res) => {
       carb: num(p.carb),
     }));
     if (items.length === 0) return res.status(502).json({ error: "無法辨識內容" });
-    res.json({ ok: true, items });
+    res.json({ ok: true, items, meal });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
@@ -549,8 +545,9 @@ app.post("/api/estimate", auth, async (req, res) => {
     const prompt =
       "你是營養師。使用者用一句話描述吃了什麼，請估計其營養。把不同品項分別列出。" +
       "若描述有提到重量（如 250g）就用該重量；沒提到就用合理常見份量。" +
-      "只回傳 JSON 陣列，不要任何說明文字、不要 markdown 圍欄。格式：" +
-      '[{"name":"中文品名","grams":重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]。' +
+      "另外，從描述判斷這餐屬於哪一餐別 meal（只能是『早餐/午餐/晚餐/點心』其一；判斷不出填空字串）。" +
+      "只回傳 JSON 物件，不要任何說明文字、不要 markdown 圍欄。格式：" +
+      '{"meal":"早餐/午餐/晚餐/點心或空字串","items":[{"name":"中文品名","grams":重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]}。' +
       "數字一律阿拉伯數字（不含單位）。使用者描述：「" + text + "」";
     const g = await geminiText(key, prompt, 0.2);
     if (g.error) {
@@ -560,23 +557,20 @@ app.post("/api/estimate", auth, async (req, res) => {
       return res.status(502).json({ error: msg });
     }
     const txt = g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    let parsed;
-    try { parsed = JSON.parse(txt); }
-    catch {
-      const j = txt.match(/\[[\s\S]*\]/) || txt.match(/\{[\s\S]*\}/);
-      if (!j) return res.status(502).json({ error: "無法解析估算結果" });
-      parsed = JSON.parse(j[0]);
-    }
+    const parsed = extractJson(txt);
+    if (!parsed) return res.status(502).json({ error: "無法解析估算結果" });
     const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
-    const arr = Array.isArray(parsed) ? parsed : [parsed];
-    const items = arr.filter((p) => p && (p.name || p.kcal)).map((p) => ({
+    // 相容：可能回物件{meal,items}或舊版純陣列
+    const rawItems = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : [parsed]);
+    const meal = Array.isArray(parsed) ? "" : String(parsed.meal || "").slice(0, 4);
+    const items = rawItems.filter((p) => p && (p.name || p.kcal)).map((p) => ({
       name: String(p.name || "估算食物").slice(0, 40),
       grams: Math.max(1, Math.round(num(p.grams) || 100)),
       kcal: Math.round(num(p.kcal)),
       protein: num(p.protein), fat: num(p.fat), carb: num(p.carb),
     }));
     if (items.length === 0) return res.status(502).json({ error: "無法估算內容" });
-    res.json({ ok: true, items });
+    res.json({ ok: true, items, meal });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
@@ -634,6 +628,124 @@ app.post("/api/label", auth, async (req, res) => {
       fat: num(parsed.fat),
       carb: num(parsed.carb),
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 抽取 Gemini 回傳的 JSON（容錯：去圍欄、抓首個 {}/[]） ---------- */
+function extractJson(txt) {
+  if (!txt) return null;
+  try { return JSON.parse(txt); } catch {}
+  const j = txt.match(/\[[\s\S]*\]/) || txt.match(/\{[\s\S]*\}/);
+  if (!j) return null;
+  try { return JSON.parse(j[0]); } catch { return null; }
+}
+function geminiErrMsg(status) {
+  return status === 503 || status === 429
+    ? "AI 服務目前流量壅塞，請稍候幾秒再試一次"
+    : "AI 服務錯誤(" + status + ")";
+}
+
+/* ---------- AI 教練：每日建議 / 週報點評 / 剩餘額度推薦 ---------- */
+app.post("/api/coach", auth, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });
+    const b = req.body || {};
+    const mode = ["daily", "report", "remain"].includes(b.mode) ? b.mode : "daily";
+    const goalName = { cut: "減脂", maintain: "維持", bulk: "增肌" }[b.goal] || "維持";
+    const j = (o) => JSON.stringify(o || {});
+    let prompt;
+    if (mode === "remain") {
+      // 剩餘額度 → 推薦具體品項（以台灣超商/手搖/常見食物為主）
+      prompt =
+        "你是營養師兼台灣飲食教練。使用者今天還剩下這些可吃額度（剩餘=目標−已攝取）：" + j(b.remain) +
+        "。目標類型：" + goalName + "。" +
+        (Array.isArray(b.prefs) && b.prefs.length ? "他常吃：" + b.prefs.slice(0, 12).join("、") + "。" : "") +
+        "請推薦 3 個具體、台灣方便取得（超商即食、手搖、自助餐、便當、高蛋白食品等）、且能補足剩餘額度（特別是還缺的蛋白質）的選擇。" +
+        "每項給實際份量與營養估計。只回傳 JSON，不要說明文字、不要 markdown：" +
+        '{"items":[{"name":"品項(含份量)","kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克,"reason":"一句為何推薦(20字內)"}]}。' +
+        "數字一律阿拉伯數字、不含單位。若剩餘熱量已很少或為負，items 可給低卡高蛋白選項並在 reason 提醒已接近上限。";
+    } else if (mode === "report") {
+      prompt =
+        "你是營養師兼教練。這是使用者近 " + (b.days || 7) + " 天的飲食/運動摘要：" +
+        "平均攝取/天=" + j(b.avg) + "，每日目標=" + j(b.target) +
+        "，平均運動消耗/天=" + (b.avgBurn || 0) + " kcal，平均淨熱量/天=" + (b.avgNet || 0) + " kcal" +
+        (b.weightDelta != null ? "，期間體重變化=" + b.weightDelta + " kg" : "") +
+        "，目標類型=" + goalName + "。" +
+        "請做一段精簡『教練點評』：先講趨勢與做得好的地方，再指出最該調整的 1–2 點，最後給下週一個可執行的小目標。" +
+        "口語、鼓勵、具體（可引用數字），繁體中文。只回傳 JSON：" +
+        '{"summary":"2-4句總評","actions":["下週可做的具體小目標1","小目標2"]}。';
+    } else {
+      prompt =
+        "你是營養師兼教練。使用者今天到目前的攝取=" + j(b.today) + "，每日目標=" + j(b.target) +
+        "，今天運動消耗=" + (b.burn || 0) + " kcal，目標類型=" + goalName + "。" +
+        "請給今天剩餘時間的飲食建議：還缺/超出多少熱量與蛋白質，下一餐可以怎麼吃。" +
+        "口語、簡短、具體（可引用數字、給台灣常見食物例子），繁體中文。只回傳 JSON：" +
+        '{"summary":"2-3句建議","actions":["可做的具體建議1","建議2"]}。';
+    }
+    const g = await geminiText(key, prompt, 0.4);
+    if (g.error) return res.status(502).json({ error: geminiErrMsg(g.error.status) });
+    const txt = g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const parsed = extractJson(txt);
+    if (!parsed) return res.status(502).json({ error: "無法解析 AI 回應" });
+    const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
+    if (mode === "remain") {
+      const arr = Array.isArray(parsed.items) ? parsed.items : [];
+      const items = arr.filter((p) => p && p.name).slice(0, 4).map((p) => ({
+        name: String(p.name).slice(0, 40),
+        kcal: Math.round(num(p.kcal)), protein: num(p.protein), fat: num(p.fat), carb: num(p.carb),
+        reason: String(p.reason || "").slice(0, 40),
+      }));
+      if (!items.length) return res.status(502).json({ error: "AI 沒有給出建議" });
+      return res.json({ ok: true, items });
+    }
+    const actions = Array.isArray(parsed.actions) ? parsed.actions.slice(0, 4).map((s) => String(s).slice(0, 80)) : [];
+    res.json({ ok: true, summary: String(parsed.summary || "").slice(0, 400), actions });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 營養標示『批次』辨識：一次多張，回傳陣列 ---------- */
+app.post("/api/labels", auth, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });
+    const imgs = Array.isArray(req.body.images) ? req.body.images.slice(0, 6) : [];
+    if (!imgs.length) return res.status(400).json({ error: "缺少照片" });
+    const parts = [{
+      text:
+        "下面有多張食品包裝的『營養標示』照片（每張可能是不同商品）。" +
+        "請逐張讀出數值，全部換算成『每 100 公克』。若只有每份/每包，用每份除以每份公克數×100。" +
+        "並判斷每張的『一份公克數』(serving；飲料用毫升近似；讀不到填 0)。" +
+        "依照片順序回傳 JSON 陣列，每張一筆，不要說明文字、不要 markdown：" +
+        '[{"name":"商品名(讀不到填空字串)","serving":一份公克數,"kcal":每100g熱量,"protein":每100g蛋白,"fat":每100g脂肪,"carb":每100g碳水}, ...]。' +
+        "數字一律阿拉伯數字、不含單位；讀不到填 0。",
+    }];
+    for (const raw of imgs) {
+      let img = String(raw || ""); let mime = "image/jpeg";
+      const m = img.match(/^data:(image\/[a-zA-Z]+);base64,(.*)$/);
+      if (m) { mime = m[1]; img = m[2]; }
+      if (img) parts.push({ inline_data: { mime_type: mime, data: img } });
+    }
+    const g = await geminiParts(key, parts, 0.1);
+    if (g.error) return res.status(502).json({ error: geminiErrMsg(g.error.status) });
+    const txt = g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const parsed = extractJson(txt);
+    if (!parsed) return res.status(502).json({ error: "無法解析標示" });
+    const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const items = arr.map((p) => ({
+      name: String(p.name || "").slice(0, 40),
+      serving: Math.max(0, Math.round(num(p.serving))),
+      kcal: Math.round(num(p.kcal)), protein: num(p.protein), fat: num(p.fat), carb: num(p.carb),
+    })).filter((p) => p.kcal > 0 || p.name);
+    if (!items.length) return res.status(502).json({ error: "辨識無結果，請拍清楚一點" });
+    res.json({ ok: true, items });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
