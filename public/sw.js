@@ -1,5 +1,5 @@
 // 離線快取：同源 app 檔案用「網路優先」（連得上網就拿最新，免清快取），離線才用快取
-const CACHE = "tdee-v63";
+const CACHE = "tdee-v64";
 const SHELL = [
   "./",
   "./index.html",
@@ -31,6 +31,22 @@ self.addEventListener("activate", (e) => {
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
+// 推播通知
+self.addEventListener("push", (e) => {
+  let d = { title: "TDEE 提醒", body: "" };
+  try { if (e.data) d = e.data.json(); } catch (err) {}
+  e.waitUntil(self.registration.showNotification(d.title || "TDEE 提醒", {
+    body: d.body || "", icon: "./icon-192.png", badge: "./icon-192.png", vibrate: [80, 40, 80],
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window" }).then((cs) => {
+    for (const c of cs) { if ("focus" in c) return c.focus(); }
+    if (self.clients.openWindow) return self.clients.openWindow("./");
+  }));
 });
 
 self.addEventListener("fetch", (e) => {

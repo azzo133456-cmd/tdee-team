@@ -431,6 +431,22 @@
       <div class="cardbody"><div id="pointsBox"></div></div>
     </div>
 
+    <!-- 提醒通知 -->
+    <div class="card collapsed">
+      <h2 class="ch" data-ck="push" onclick="toggleCard(this)">🔔 提醒通知<span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div id="pushStatus" class="hint" style="margin-bottom:6px;"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="pkWater" style="width:auto;" onchange="savePushPrefs()"> 💧 喝水提醒（10/14/18/20:30）</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="pkLog" style="width:auto;" onchange="savePushPrefs()"> 📝 晚上 21:00 提醒記錄（當天沒記才提醒）</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="pkComp" style="width:auto;" onchange="savePushPrefs()"> 🏆 競賽結算日提醒（20:00）</label>
+        <div class="chipbar" style="margin-top:10px;">
+          <button class="ghost sm" onclick="enablePush()">開啟通知</button>
+          <button class="ghost sm" onclick="testPush()">測試一則</button>
+        </div>
+        <div class="hint tip">需在手機把本網頁「加入主畫面」並允許通知，關閉 App 也能收到。</div>
+      </div>
+    </div>
+
     <!-- 週/月報表 -->
     <div class="card">
       <h2>📊 報表</h2>

@@ -1,8 +1,14 @@
 import express from "express";
 import pg from "pg";
 import crypto from "crypto";
+import webpush from "web-push";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+
+// VAPID（可用環境變數覆蓋；預設後備供個人/好友用）
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC || "BAK-aviDC-bVVVdhF97BpF7mRA4YFvOp2okXmsABmvFw7-Iwxa7mQe5VZVsWFOBRrm_J6TKOJ0yDH3OM7zpuQGs";
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE || "0nre8o9aIi2AWjH_0wFuKALy8U-V8j6ZUD4GcFvQuNs";
+try { webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:tdee@example.com", VAPID_PUBLIC, VAPID_PRIVATE); } catch (e) { console.error("VAPID 設定失敗", e.message); }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Pool } = pg;
@@ -142,6 +148,12 @@ async function initDb() {
       UNIQUE(user_id, date)
     );
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS water_pct REAL;
+    CREATE TABLE IF NOT EXISTS push_subs (
+      endpoint TEXT PRIMARY KEY,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      sub JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
   console.log("DB ready");
 }
@@ -800,6 +812,85 @@ app.post("/api/review", auth, async (req, res) => {
     res.status(500).json({ error: "伺服器錯誤" });
   }
 });
+
+/* ---------- 推播通知（PWA） ---------- */
+app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
+app.post("/api/push/subscribe", auth, async (req, res) => {
+  try {
+    const sub = req.body.sub;
+    if (!sub || !sub.endpoint) return res.status(400).json({ error: "缺少訂閱" });
+    await pool.query(
+      `INSERT INTO push_subs(endpoint,user_id,sub) VALUES($1,$2,$3)
+       ON CONFLICT (endpoint) DO UPDATE SET user_id=EXCLUDED.user_id, sub=EXCLUDED.sub`,
+      [sub.endpoint, req.user.id, JSON.stringify(sub)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/push/unsubscribe", auth, async (req, res) => {
+  try { if (req.body.endpoint) await pool.query("DELETE FROM push_subs WHERE endpoint=$1 AND user_id=$2", [req.body.endpoint, req.user.id]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 提醒偏好存進 profile.push
+app.post("/api/push/prefs", auth, async (req, res) => {
+  try {
+    const p = req.body || {};
+    const prefs = { water: !!p.water, log: !!p.log, comp: !!p.comp };
+    await pool.query("UPDATE users SET profile = jsonb_set(COALESCE(profile,'{}'::jsonb),'{push}',$1::jsonb) WHERE id=$2", [JSON.stringify(prefs), req.user.id]);
+    res.json({ ok: true, prefs });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 測試推播（讓使用者按一下確認有收到）
+app.post("/api/push/test", auth, async (req, res) => {
+  try { await sendToUser(req.user.id, "🔔 測試通知", "推播設定成功！之後會在這裡提醒你喝水/記錄/競賽。"); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: "伺服器錯誤" }); }
+});
+async function sendToUser(userId, title, body) {
+  const subs = await pool.query("SELECT endpoint, sub FROM push_subs WHERE user_id=$1", [userId]);
+  const payload = JSON.stringify({ title, body });
+  for (const row of subs.rows) {
+    try { await webpush.sendNotification(row.sub, payload); }
+    catch (e) { if (e.statusCode === 404 || e.statusCode === 410) await pool.query("DELETE FROM push_subs WHERE endpoint=$1", [row.endpoint]); }
+  }
+}
+// 排程：每分鐘檢查台灣時間，到點就發提醒（記憶體去重，避免同一分鐘重發）
+const sentGuard = new Set(); let guardDate = "";
+async function reminderTick() {
+  try {
+    const now = new Date(Date.now() + TW_OFFSET);
+    const hm = String(now.getUTCHours()).padStart(2, "0") + ":" + String(now.getUTCMinutes()).padStart(2, "0");
+    const dateStr = now.toISOString().slice(0, 10);
+    if (dateStr !== guardDate) { sentGuard.clear(); guardDate = dateStr; }
+    const WATER = ["10:00", "14:00", "18:00", "20:30"], LOG = "21:00", COMP = "20:00";
+    const isWater = WATER.includes(hm), isLog = hm === LOG, isComp = hm === COMP;
+    if (!isWater && !isLog && !isComp) return;
+    // 取有訂閱且有開啟對應提醒的使用者
+    const us = await pool.query(
+      `SELECT DISTINCT u.id, u.profile->'push' AS push FROM users u JOIN push_subs ps ON ps.user_id=u.id`);
+    for (const u of us.rows) {
+      const pf = u.push || {};
+      if (isWater && pf.water) {
+        const k = u.id + ":water:" + hm; if (!sentGuard.has(k)) { sentGuard.add(k); sendToUser(u.id, "💧 喝水時間", "記得補水，達成今天的飲水目標！"); }
+      }
+      if (isLog && pf.log) {
+        const k = u.id + ":log:" + dateStr; if (!sentGuard.has(k)) {
+          const m = await pool.query("SELECT 1 FROM meals WHERE user_id=$1 AND date=$2 LIMIT 1", [u.id, dateStr]);
+          if (!m.rows[0]) { sentGuard.add(k); sendToUser(u.id, "📝 今天還沒記錄", "花 30 秒記一下今天吃了什麼，保持連續打卡！"); }
+        }
+      }
+      if (isComp && pf.comp) {
+        const k = u.id + ":comp:" + dateStr; if (!sentGuard.has(k)) {
+          const g = await pool.query(
+            `SELECT 1 FROM groups gr JOIN group_members gm ON gm.group_id=gr.id
+             WHERE gm.user_id=$1 AND (gr.season_start + (CASE gr.period WHEN 'day' THEN 1 WHEN 'month' THEN 30 ELSE 7 END) - 1) = $2::date LIMIT 1`,
+            [u.id, dateStr]);
+          if (g.rows[0]) { sentGuard.add(k); sendToUser(u.id, "🏆 競賽今天結算", "衝刺最後機會！看看你這輪的名次。"); }
+        }
+      }
+    }
+  } catch (e) { console.error("reminderTick", e.message); }
+}
+setInterval(reminderTick, 60000);
 
 /* ---------- 自訂頭像（積分獎勵；小圖存 base64） ---------- */
 app.post("/api/avatar", auth, async (req, res) => {

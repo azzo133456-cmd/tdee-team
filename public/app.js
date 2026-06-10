@@ -1055,6 +1055,45 @@ async function uploadAvatar(ev){
 async function removeAvatar(){
   try{ await api("/api/avatar",{method:"POST",body:JSON.stringify({image:""})}); store.avatar=null; applyAvatar(); renderPoints(); }catch(e){ alert(e.message); }
 }
+
+/* ---------- 推播提醒 ---------- */
+function b64ToU8(base64){
+  const pad="=".repeat((4-base64.length%4)%4); const b=(base64+pad).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(b); const arr=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i); return arr;
+}
+function pushPrefs(){ return (store.profile&&store.profile.push)||{water:false,log:false,comp:false}; }
+function renderPushUI(){
+  const p=pushPrefs();
+  const set=(id,v)=>{const el=document.getElementById(id); if(el) el.checked=!!v;};
+  set("pkWater",p.water); set("pkLog",p.log); set("pkComp",p.comp);
+  const st=document.getElementById("pushStatus"); if(!st) return;
+  if(!("Notification" in window)||!("serviceWorker" in navigator)){ st.textContent="此裝置/瀏覽器不支援推播。"; return; }
+  st.textContent=Notification.permission==="granted"?"✅ 通知已開啟":"尚未開啟通知，請按「開啟通知」。";
+}
+async function enablePush(){
+  const st=document.getElementById("pushStatus");
+  if(!("serviceWorker" in navigator)||!("PushManager" in window)){ alert("此瀏覽器不支援推播"); return; }
+  try{
+    const perm=await Notification.requestPermission();
+    if(perm!=="granted"){ st.textContent="未允許通知。請到瀏覽器/系統設定開啟。"; return; }
+    const reg=await navigator.serviceWorker.ready;
+    const {key}=await api("/api/push/key");
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64ToU8(key)});
+    await api("/api/push/subscribe",{method:"POST",body:JSON.stringify({sub})});
+    st.textContent="✅ 通知已開啟";
+  }catch(e){ st.textContent="開啟失敗："+e.message; }
+}
+async function savePushPrefs(){
+  const prefs={water:document.getElementById("pkWater").checked, log:document.getElementById("pkLog").checked, comp:document.getElementById("pkComp").checked};
+  store.profile=store.profile||{}; store.profile.push=prefs;
+  if((prefs.water||prefs.log||prefs.comp) && Notification.permission!=="granted") await enablePush();
+  try{ await api("/api/push/prefs",{method:"POST",body:JSON.stringify(prefs)}); }catch(e){ alert(e.message); }
+}
+async function testPush(){
+  if(Notification.permission!=="granted"){ await enablePush(); }
+  try{ await api("/api/push/test",{method:"POST"}); }catch(e){ alert(e.message); }
+}
 function renderPoints(){
   const box=document.getElementById("pointsBox"); if(!box){ applyNameFx(); return; }
   const {points,activity,trophies}=computePoints();
@@ -1942,6 +1981,7 @@ async function boot(){
   renderDerived();
   restoreCards();
   applyTips();
+  renderPushUI();        // 提醒通知狀態
   maybeOnboard();        // 首次登入顯示引導
   maybeWeeklyReview();   // 背景補產生上週覆盤（有資料且尚未產生時）
   (async()=>{ await handleJoinParam(); await syncDailyStats(); await loadGroups(); })();  // 競賽：加入連結→上傳統計→載排行
