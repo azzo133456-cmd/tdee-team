@@ -602,6 +602,13 @@ function copyDayPrompt(){
   const f=prompt("要複製哪一天？（格式 2026-06-08）", selDate());
   if(f&&/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) copyDayFrom(f.trim());
 }
+// 預設帶昨天，可改成任一天
+function copyMealPrompt(){
+  const d=new Date(selDate()); d.setDate(d.getDate()-1);
+  const o=d.getTimezoneOffset(), y=new Date(d-o*60000).toISOString().slice(0,10);
+  const f=prompt("複製哪一天的飲食到今天？（預設昨天，格式 2026-06-08）", y);
+  if(f&&/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) copyDayFrom(f.trim());
+}
 let editingMeal=null;
 function mealGramOf(name){ const m=String(name).match(/(\d+(?:\.\d+)?)\s*g\b/); return m?+m[1]:0; }
 function mealRowHtml(m){

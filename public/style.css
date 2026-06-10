@@ -51,6 +51,10 @@
   .stat-row .k{font-size:11px; color:var(--sub);}
   canvas{margin-top:8px;}
   .pill{font-size:11px; background:var(--soft); color:var(--green); padding:2px 8px; border-radius:20px;}
+  /* 緊湊單行工具列：橫向可滑動，不換行擠成塊 */
+  .chipbar{display:flex; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px; margin:8px 0; scrollbar-width:none;}
+  .chipbar::-webkit-scrollbar{display:none;}
+  .chipbar > button{flex:0 0 auto; white-space:nowrap; margin-top:0;}
   .topbar{display:flex; align-items:center; gap:8px; margin-bottom:14px;}
   .topbar .who{font-size:13px; color:var(--sub);}
   .topbar .who b{color:var(--ink);}

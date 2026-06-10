@@ -170,7 +170,7 @@
       <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
       <label>搜尋食物（打字 → 點結果即加入）</label>
       <input id="foodPick" placeholder="例如：白飯 / 雞胸肉" autocomplete="off" oninput="foodSuggest()">
-      <div id="foodFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;">
+      <div id="foodFilters" class="chipbar">
         <button class="ghost sm fbtn on" data-f="" onclick="setFoodFilter('',this)">全部</button>
         <button class="ghost sm fbtn" data-f="drink" onclick="setFoodFilter('drink',this)">🧋手搖</button>
         <button class="ghost sm fbtn" data-f="meal" onclick="setFoodFilter('meal',this)">🍱便當麵飯</button>
@@ -179,11 +179,11 @@
       </div>
       <div class="suggest" id="foodSuggest"></div>
       <div class="hint tip">點結果即加入（帶上次克數）。🕘常用 👥共享 💪高蛋白 🍬高糖 🧈高脂</div>
-      <div class="row" style="flex-wrap:wrap;">
-        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
-        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
-        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="startScan()">📷 掃條碼</button></div>
-        <div style="flex:0 0 auto;"><button class="ghost sm" onclick="document.getElementById('labelInput').click()">📋 拍營養標示</button></div>
+      <div class="chipbar">
+        <button class="ghost sm" onclick="toggleCustom()">✏️ 自訂</button>
+        <button class="ghost sm" onclick="startScan()">📷 條碼</button>
+        <button class="ghost sm" onclick="document.getElementById('labelInput').click()">📋 標示</button>
+        <button class="ghost sm" onclick="addFav()">⭐ 最愛</button>
       </div>
       <input id="labelInput" type="file" accept="image/*" style="display:none;" onchange="onLabelPick(event)">
       <div class="hint" id="labelHint" style="display:none; overflow-wrap:anywhere; word-break:break-word;"></div>
@@ -239,8 +239,7 @@
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <label style="margin:0;">日期</label>
         <input id="foodDate" type="date" onchange="renderDay()">
-        <button class="ghost sm" onclick="copyDay(1)">📋 複製昨天</button>
-        <button class="ghost sm" onclick="copyDayPrompt()">📅 複製某天</button>
+        <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天飲食</button>
       </div>
       <div class="rings" id="rings" style="margin-top:12px;"></div>
       <div class="result" id="netBox" style="display:none;"></div>
