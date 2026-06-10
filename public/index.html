@@ -55,6 +55,9 @@
   button.danger{background:transparent; color:#b5564e; border:1px solid var(--line); font-weight:500;}
   button.sm{width:auto; padding:7px 12px; font-size:13px; margin-top:0;}
   button.fbtn.on{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .hint.tip{display:none;}
+  body.show-tips .hint.tip{display:block;}
+  #tipBtn.on{background:var(--accent); color:#fff; border-color:var(--accent);}
   .result{background:var(--soft); border-radius:10px; padding:14px; margin-top:14px; text-align:center;}
   .result .big{font-size:30px; font-weight:700; color:var(--green);}
   .result .lbl{font-size:13px; color:var(--sub);}
@@ -141,7 +144,7 @@
     <input id="auPass" type="password" autocomplete="current-password" placeholder="至少 4 字">
     <button id="auBtn" onclick="doAuth()">登入</button>
     <div class="err" id="auErr"></div>
-    <div class="hint">每個帳號的資料完全獨立、只有你看得到。忘記密碼無法復原，請記好。</div>
+    <div class="hint tip">每個帳號的資料完全獨立、只有你看得到。忘記密碼無法復原，請記好。</div>
   </div>
 </div>
 
@@ -149,7 +152,8 @@
 <div id="appView" class="hidden">
   <div class="topbar">
     <div class="who">嗨，<b id="curName"></b></div>
-    <button class="ghost sm" onclick="logout()" style="margin-left:auto;">登出</button>
+    <button class="ghost sm" id="tipBtn" onclick="toggleTips()" style="margin-left:auto;">ℹ️ 說明</button>
+    <button class="ghost sm" onclick="logout()" style="margin-left:8px;">登出</button>
   </div>
 
   <!-- ===== 分頁：概覽 ===== -->
@@ -192,7 +196,7 @@
             <select id="goalRate"><option value="0.1">溫和 10%</option><option value="0.2" selected>標準 20%</option><option value="0.25">積極 25%</option></select>
           </div>
         </div>
-        <div class="hint">強度＝熱量增減幅度：溫和10%／標準20%／積極25%。</div>
+        <div class="hint tip">強度＝熱量增減幅度：溫和10%／標準20%／積極25%。</div>
         <label>TDEE 基準</label>
         <select id="tdeeBasis">
           <option value="gross" selected>含運動（維持目前運動量）</option>
@@ -205,7 +209,7 @@
         </div>
         <div class="macro-bar" id="goalBar"></div>
         <div class="macro-leg" id="goalLeg"></div>
-        <div class="hint">蛋白＝體重×2g、脂肪25%、其餘碳水。基準優先用真實TDEE。</div>
+        <div class="hint tip">蛋白＝體重×2g、脂肪25%、其餘碳水。基準優先用真實TDEE。</div>
       </div>
     </div>
 
@@ -248,7 +252,7 @@
       <div class="cardbody">
         <canvas id="chart" height="200"></canvas>
         <div class="empty" id="chartEmpty">尚無資料，先到「紀錄」分頁新增體重</div>
-        <div class="hint">藍＝每日體重、橘＝7日均線、綠＝斜率。</div>
+        <div class="hint tip">藍＝每日體重、橘＝7日均線、綠＝斜率。</div>
       </div>
     </div>
 
@@ -281,7 +285,7 @@
         <button class="ghost sm fbtn" data-f="raw" onclick="setFoodFilter('raw',this)">🥗原型</button>
       </div>
       <div class="suggest" id="foodSuggest"></div>
-      <div class="hint">點結果即加入（帶上次克數）。🕘常用 👥共享 💪高蛋白 🍬高糖 🧈高脂</div>
+      <div class="hint tip">點結果即加入（帶上次克數）。🕘常用 👥共享 💪高蛋白 🍬高糖 🧈高脂</div>
       <div class="row" style="flex-wrap:wrap;">
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
@@ -299,7 +303,7 @@
           </div>
           <div id="cfServWrap" style="display:none;"><label>每份重量 (克)</label><input id="cfServ" type="number" inputmode="decimal" placeholder="40"></div>
         </div>
-        <div class="hint" id="cfHint" style="margin:6px 0;">照包裝「每 100 公克」那一欄抄即可。</div>
+        <div class="hint tip" id="cfHint" style="margin:6px 0;">照包裝「每 100 公克」那一欄抄即可。</div>
         <div class="row">
           <div><label>熱量 (kcal)</label><input id="cfK" type="number" inputmode="decimal" placeholder="380"></div>
           <div><label>蛋白 (g)</label><input id="cfP" type="number" inputmode="decimal" placeholder="30"></div>
@@ -322,10 +326,10 @@
         <input id="mealPhotoInput" type="file" accept="image/*" style="display:none;" onchange="onPhotoPick(event)">
         <button class="ghost sm" style="margin-top:8px;" onclick="document.getElementById('mealPhotoInput').click()">📷 為這一餐拍照／選圖</button>
         <div id="mealPhotoPreview" style="margin-top:8px;"></div>
-        <div class="hint">可只拍照當飲食日記，按「＋加入」即可。</div>
+        <div class="hint tip">可只拍照當飲食日記，按「＋加入」即可。</div>
       </div>
       <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
-      <div class="hint">來源：台灣FDA＋連鎖/小吃/手搖包＋AI辨識，皆為概估。</div>
+      <div class="hint tip">來源：台灣FDA＋連鎖/小吃/手搖包＋AI辨識，皆為概估。</div>
     </div>
 
     <!-- 今日飲食（在計算機下方） -->
@@ -340,7 +344,7 @@
       <div class="rings" id="rings" style="margin-top:12px;"></div>
       <div class="result" id="netBox" style="display:none;"></div>
       <div id="mealGroups"></div>
-      <div class="hint">環圈＝對②目標的達成度。</div>
+      <div class="hint tip">環圈＝對②目標的達成度。</div>
     </div>
 
     <!-- 食譜 -->
@@ -348,7 +352,7 @@
       <h2 class="ch" data-ck="recipes" onclick="toggleCard(this)">📖 我的食譜 <span class="pill" id="recipeCount"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
-        <div class="hint">套用後載入計算機清單，再選餐別加入。</div>
+        <div class="hint tip">套用後載入計算機清單，再選餐別加入。</div>
       </div>
     </div>
 
@@ -357,7 +361,7 @@
       <h2 class="ch" data-ck="shared" onclick="toggleCard(this)">👥 共享食物庫 <span class="pill" id="sharedCount"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <input id="sharedSearch" placeholder="搜尋共享品項…" autocomplete="off" oninput="renderShared()">
-        <div class="hint">大家建立的食物（每100g）。⭐為你建立的、可刪；別人的可用同名重建來更正。</div>
+        <div class="hint tip">大家建立的食物（每100g）。⭐為你建立的、可刪；別人的可用同名重建來更正。</div>
         <div id="sharedList" style="max-height:340px;overflow:auto;"></div>
       </div>
     </div>
@@ -423,7 +427,7 @@
       <div class="foodlist" id="exItems"></div>
       <h2 style="margin-top:18px;">本週運動建議</h2>
       <div id="exRec"></div>
-      <div class="hint">消耗為 MET×體重估算，僅供參考。</div>
+      <div class="hint tip">消耗為 MET×體重估算，僅供參考。</div>
     </div>
   </div>
 
@@ -439,7 +443,7 @@
         <div><label>晚上體重 (kg)</label><input id="rWeightPm" type="number" inputmode="decimal" placeholder="60.5"></div>
       </div>
       <button onclick="addRecord()">＋ 新增 / 更新體重</button>
-      <div class="hint">早/晚至少填一個；趨勢與反推以早上體重為準。攝取由「飲食」自動加總。</div>
+      <div class="hint tip">早/晚至少填一個；趨勢與反推以早上體重為準。攝取由「飲食」自動加總。</div>
     </div>
 
     <!-- 所有紀錄 -->
@@ -796,6 +800,12 @@ function toggleCard(h){
 function restoreCards(){
   document.querySelectorAll("h2.ch[data-ck]").forEach(h=>{ const k=h.getAttribute("data-ck"); if(k in CARD_STATE) h.parentElement.classList.toggle("collapsed", CARD_STATE[k]); });
 }
+function applyTips(){
+  const on=localStorage.getItem("tdee_tips")==="1";
+  document.body.classList.toggle("show-tips",on);
+  const b=document.getElementById("tipBtn"); if(b) b.classList.toggle("on",on);
+}
+function toggleTips(){ localStorage.setItem("tdee_tips", localStorage.getItem("tdee_tips")==="1"?"0":"1"); applyTips(); }
 function showTab(name){
   ["overview","food","exercise","records"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
@@ -1575,6 +1585,7 @@ async function boot(){
   if(store.profile) applyProfile(store.profile);
   renderDerived();
   restoreCards();
+  applyTips();
 }
 
 window.addEventListener("DOMContentLoaded", ()=>{
