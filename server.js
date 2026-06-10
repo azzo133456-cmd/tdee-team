@@ -676,6 +676,9 @@ app.post("/api/coach", auth, async (req, res) => {
       parts.push("使用者的 TDEE＝" + p.tdee + " kcal（來源：" + (p.tdeeSource || "未知") +
         "，" + (p.tdeeIsReal ? "已是依實際體重/攝取反推的『實測值』" : "目前資料僅 " + (p.dataDays || 0) + " 天、尚不足，仍是公式估算，請提醒這只是暫定、滿約7天會更準") + "）");
       if (p.weight != null) parts.push("目前體重 " + p.weight + " kg" + (p.targetWeight != null ? "、目標 " + p.targetWeight + " kg" : ""));
+      if (p.bfNow != null) parts.push("體脂 " + p.bfNow + "%" + (p.bfDelta != null ? "（近期變化 " + (p.bfDelta > 0 ? "+" : "") + p.bfDelta + "%）" : ""));
+      if (p.goal === "cut" && p.weeklyObservedKg != null && p.weeklyObservedKg > -0.1 && p.bfDelta != null && p.bfDelta <= -0.3)
+        parts.push("注意：體重幾乎沒動但體脂在降，屬於增肌減脂(recomposition)，是好結果、不要誤判為停滯");
       if (p.goal === "cut") {
         if (p.dailyDeficitTarget) parts.push("計畫每日熱量赤字約 " + p.dailyDeficitTarget + " kcal（每週應減約 " + (p.weeklyTargetKg ?? "?") + " kg）");
         if (p.weeklyObservedKg != null) parts.push("實際觀察到每週體重變化 " + p.weeklyObservedKg + " kg" + (p.weeklyObservedKg < 0 ? "（下降中，方向正確）" : p.weeklyObservedKg > 0 ? "（上升中，與減重目標相反）" : "（持平）"));

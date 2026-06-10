@@ -209,6 +209,10 @@ function planContext(){
   const curW=wRecs.length?+wRecs[wRecs.length-1].weight:(+val("weight")||null);
   const tgtW=+val("targetWeight")||null;
   const tdeeIsReal=!!(base&&/真實|基礎/.test(base.src||""));
+  // 體脂近期變化（取有體脂的最近 ~14 筆，首尾差，負=下降）
+  const bfRecs=(store.records||[]).filter(r=>r.body_fat!=null).slice(-14);
+  const bfDelta=bfRecs.length>=2?+(+bfRecs[bfRecs.length-1].body_fat-+bfRecs[0].body_fat).toFixed(1):null;
+  const bfNow=bfRecs.length?+bfRecs[bfRecs.length-1].body_fat:null;
   // 目標每日赤字與每週應減公斤（減脂才有意義）
   const dailyDeficitTarget = (goal==="cut" && base.tdee) ? Math.round(base.tdee*rate) : 0;
   const weeklyTargetKg = dailyDeficitTarget ? +(dailyDeficitTarget*7/7700).toFixed(2) : null;
@@ -229,7 +233,7 @@ function planContext(){
   return {
     goal, tdee:base.tdee||null, tdeeSource:base.src||"", tdeeIsReal, dataDays:R.days||0,
     target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
-    weight:curW, targetWeight:tgtW,
+    weight:curW, targetWeight:tgtW, bfNow, bfDelta,
     dailyDeficitTarget, weeklyTargetKg, weeklyObservedKg,
     dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText
   };
@@ -246,7 +250,11 @@ function planPhase(){
   if(dist!=null && dist<=0.1) return {key:"done",P,R,dist,obs};
   if(!R.tdee) return {key:"base",P,R,dist,obs};
   if(dist!=null && dist<=2) return {key:"finish",P,R,dist,obs};
-  if(enoughForStall && obs>-0.1) return {key:"stall",P,R,dist,obs};
+  if(enoughForStall && obs>-0.1){
+    // 體重沒動但體脂有降 → body recomposition，不是真停滯
+    if(P.bfDelta!=null && P.bfDelta<=-0.3) return {key:"recomp",P,R,dist,obs};
+    return {key:"stall",P,R,dist,obs};
+  }
   return {key:"cut",P,R,dist,obs};
 }
 function renderPlan(){
@@ -257,10 +265,10 @@ function renderPlan(){
     box.innerHTML=`<div class="hint">目前目標為「${({maintain:"維持",bulk:"增肌"})[P.goal]||P.goal}」。要啟用減重計畫，請到 ①基本資料 把「目標」改成<b>減脂</b>。</div>`;
     return;
   }
-  const STEP_LABEL={base:"建基準",cut:"執行赤字",stall:"停滯處理",finish:"收尾",done:"達標"};
+  const STEP_LABEL={base:"建基準",cut:"執行赤字",recomp:"增肌減脂",stall:"停滯處理",finish:"收尾",done:"達標"};
   if(pill) pill.textContent=STEP_LABEL[ph.key]||"";
-  // 階段進度條（停滯時把游標停在「執行赤字↔停滯處理」之間）
-  const idx=PLAN_STEPS.findIndex(s=>s[0]===ph.key);
+  // 階段進度條（recomp 視覺上停在「執行赤字」位置）
+  const idx=PLAN_STEPS.findIndex(s=>s[0]===(ph.key==="recomp"?"cut":ph.key));
   const stepper=`<div style="display:flex;gap:4px;margin-bottom:12px;font-size:11px;text-align:center;">`+
     PLAN_STEPS.map(([k,lbl],i)=>{
       const on=i===idx, done=i<idx;
@@ -289,6 +297,11 @@ function renderPlan(){
       (slow?`<br>⚠ 下降偏慢，可再收緊一點攝取或增加活動量。`:`<br>✅ 方向不錯，穩住就好。`);
     actions=[`每週看一次「實際 vs 目標週速度」，差很多才調`,`別靠運動硬湊赤字；重訓保肌、有氧加成`];
     if(P.etaText) actions.push(`依目前速度預計達標：${P.etaText}`);
+  }else if(ph.key==="recomp"){
+    title="💪 增肌減脂中（體重沒動但體脂在降）";
+    body=`體重近 2 週幾乎沒動（<b>${wkObs}</b>），<b>但體脂下降了 ${P.bfDelta}%</b>${P.bfNow!=null?`（目前 ${P.bfNow}%）`:""}。`+
+      `這代表你<b>在掉脂肪、同時長/保住肌肉</b>（body recomposition）——這其實是<b>好結果，不是停滯</b>。體重計會騙人，體脂才說實話。`;
+    actions=[`別因為體重沒掉就慌著砍熱量，維持現在的赤字＋蛋白＋重訓`,`持續追蹤體脂與圍度（腰圍）當輔助指標`,`若也想看到體重數字下降，可把赤字再加一點點`];
   }else if(ph.key==="stall"){
     title="⏸ 疑似停滯期";
     const maint=R.tdee?num(R.tdee):"你的維持熱量";
@@ -1432,11 +1445,15 @@ function renderReport(){
   html+=`<div class="stat-row" style="margin-top:8px;">`+
     stat(`P${avgP}`,"平均蛋白")+stat(`F${avgF}`,"平均脂肪")+stat(`C${avgC}`,"平均碳水")+
     stat(tgt?underGoal+"/"+intakeDays.length:"—","達標天數")+`</div>`;
+  // 體脂變化（範圍內有體脂的首尾差，負=下降）
+  const bfRecs=recs.filter(r=>r.body_fat!=null);
+  const bfDelta=bfRecs.length>=2?+(+bfRecs[bfRecs.length-1].body_fat-+bfRecs[0].body_fat).toFixed(1):null;
+  const bfCol=bfDelta==null?"":(bfDelta<0?"var(--green)":bfDelta>0?"#b5564e":"");
   html+=`<div class="stat-row" style="margin-top:8px;">`+
     stat(wDelta!=null?(wDelta>0?"+":"")+wDelta+"kg":"—","體重變化")+
+    stat(bfDelta!=null?(bfDelta>0?"+":"")+bfDelta+"%":"—","體脂變化",bfCol)+
     stat(strengthDays+"天","重訓天數")+
-    stat(Math.round(volTotal).toLocaleString(),"訓練量kg")+
-    stat(exs.length+"筆","運動筆數")+`</div>`;
+    stat(Math.round(volTotal).toLocaleString(),"訓練量kg")+`</div>`;
   box.innerHTML=html;
 }
 function renderReal(){
