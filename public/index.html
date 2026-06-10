@@ -350,6 +350,16 @@
       <div class="hint tip">早/晚至少填一個；趨勢與反推以早上體重為準。攝取由「飲食」自動加總。</div>
     </div>
 
+    <!-- 週/月報表 -->
+    <div class="card">
+      <h2>📊 報表</h2>
+      <div class="chipbar">
+        <button class="ghost sm fbtn on" id="rep7" onclick="setReport(7,this)">近 7 天</button>
+        <button class="ghost sm fbtn" id="rep30" onclick="setReport(30,this)">近 30 天</button>
+      </div>
+      <div id="reportBox"></div>
+    </div>
+
     <!-- 所有紀錄 -->
     <div class="card">
       <h2>所有紀錄</h2>

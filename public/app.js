@@ -1067,6 +1067,55 @@ function renderTable(){
     tb.appendChild(tr);
   });
 }
+let reportDays=7;
+function setReport(n,btn){
+  reportDays=n;
+  document.querySelectorAll("#rep7,#rep30").forEach(b=>b.classList.toggle("on",b===btn));
+  renderReport();
+}
+function renderReport(){
+  const box=document.getElementById("reportBox"); if(!box) return;
+  const since=isoLocal(new Date(new Date(todayStr())-(reportDays-1)*86400000));
+  const recs=(store.records||[]).filter(r=>r.date.slice(0,10)>=since);
+  const exs=(store.exercises||[]).filter(e=>e.date.slice(0,10)>=since);
+  // 攝取（有記飲食的天）
+  const intakeDays=recs.filter(r=>r.kcal!=null);
+  const avgIntake=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.kcal||0))):0;
+  const avgP=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.protein||0))):0;
+  const avgF=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.fat||0))):0;
+  const avgC=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.carb||0))):0;
+  // 運動
+  const burnTotal=exs.reduce((a,b)=>a+(+b.kcal||0),0);
+  const avgBurn=Math.round(burnTotal/reportDays);
+  const strengthDays=new Set(exs.filter(e=>e.kind==="strength").map(e=>e.date.slice(0,10))).size;
+  const volTotal=exs.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0);
+  // 淨熱量
+  const avgNet=avgIntake?avgIntake-avgBurn:0;
+  // 體重變化（用有早上體重的最早/最晚）
+  const wRecs=recs.filter(r=>r.weight!=null);
+  let wDelta=null, wFrom=null, wTo=null;
+  if(wRecs.length>=2){ wFrom=+wRecs[0].weight; wTo=+wRecs[wRecs.length-1].weight; wDelta=+(wTo-wFrom).toFixed(1); }
+  // 目標達成（攝取在目標±?）— 簡單比對：有目標時算低於目標的天數
+  const tgt=goalTargets();
+  let underGoal=0;
+  if(tgt){ underGoal=intakeDays.filter(r=>(+r.kcal||0)<=tgt.kcal).length; }
+  const stat=(v,k)=>`<div><div class="v">${v}</div><div class="k">${k}</div></div>`;
+  let html=`<div class="stat-row" style="margin-top:4px;">`+
+    stat(avgIntake?avgIntake.toLocaleString():"—","平均攝取/天")+
+    stat(avgBurn?"−"+avgBurn.toLocaleString():"0","平均運動/天")+
+    stat(avgNet?avgNet.toLocaleString():"—","平均淨/天")+
+    stat(intakeDays.length+"天","有記飲食")+`</div>`;
+  html+=`<div class="stat-row" style="margin-top:8px;">`+
+    stat(`P${avgP}`,"平均蛋白")+stat(`F${avgF}`,"平均脂肪")+stat(`C${avgC}`,"平均碳水")+
+    stat(tgt?underGoal+"/"+intakeDays.length:"—","達標天數")+`</div>`;
+  html+=`<div class="stat-row" style="margin-top:8px;">`+
+    stat(wDelta!=null?(wDelta>0?"+":"")+wDelta+"kg":"—","體重變化")+
+    stat(strengthDays+"天","重訓天數")+
+    stat(Math.round(volTotal).toLocaleString(),"訓練量kg")+
+    stat(exs.length+"筆","運動筆數")+`</div>`;
+  if(wFrom!=null) html+=`<div class="hint" style="margin-top:8px;">體重 ${wFrom} → ${wTo} kg（${reportDays}天）。平均淨熱量${avgNet<avgIntake?"赤字":"盈餘"}約 ${Math.abs(avgBurn).toLocaleString()} kcal/天來自運動。</div>`;
+  box.innerHTML=html;
+}
 function renderReal(){
   const R=calcReal(store.records, store.exercises);
   const cmp=document.querySelector("#cmpTbl tbody");
@@ -1138,7 +1187,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records) renderDay(); }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
