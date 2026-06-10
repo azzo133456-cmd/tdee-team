@@ -887,16 +887,19 @@ async function syncDailyStats(){
   const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
   const waterGoal=Math.round(w*45/50)*50;
   const rows=[];
-  for(let i=0;i<35;i++){
-    const d=new Date(todayStr()); d.setDate(d.getDate()-i); const ds=isoLocal(d);
+  // 涵蓋所有有資料的日期（與積分計算同範圍，讓排行榜分數一致），上限 366 天
+  const dates=new Set();
+  (store.records||[]).forEach(r=>dates.add(r.date.slice(0,10)));
+  Object.keys(store.mealAgg||{}).forEach(d=>dates.add(d));
+  (store.exercises||[]).forEach(e=>dates.add(e.date.slice(0,10)));
+  const sorted=[...dates].sort().slice(-366);
+  for(const ds of sorted){
     const nut=dayNutrition(ds);
     const exsDay=(store.exercises||[]).filter(e=>e.date.slice(0,10)===ds);
     const rec=(store.records||[]).find(r=>r.date.slice(0,10)===ds);
     const logged=nut.k>0;
     const exercised=exsDay.length>0;
     const water=rec&&rec.water_ml?+rec.water_ml:0;
-    const hasAny=logged||exercised||water>0||(rec&&rec.weight!=null);
-    if(!hasAny) continue;
     rows.push({ date:ds, logged,
       kcal_hit: !!(t && logged && nut.k<=t.kcal),
       protein_hit: !!(t && logged && nut.p>=t.protein),

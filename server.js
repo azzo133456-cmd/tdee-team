@@ -814,11 +814,14 @@ app.post("/api/avatar", auth, async (req, res) => {
 
 /* ---------- 群組競賽（不暴露彼此體重，只比分數/相對%） ---------- */
 const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
+// 一律以台灣時間(UTC+8)判斷「今天」，避免伺服器 UTC 造成競賽/打卡差一天
+const TW_OFFSET = 8 * 3600 * 1000;
+const twToday = () => new Date(Date.now() + TW_OFFSET).toISOString().slice(0, 10);
 const roundLen = (period) => (period === "day" ? 1 : period === "month" ? 30 : 7);
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoD(d); };
 // 在 [since, until] 窗內計分
 function scoreMember(rows, metric, since, until) {
-  const today = isoD(new Date());
+  const today = twToday();
   const win = rows.filter((r) => r.date >= since && r.date <= until);
   if (metric === "exercise") {
     const cnt = win.reduce((a, r) => a + (r.ex_count || 0), 0);
@@ -879,7 +882,7 @@ function genCode() {
 // 上傳自己近期每日統計（成員自算 flag，體重僅供算個人%、不外傳）
 app.post("/api/dailystats", auth, async (req, res) => {
   try {
-    const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 40) : [];
+    const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 400) : [];
     for (const r of rows) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
       const b = (v) => (v ? 1 : 0);
@@ -907,7 +910,7 @@ app.post("/api/group", auth, async (req, res) => {
     let code, ok = false;
     for (let i = 0; i < 5 && !ok; i++) { code = genCode(); const e = await pool.query("SELECT 1 FROM groups WHERE code=$1", [code]); if (!e.rows[0]) ok = true; }
     const stakes = String(req.body.stakes || "").trim().slice(0, 120) || null;
-    const g = await pool.query("INSERT INTO groups(name,code,metric,period,created_by,season_start,round_no,stakes) VALUES($1,$2,$3,$4,$5,CURRENT_DATE,1,$6) RETURNING id", [name, code, metric, period, req.user.id, stakes]);
+    const g = await pool.query("INSERT INTO groups(name,code,metric,period,created_by,season_start,round_no,stakes) VALUES($1,$2,$3,$4,$5,$7,1,$6) RETURNING id", [name, code, metric, period, req.user.id, stakes, twToday()]);
     await pool.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [g.rows[0].id, req.user.id]);
     res.json({ ok: true, id: g.rows[0].id, code });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
@@ -939,17 +942,19 @@ app.get("/api/groups", auth, async (req, res) => {
       `SELECT g.* FROM groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=$1 ORDER BY g.created_at DESC`,
       [req.user.id]
     );
-    const today = isoD(new Date());
+    const today = twToday();
     const out = [];
     for (const g of mine.rows) {
       const mem = await pool.query(
         `SELECT u.id,u.username,u.avatar FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
       const avatarByName = {}; mem.rows.forEach((u) => { if (u.avatar) avatarByName[u.username] = u.avatar; });
-      // 一次抓齊各成員統計
+      // 一次抓齊所有成員統計（避免 N+1）
       const rowsByUser = {};
-      for (const u of mem.rows) {
-        const st = await pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight FROM daily_stats WHERE user_id=$1 ORDER BY date", [u.id]);
-        rowsByUser[u.id] = st.rows;
+      mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
+      const ids = mem.rows.map((u) => u.id);
+      if (ids.length) {
+        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
+        st.rows.forEach((r) => { (rowsByUser[r.user_id] = rowsByUser[r.user_id] || []).push(r); });
       }
       const len = roundLen(g.period);
       const asc = g.metric === "weightpct";
