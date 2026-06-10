@@ -914,7 +914,7 @@ async function syncDailyStats(){
 }
 async function loadGroups(){
   try{ const r=await api("/api/groups"); myGroups=r.groups||[]; }catch(e){ myGroups=[]; }
-  renderGroups(); renderPoints(); checkCelebrations();
+  renderGroups(); renderPoints(); checkCelebrations(); renderDashboard();
 }
 const RACE_ANIMALS=["🐎","🐇","🐅","🐕","🐖","🐐","🦊","🐱","🐢","🦄"];
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
@@ -1082,6 +1082,35 @@ function avatarSection(points){
     `<button class="ghost sm" onclick="document.getElementById('avatarInput').click()">${store.avatar?"更換":"上傳"}頭像</button>`+
     (store.avatar?`<button class="ghost sm" onclick="removeAvatar()">移除</button>`:"")+`</div>`;
 }
+
+/* ---------- 新手引導（首次登入 3 步驟） ---------- */
+const ONBOARD_STEPS=[
+  {ic:"👋",t:"歡迎使用！",b:"這是你的個人減重夥伴。第一步：到<b>「概覽」</b>分頁的 ①②，填性別/年齡/身高/體重與目標，系統會算出你<b>每天該吃多少</b>。"},
+  {ic:"🍽️",t:"記錄三餐很輕鬆",b:"「飲食」分頁可<b>搜尋台灣常見食物</b>、<b>掃條碼</b>、<b>拍照 AI 辨識</b>，或<b>一句話</b>讓 AI 估熱量。記得每天記，TDEE 才會越來越準。"},
+  {ic:"🏆",t:"計畫・報表・競賽",b:"「紀錄」分頁有<b>自動減重計畫</b>、<b>每週覆盤</b>、還有<b>群組競賽</b>——揪朋友一起比，看不到彼此體重、累積積分還能解鎖名稱特效！"},
+];
+let onbI=0;
+function showOnboarding(){
+  onbI=0; renderOnboard();
+}
+function renderOnboard(){
+  let ov=document.getElementById("onboardOv");
+  if(!ov){ ov=document.createElement("div"); ov.id="onboardOv"; ov.className="celebrate"; document.body.appendChild(ov); }
+  const s=ONBOARD_STEPS[onbI], last=onbI===ONBOARD_STEPS.length-1;
+  const dots=ONBOARD_STEPS.map((_,i)=>`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 3px;background:${i===onbI?'var(--accent)':'var(--line)'}"></span>`).join("");
+  ov.innerHTML=`<div class="cele-card" style="max-width:320px;">`+
+    `<div style="font-size:42px;">${s.ic}</div>`+
+    `<div style="font-size:19px;font-weight:700;margin-top:6px;">${s.t}</div>`+
+    `<div class="hint" style="color:var(--ink);line-height:1.7;margin-top:8px;text-align:left;">${s.b}</div>`+
+    `<div style="margin:12px 0 4px;">${dots}</div>`+
+    `<div style="display:flex;gap:8px;justify-content:center;">`+
+      `<button class="ghost sm" onclick="endOnboard()">略過</button>`+
+      `<button class="sm" style="width:auto;padding:8px 20px;margin-top:0;" onclick="${last?'endOnboard()':'nextOnboard()'}">${last?'開始使用 🚀':'下一步'}</button>`+
+    `</div></div>`;
+}
+function nextOnboard(){ onbI++; renderOnboard(); }
+function endOnboard(){ const ov=document.getElementById("onboardOv"); if(ov) ov.remove(); try{ localStorage.setItem("tdee_onboarded","1"); }catch(e){} }
+function maybeOnboard(){ let seen; try{ seen=localStorage.getItem("tdee_onboarded"); }catch(e){} if(!seen) showOnboarding(); }
 
 /* ---------- 賽季結算慶祝 ---------- */
 function celebrate(title,sub){
@@ -1666,6 +1695,35 @@ function renderTable(){
     tb.appendChild(tr);
   });
 }
+// 今日摘要儀表板（概覽頁最上方）
+function renderDashboard(){
+  const box=document.getElementById("dashBox"); if(!box) return;
+  const d=todayStr(), t=goalTargets(), nut=dayNutrition(d), burn=burnByDate(d);
+  const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
+  const waterGoal=Math.round(w*45/50)*50, water=waterFor(d);
+  const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
+  let html="";
+  if(t){
+    const remain=Math.round(t.kcal+burn-nut.k);
+    const pLeft=Math.max(0,Math.round(t.protein-nut.p));
+    html+=`<div class="stat-row" style="margin-top:2px;">`+
+      stat((remain>=0?"":"")+remain.toLocaleString(),"還可吃 kcal",remain<0?"#b5564e":"var(--green)")+
+      stat(nut.p+"/"+t.protein,"蛋白(g)",pLeft>0?"var(--warm)":"var(--green)")+
+      stat(Math.round(water/waterGoal*100)+"%","飲水",water>=waterGoal?"var(--green)":"")+
+      stat(nut.k>0?"✓":"—","今日打卡",nut.k>0?"var(--green)":"var(--sub)")+`</div>`;
+  }else{
+    html+=`<div class="hint">先在下方 ①②填基本資料與目標，這裡就會顯示「今天還能吃多少、蛋白、飲水、打卡」。</div>`;
+  }
+  // 競賽名次摘要
+  if((myGroups||[]).length){
+    const parts=myGroups.slice(0,3).map(g=>{
+      const idx=g.members.findIndex(m=>m.me); const rank=idx>=0?idx+1:"-";
+      return `${g.name}：第 ${rank}/${g.members.length}`;
+    });
+    html+=`<div class="hint" style="margin-top:8px;">🏆 ${parts.join("　·　")}</div>`;
+  }
+  box.innerHTML=html;
+}
 let reportDays=7;
 function setReport(n,btn){
   reportDays=n;
@@ -1833,8 +1891,8 @@ function renderEta(){
   set("etaOut", `${y}/${m}/${d}`);
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); } }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
@@ -1874,6 +1932,7 @@ async function boot(){
   renderDerived();
   restoreCards();
   applyTips();
+  maybeOnboard();        // 首次登入顯示引導
   maybeWeeklyReview();   // 背景補產生上週覆盤（有資料且尚未產生時）
   (async()=>{ await handleJoinParam(); await syncDailyStats(); await loadGroups(); })();  // 競賽：加入連結→上傳統計→載排行
 }
