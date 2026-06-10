@@ -192,7 +192,7 @@
             <select id="goalRate"><option value="0.1">溫和 10%</option><option value="0.2" selected>標準 20%</option><option value="0.25">積極 25%</option></select>
           </div>
         </div>
-        <div class="hint">「強度」＝每日熱量增減幅度：減脂時吃低於 TDEE 的 10/20/25%；增肌時建立盈餘（保守取一半）。溫和 10% 最不易復胖、積極 25% 較快但較辛苦。</div>
+        <div class="hint">強度＝熱量增減幅度：溫和10%／標準20%／積極25%。</div>
         <label>TDEE 基準</label>
         <select id="tdeeBasis">
           <option value="gross" selected>含運動（維持目前運動量）</option>
@@ -205,7 +205,7 @@
         </div>
         <div class="macro-bar" id="goalBar"></div>
         <div class="macro-leg" id="goalLeg"></div>
-        <div class="hint">蛋白＝體重×2.0g、脂肪取總熱量 25%，其餘為碳水。優先用你的「真實 TDEE」當基準，未滿 7 天才用公式。</div>
+        <div class="hint">蛋白＝體重×2g、脂肪25%、其餘碳水。基準優先用真實TDEE。</div>
       </div>
     </div>
 
@@ -248,7 +248,7 @@
       <div class="cardbody">
         <canvas id="chart" height="200"></canvas>
         <div class="empty" id="chartEmpty">尚無資料，先到「紀錄」分頁新增體重</div>
-        <div class="hint">藍＝每日體重、橘＝7 日移動平均（看趨勢更準）、綠虛線＝整體斜率。</div>
+        <div class="hint">藍＝每日體重、橘＝7日均線、綠＝斜率。</div>
       </div>
     </div>
 
@@ -281,7 +281,7 @@
         <button class="ghost sm fbtn" data-f="raw" onclick="setFoodFilter('raw',this)">🥗原型</button>
       </div>
       <div class="suggest" id="foodSuggest"></div>
-      <div class="hint">點搜尋結果就直接加入下方清單（記住你上次的克數），克數在清單裡直接改。🕘=常用 · 👥=共享庫 · 💪高蛋白 🍬高糖 🧈高脂</div>
+      <div class="hint">點結果即加入（帶上次克數）。🕘常用 👥共享 💪高蛋白 🍬高糖 🧈高脂</div>
       <div class="row" style="flex-wrap:wrap;">
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="addFav()">⭐ 加入最愛</button></div>
         <div style="flex:0 0 auto;"><button class="ghost sm" onclick="toggleCustom()">✏️ 自訂食物</button></div>
@@ -322,10 +322,10 @@
         <input id="mealPhotoInput" type="file" accept="image/*" style="display:none;" onchange="onPhotoPick(event)">
         <button class="ghost sm" style="margin-top:8px;" onclick="document.getElementById('mealPhotoInput').click()">📷 為這一餐拍照／選圖</button>
         <div id="mealPhotoPreview" style="margin-top:8px;"></div>
-        <div class="hint">可只拍照不輸入食物，當作飲食日記；有照片時按「＋加入」即可。</div>
+        <div class="hint">可只拍照當飲食日記，按「＋加入」即可。</div>
       </div>
       <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
-      <div class="hint">資料來源：台灣 FDA 官方資料庫（2,181 筆）＋台灣連鎖餐點包＋常見品項概估。連鎖餐點點選後預設帶入「一份」的份量，可在清單調整。皆為概估，僅供參考。</div>
+      <div class="hint">來源：台灣FDA＋連鎖/小吃/手搖包＋AI辨識，皆為概估。</div>
     </div>
 
     <!-- 今日飲食（在計算機下方） -->
@@ -340,7 +340,7 @@
       <div class="rings" id="rings" style="margin-top:12px;"></div>
       <div class="result" id="netBox" style="display:none;"></div>
       <div id="mealGroups"></div>
-      <div class="hint">在上方計算機組好，選餐別「加入」即可分餐記錄；環圈為對②目標的達成度。</div>
+      <div class="hint">環圈＝對②目標的達成度。</div>
     </div>
 
     <!-- 食譜 -->
@@ -348,7 +348,7 @@
       <h2 class="ch" data-ck="recipes" onclick="toggleCard(this)">📖 我的食譜 <span class="pill" id="recipeCount"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
-        <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
+        <div class="hint">套用後載入計算機清單，再選餐別加入。</div>
       </div>
     </div>
 
@@ -357,7 +357,7 @@
       <h2 class="ch" data-ck="shared" onclick="toggleCard(this)">👥 共享食物庫 <span class="pill" id="sharedCount"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <input id="sharedSearch" placeholder="搜尋共享品項…" autocomplete="off" oninput="renderShared()">
-        <div class="hint">大家建立的自訂食物與食譜（每100g）。你只能刪除自己建立的（標 ⭐）。發現別人的數值有誤，可用「✏️自訂食物」用同名重建來更正。</div>
+        <div class="hint">大家建立的食物（每100g）。⭐為你建立的、可刪；別人的可用同名重建來更正。</div>
         <div id="sharedList" style="max-height:340px;overflow:auto;"></div>
       </div>
     </div>
@@ -423,7 +423,7 @@
       <div class="foodlist" id="exItems"></div>
       <h2 style="margin-top:18px;">本週運動建議</h2>
       <div id="exRec"></div>
-      <div class="hint">建議依你的目標調整；有氧消耗用 MET×體重估算、重訓用訓練時間估算，僅供參考。</div>
+      <div class="hint">消耗為 MET×體重估算，僅供參考。</div>
     </div>
   </div>
 
@@ -439,7 +439,7 @@
         <div><label>晚上體重 (kg)</label><input id="rWeightPm" type="number" inputmode="decimal" placeholder="60.5"></div>
       </div>
       <button onclick="addRecord()">＋ 新增 / 更新體重</button>
-      <div class="hint">早/晚至少填一個。趨勢與反推 TDEE 以「早上體重」為準（最穩定）。當日攝取與營養素改由「飲食」分頁的餐別自動加總。</div>
+      <div class="hint">早/晚至少填一個；趨勢與反推以早上體重為準。攝取由「飲食」自動加總。</div>
     </div>
 
     <!-- 所有紀錄 -->
@@ -1236,7 +1236,7 @@ function renderBalance(){
     order.map(([m,v])=>`<i title="${m} ${v}組" style="width:${v/total*100}%;background:${colors[m]||"#aaa"}"></i>`).join("")+`</div>`+
     `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:12px;color:var(--sub)">`+
     order.map(([m,v])=>`<span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${colors[m]||"#aaa"};margin-right:3px"></i>${m} ${Math.round(v/total*100)}%</span>`).join("")+`</div>`;
-  box.innerHTML=collapsible("🧩 部位平衡（近30天）", inner, false);
+  box.innerHTML=collapsible("🧩 部位平衡（近30天）", inner, "balance");
 }
 // 近7天訓練量趨勢
 function renderVolTrend(){
@@ -1250,7 +1250,7 @@ function renderVolTrend(){
   const inner=`<div style="display:flex;align-items:flex-end;gap:4px;height:60px;">`+
     days.map(d=>`<div style="flex:1;text-align:center;"><div style="background:var(--accent);border-radius:3px 3px 0 0;height:${Math.round(d.vol/max*50)}px;min-height:2px"></div><div style="font-size:9px;color:var(--sub)">${d.ds.slice(5)}</div></div>`).join("")+
     `</div><div class="hint">7天總量 ${Math.round(days.reduce((a,b)=>a+b.vol,0)).toLocaleString()} kg</div>`;
-  box.innerHTML=collapsible("📊 近7天訓練量", inner, false);
+  box.innerHTML=collapsible("📊 近7天訓練量", inner, "trend");
 }
 /* ---------- 重訓 ---------- */
 const STRENGTH=["臥推","上斜臥推","啞鈴臥推","胸推機","深蹲","前蹲舉","腿推","腿伸屈","腿後勾","硬舉","羅馬尼亞硬舉","肩推","啞鈴肩推","側平舉","引體向上","滑輪下拉","槓鈴划船","坐姿划船","二頭彎舉","三頭下壓","臀推","小腿推舉","核心捲腹","面拉"];
@@ -1283,11 +1283,14 @@ async function addStrength(){
     await reload();
   }catch(e){ alert(e.message); }
 }
-// 收放區塊小工具
-function collapsible(title, inner, open){
-  return `<details${open?" open":""} style="border:1px solid var(--line);border-radius:10px;margin-top:8px;padding:2px 10px;">`+
+// 收放區塊小工具（key 提供時會記住展開/收合）
+function collapsible(title, inner, key){
+  const open = (key && (key in CARD_STATE)) ? !CARD_STATE[key] : false;
+  const attr = key ? ` data-dk="${key}" ontoggle="saveDetail(this)"` : "";
+  return `<details${open?" open":""}${attr} style="border:1px solid var(--line);border-radius:10px;margin-top:8px;padding:2px 10px;">`+
     `<summary style="cursor:pointer;padding:8px 0;font-size:14px;font-weight:500;">${title}</summary><div style="padding-bottom:8px;">${inner}</div></details>`;
 }
+function saveDetail(d){ const k=d.getAttribute("data-dk"); if(!k) return; CARD_STATE[k]=!d.open; try{ localStorage.setItem("tdee_cardstate",JSON.stringify(CARD_STATE)); }catch(e){} }
 // 每個動作的最佳重量 / 最近一次（PR 進度）
 function renderPR(){
   const box=document.getElementById("stPR"); if(!box) return;
@@ -1299,7 +1302,7 @@ function renderPR(){
     if(e.date>=a.lastDate){ a.lastDate=e.date; a.last=e; } });
   const rows=Object.entries(by).sort((x,y)=>y[1].best-x[1].best).slice(0,12).map(([n,a])=>
     `<div class="rec-line"><span>${n}</span><span><b>最佳 ${a.best}kg</b>×${a.bestReps}　<span style="color:var(--sub);font-size:12px">上次 ${a.last.weight}kg×${a.last.reps}×${a.last.sets}組</span></span></div>`).join("");
-  box.innerHTML=collapsible("💪 各動作進度（PR）", rows, false);
+  box.innerHTML=collapsible("💪 各動作進度（PR）", rows, "pr");
 }
 let editingEx=null;  // 正在編輯的紀錄 id
 function exRowHtml(e){
