@@ -156,7 +156,7 @@
   <div class="tabpage" id="page-overview">
     <!-- 基礎估算（可折疊） -->
     <div class="card collapsed">
-      <h2 class="ch" onclick="toggleCard(this)">① 基礎估算 <span class="pill">Mifflin</span><span class="caret">▾</span></h2>
+      <h2 class="ch" data-ck="basic" onclick="toggleCard(this)">① 基礎估算 <span class="pill">Mifflin</span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <div class="row">
           <div><label>性別</label><select id="sex"><option value="m">男</option><option value="f">女</option></select></div>
@@ -182,7 +182,7 @@
 
     <!-- 目標與建議（可折疊） -->
     <div class="card">
-      <h2 class="ch" onclick="toggleCard(this)">② 目標與建議 <span class="pill">每日配額</span><span class="caret">▾</span></h2>
+      <h2 class="ch" data-ck="goal" onclick="toggleCard(this)">② 目標與建議 <span class="pill">每日配額</span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <div class="row">
           <div><label>目標</label>
@@ -211,7 +211,7 @@
 
     <!-- 真實 TDEE -->
     <div class="card collapsed">
-      <h2 class="ch" onclick="toggleCard(this)">真實 TDEE <span class="pill">斜率反推</span><span class="caret">▾</span></h2>
+      <h2 class="ch" data-ck="real-tdee" onclick="toggleCard(this)">真實 TDEE <span class="pill">斜率反推</span><span class="caret">▾</span></h2>
       <div class="cardbody">
       <div class="hint" id="realDetail" style="text-align:center;margin-bottom:6px;">需要至少 7 天紀錄才能估算</div>
       <div class="row">
@@ -233,7 +233,7 @@
         <div><div class="v" id="sDeficit">—</div><div class="k">每日赤字</div></div>
       </div>
       <div class="card collapsed" style="margin:14px 0 0; border:none; background:var(--soft); padding:10px 12px;">
-        <h2 class="ch" onclick="toggleCard(this)" style="font-size:14px;margin:0;">📊 詳細比較<span class="caret">▾</span></h2>
+        <h2 class="ch" data-ck="cmp" onclick="toggleCard(this)" style="font-size:14px;margin:0;">📊 詳細比較<span class="caret">▾</span></h2>
         <div class="cardbody">
           <table id="cmpTbl"><tbody></tbody></table>
           <div class="hint" id="cmpHint"></div>
@@ -244,10 +244,12 @@
 
     <!-- 體重趨勢 -->
     <div class="card">
-      <h2>體重趨勢</h2>
-      <canvas id="chart" height="200"></canvas>
-      <div class="empty" id="chartEmpty">尚無資料，先到「紀錄」分頁新增體重</div>
-      <div class="hint">藍＝每日體重、橘＝7 日移動平均（看趨勢更準）、綠虛線＝整體斜率。</div>
+      <h2 class="ch" data-ck="weight-trend" onclick="toggleCard(this)">體重趨勢<span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <canvas id="chart" height="200"></canvas>
+        <div class="empty" id="chartEmpty">尚無資料，先到「紀錄」分頁新增體重</div>
+        <div class="hint">藍＝每日體重、橘＝7 日移動平均（看趨勢更準）、綠虛線＝整體斜率。</div>
+      </div>
     </div>
 
     <!-- 目標體重 -->
@@ -343,7 +345,7 @@
 
     <!-- 食譜 -->
     <div class="card collapsed">
-      <h2 class="ch" onclick="toggleCard(this)">📖 我的食譜 <span class="pill" id="recipeCount"></span><span class="caret">▾</span></h2>
+      <h2 class="ch" data-ck="recipes" onclick="toggleCard(this)">📖 我的食譜 <span class="pill" id="recipeCount"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
         <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
@@ -352,7 +354,7 @@
 
     <!-- 共享食物庫管理 -->
     <div class="card collapsed">
-      <h2 class="ch" onclick="toggleCard(this)">👥 共享食物庫 <span class="pill" id="sharedCount"></span><span class="caret">▾</span></h2>
+      <h2 class="ch" data-ck="shared" onclick="toggleCard(this)">👥 共享食物庫 <span class="pill" id="sharedCount"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <input id="sharedSearch" placeholder="搜尋共享品項…" autocomplete="off" oninput="renderShared()">
         <div class="hint">大家建立的自訂食物與食譜（每100g）。你只能刪除自己建立的（標 ⭐）。發現別人的數值有誤，可用「✏️自訂食物」用同名重建來更正。</div>
@@ -362,17 +364,19 @@
 
     <!-- 飲水 -->
     <div class="card">
-      <h2>💧 飲水紀錄</h2>
-      <div class="result" style="margin-top:0;">
-        <div class="big" id="waterOut">0 ml</div>
-        <div class="hint" id="waterGoal"></div>
-      </div>
-      <div class="prog"><i id="waterBar" style="width:0%"></i></div>
-      <div class="row" style="margin-top:10px;">
-        <div><button class="ghost sm" onclick="addWater(250)">＋250</button></div>
-        <div><button class="ghost sm" onclick="addWater(500)">＋500</button></div>
-        <div><button class="ghost sm" onclick="addWater(-250)">－250</button></div>
-        <div><button class="ghost sm" onclick="addWater(0,true)">歸零</button></div>
+      <h2 class="ch" data-ck="water" onclick="toggleCard(this)">💧 飲水紀錄<span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="result" style="margin-top:0;">
+          <div class="big" id="waterOut">0 ml</div>
+          <div class="hint" id="waterGoal"></div>
+        </div>
+        <div class="prog"><i id="waterBar" style="width:0%"></i></div>
+        <div class="row" style="margin-top:10px;">
+          <div><button class="ghost sm" onclick="addWater(250)">＋250</button></div>
+          <div><button class="ghost sm" onclick="addWater(500)">＋500</button></div>
+          <div><button class="ghost sm" onclick="addWater(-250)">－250</button></div>
+          <div><button class="ghost sm" onclick="addWater(0,true)">歸零</button></div>
+        </div>
       </div>
     </div>
   </div>
@@ -784,7 +788,14 @@ function renderFood(){
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
 function selDate(){ return val("foodDate")||todayStr(); }
-function toggleCard(h){ h.parentElement.classList.toggle("collapsed"); }
+const CARD_STATE = (()=>{ try{ return JSON.parse(localStorage.getItem("tdee_cardstate")||"{}"); }catch(e){ return {}; } })();
+function toggleCard(h){
+  const card=h.parentElement; card.classList.toggle("collapsed");
+  const k=h.getAttribute("data-ck"); if(k){ CARD_STATE[k]=card.classList.contains("collapsed"); try{ localStorage.setItem("tdee_cardstate",JSON.stringify(CARD_STATE)); }catch(e){} }
+}
+function restoreCards(){
+  document.querySelectorAll("h2.ch[data-ck]").forEach(h=>{ const k=h.getAttribute("data-ck"); if(k in CARD_STATE) h.parentElement.classList.toggle("collapsed", CARD_STATE[k]); });
+}
 function showTab(name){
   ["overview","food","exercise","records"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
@@ -1560,6 +1571,7 @@ async function boot(){
   await reload();
   if(store.profile) applyProfile(store.profile);
   renderDerived();
+  restoreCards();
 }
 
 window.addEventListener("DOMContentLoaded", ()=>{
