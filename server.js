@@ -812,9 +812,15 @@ function scoreMember(rows, metric, since, until) {
     return { score: cnt, detail: cnt + " 次" + (vol ? " · " + Math.round(vol).toLocaleString() + "kg" : "") };
   }
   if (metric === "weightpct") {
-    const w = win.filter((r) => r.weight != null).sort((a, b) => (a.date < b.date ? -1 : 1));
-    if (w.length < 2) return { score: 0, detail: "資料不足", sortAsc: true };
-    const pct = +(((+w[w.length - 1].weight - +w[0].weight) / +w[0].weight) * 100).toFixed(1);
+    // 基準＝視窗開始前最後一次體重(沒有就用視窗內第一筆)；現值＝視窗內最後一次體重
+    const all = rows.filter((r) => r.weight != null && r.date <= until).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const inWin = all.filter((r) => r.date >= since);
+    const pre = all.filter((r) => r.date < since);
+    const current = inWin.length ? inWin[inWin.length - 1] : (all.length ? all[all.length - 1] : null);
+    const baseline = pre.length ? pre[pre.length - 1] : (inWin.length ? inWin[0] : null);
+    if (!current || !baseline) return { score: 0, detail: "尚無體重", sortAsc: true };
+    if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true };
+    const pct = +(((+current.weight - +baseline.weight) / +baseline.weight) * 100).toFixed(1);
     return { score: pct, detail: (pct > 0 ? "+" : "") + pct + "%", sortAsc: true };
   }
   const streakOf = () => {
