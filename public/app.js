@@ -1306,7 +1306,16 @@ function renderReal(){
     set("realDetail",`根據最近 ${R.days} 天紀錄`);
   }else{
     set("realTdee","—"); set("realTdeeBase","—");
-    set("realDetail", R.days<7?`已有 ${R.days} 天，需至少 7 天`:"攝取資料不足（至少 3 天）");
+    // 還差幾天能算出實測：需 ≥7 天有體重 且 其中 ≥3 天有攝取
+    const wDays=(store.records||[]).filter(r=>r.weight!=null).length;
+    const kDays=(store.records||[]).filter(r=>r.weight!=null&&r.kcal!=null).length;
+    const needW=Math.max(0,7-wDays), needK=Math.max(0,3-kDays);
+    let msg;
+    if(needW>0&&needK>0) msg=`還差 ${needW} 天體重 + ${needK} 天飲食紀錄就能算出你的實測 TDEE`;
+    else if(needW>0) msg=`還差 ${needW} 天體重紀錄就能算出實測 TDEE（飲食已足）`;
+    else if(needK>0) msg=`體重天數已足，還差 ${needK} 天飲食紀錄就能算出實測 TDEE`;
+    else msg="資料即將足夠，再記一天即可";
+    set("realDetail", `⏳ ${msg}（目前用公式估）`);
   }
   set("sAvgKcal", R.avgK?R.avgK.toLocaleString():"—");
   set("sBurn", R.avgBurn?R.avgBurn.toLocaleString():"0");
