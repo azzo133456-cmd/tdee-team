@@ -1289,11 +1289,11 @@ function renderExRec(){
 function todayStr(){ const d=new Date(),o=d.getTimezoneOffset(); return new Date(d-o*60000).toISOString().slice(0,10); }
 async function addRecord(){
   const date=val("rDate")||todayStr();
-  const w=parseFloat(val("rWeight")), wpm=parseFloat(val("rWeightPm"));
-  if(isNaN(w)&&isNaN(wpm)){ alert("請至少填早上或晚上體重"); return; }
+  const w=parseFloat(val("rWeight")), wpm=parseFloat(val("rWeightPm")), bf=parseFloat(val("rBodyFat"));
+  if(isNaN(w)&&isNaN(wpm)&&isNaN(bf)){ alert("請至少填體重或體脂"); return; }
   try{
-    await api("/api/record",{method:"POST",body:JSON.stringify({date,weight:isNaN(w)?null:w,weight_pm:isNaN(wpm)?null:wpm})});
-    ["rWeight","rWeightPm"].forEach(id=>document.getElementById(id).value="");
+    await api("/api/record",{method:"POST",body:JSON.stringify({date,weight:isNaN(w)?null:w,weight_pm:isNaN(wpm)?null:wpm,body_fat:isNaN(bf)?null:bf})});
+    ["rWeight","rWeightPm","rBodyFat"].forEach(id=>document.getElementById(id).value="");
     await reload();
   }catch(e){ alert(e.message); }
 }
@@ -1358,7 +1358,7 @@ function renderTable(){
     const tr=document.createElement("tr");
     const burn=burnByDate(r.date.slice(0,10));
     const net=r.kcal!=null? (+r.kcal-burn) : null;
-    tr.innerHTML=`<td>${r.date.slice(0,10)}</td><td>${r.weight??"—"}</td><td>${r.weight_pm??"—"}</td><td>${r.kcal??"—"}</td><td>${burn>0?"−"+burn.toLocaleString():"—"}</td><td>${net!=null?net.toLocaleString():"—"}</td><td><span class="del" onclick="delRecord(${r.id})">刪除</span></td>`;
+    tr.innerHTML=`<td>${r.date.slice(0,10)}</td><td>${r.weight??"—"}</td><td>${r.weight_pm??"—"}</td><td>${r.body_fat!=null?r.body_fat+"%":"—"}</td><td>${r.kcal??"—"}</td><td>${burn>0?"−"+burn.toLocaleString():"—"}</td><td>${net!=null?net.toLocaleString():"—"}</td><td><span class="del" onclick="delRecord(${r.id})">刪除</span></td>`;
     tb.appendChild(tr);
   });
 }
@@ -1491,12 +1491,19 @@ function drawChart(){
   const sl=den?num/den:0,ic=my-sl*mx,trend=xs.map(x=>+(sl*x+ic).toFixed(2));
   // 7 日移動平均（過濾每日水分波動）
   const ma=data.map((_,i)=>{ const s=Math.max(0,i-6); const w=data.slice(s,i+1); return +(w.reduce((a,b)=>a+b,0)/w.length).toFixed(2); });
+  // 體脂%（沿用同一組日期，沒填的點留空、連線跳過）
+  const bf=recs.map(r=>r.body_fat!=null?+r.body_fat:null);
+  const hasBf=bf.some(v=>v!=null);
+  const datasets=[
+    {label:"體重",data,borderColor:"#5b8aa6",backgroundColor:"rgba(91,138,166,.12)",fill:true,tension:.3,pointRadius:3,yAxisID:"y"},
+    {label:"7日平均",data:ma,borderColor:"#c98b5e",borderWidth:2,pointRadius:0,fill:false,tension:.3,yAxisID:"y"},
+    {label:"趨勢",data:trend,borderColor:"#7c9070",borderDash:[5,4],pointRadius:0,fill:false,yAxisID:"y"}
+  ];
+  if(hasBf) datasets.push({label:"體脂%",data:bf,borderColor:"#9b7cb6",borderWidth:2,pointRadius:3,fill:false,tension:.3,spanGaps:true,yAxisID:"y1"});
+  const scales={y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}};
+  if(hasBf) scales.y1={position:"right",grid:{drawOnChartArea:false},ticks:{font:{size:11},callback:v=>v+"%"}};
   if(chart)chart.destroy();
-  chart=new Chart(cv,{type:"line",data:{labels,datasets:[
-    {label:"體重",data,borderColor:"#5b8aa6",backgroundColor:"rgba(91,138,166,.12)",fill:true,tension:.3,pointRadius:3},
-    {label:"7日平均",data:ma,borderColor:"#c98b5e",borderWidth:2,pointRadius:0,fill:false,tension:.3},
-    {label:"趨勢",data:trend,borderColor:"#7c9070",borderDash:[5,4],pointRadius:0,fill:false}
-  ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}}}});
+  chart=new Chart(cv,{type:"line",data:{labels,datasets},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales}});
 }
 function renderEta(){
   const target=+val("targetWeight");

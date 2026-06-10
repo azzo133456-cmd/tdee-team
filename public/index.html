@@ -351,8 +351,12 @@
         <div><label>早上體重 (kg)</label><input id="rWeight" type="number" inputmode="decimal" placeholder="59.8"></div>
         <div><label>晚上體重 (kg)</label><input id="rWeightPm" type="number" inputmode="decimal" placeholder="60.5"></div>
       </div>
+      <div class="row">
+        <div><label>體脂肪 (%)</label><input id="rBodyFat" type="number" inputmode="decimal" placeholder="22.5"></div>
+        <div></div>
+      </div>
       <button onclick="addRecord()">＋ 新增 / 更新體重</button>
-      <div class="hint tip">早/晚至少填一個；趨勢與反推以早上體重為準。攝取由「飲食」自動加總。</div>
+      <div class="hint tip">早/晚至少填一個；趨勢與反推以早上體重為準。體脂選填。攝取由「飲食」自動加總。</div>
     </div>
 
     <!-- 我的減重計畫（自動判斷階段） -->
@@ -387,7 +391,7 @@
     <!-- 所有紀錄 -->
     <div class="card">
       <h2>所有紀錄</h2>
-      <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>攝取</th><th>運動</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
+      <table id="tbl"><thead><tr><th>日期</th><th>早重</th><th>晚重</th><th>體脂</th><th>攝取</th><th>運動</th><th>淨</th><th></th></tr></thead><tbody></tbody></table>
       <div class="empty" id="tblEmpty">尚無資料</div>
     </div>
   </div>

@@ -44,6 +44,7 @@ async function initDb() {
     );
     ALTER TABLE records ADD COLUMN IF NOT EXISTS weight_pm REAL;
     ALTER TABLE records ADD COLUMN IF NOT EXISTS water_ml INT;
+    ALTER TABLE records ADD COLUMN IF NOT EXISTS body_fat REAL;
     CREATE TABLE IF NOT EXISTS meals (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -190,17 +191,18 @@ app.put("/api/profile", auth, async (req, res) => {
 app.post("/api/record", auth, async (req, res) => {
   try {
     // weight = 早上體重（主要，用於趨勢/反推），weight_pm = 晚上體重
-    const { date, weight, weight_pm, kcal, protein, fat, carb } = req.body;
+    const { date, weight, weight_pm, body_fat, kcal, protein, fat, carb } = req.body;
     if (!date) return res.status(400).json({ error: "需要日期" });
     await pool.query(
-      `INSERT INTO records(user_id,date,weight,weight_pm,kcal,protein,fat,carb)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO records(user_id,date,weight,weight_pm,body_fat,kcal,protein,fat,carb)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (user_id,date) DO UPDATE SET
          weight=COALESCE(EXCLUDED.weight, records.weight),
          weight_pm=COALESCE(EXCLUDED.weight_pm, records.weight_pm),
+         body_fat=COALESCE(EXCLUDED.body_fat, records.body_fat),
          kcal=EXCLUDED.kcal, protein=EXCLUDED.protein,
          fat=EXCLUDED.fat, carb=EXCLUDED.carb`,
-      [req.user.id, date, weight ?? null, weight_pm ?? null, kcal ?? null, protein ?? null, fat ?? null, carb ?? null]
+      [req.user.id, date, weight ?? null, weight_pm ?? null, body_fat ?? null, kcal ?? null, protein ?? null, fat ?? null, carb ?? null]
     );
     res.json({ ok: true });
   } catch (e) {
