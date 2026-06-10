@@ -889,7 +889,7 @@ function renderReviews(){
 
 /* ---------- 群組競賽 ---------- */
 let myGroups=[];
-const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數",protein:"蛋白王",water:"喝水達成率",team:"團隊挑戰"};
+const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數",protein:"蛋白達成率",water:"喝水達成率",team:"團隊挑戰"};
 const PERIOD_LABEL={day:"每日",week:"每週",month:"每月"};
 // 計算自己近 35 天的隱私安全統計並上傳（flag 由本機算，體重只供算個人%）
 async function syncDailyStats(){
@@ -917,7 +917,8 @@ async function syncDailyStats(){
       ex_count: exsDay.length,
       volume: exsDay.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0),
       weight: rec&&rec.weight!=null?+rec.weight:null,
-      water_pct: (rec&&rec.water_ml!=null)?Math.round(water/waterGoal*100):null });  // 喝水達成率(已喝/該喝)
+      water_pct: (rec&&rec.water_ml!=null)?Math.round(water/waterGoal*100):null,  // 喝水達成率(已喝/該喝)
+      protein_pct: (t&&logged&&t.protein>0)?Math.round(nut.p/t.protein*100):null });  // 蛋白達成率(已吃/目標)
   }
   if(!rows.length) return;
   try{ await api("/api/dailystats",{method:"POST",body:JSON.stringify({rows})}); }catch(e){}

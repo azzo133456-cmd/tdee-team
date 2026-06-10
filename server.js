@@ -144,10 +144,11 @@ async function initDb() {
       logged INT DEFAULT 0, kcal_hit INT DEFAULT 0, protein_hit INT DEFAULT 0,
       exercised INT DEFAULT 0, water_hit INT DEFAULT 0,
       ex_count INT DEFAULT 0, volume REAL DEFAULT 0, weight REAL,
-      water_pct REAL,
+      water_pct REAL, protein_pct REAL,
       UNIQUE(user_id, date)
     );
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS water_pct REAL;
+    ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS protein_pct REAL;
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -940,7 +941,12 @@ function scoreMember(rows, metric, since, until) {
     return s;
   };
   if (metric === "streak") { const s = streakOf(); return { score: s, detail: s + " 天" }; }
-  if (metric === "protein") { const n = win.reduce((a, r) => a + (r.protein_hit || 0), 0); return { score: n, detail: n + " 天達標" }; }
+  if (metric === "protein") {
+    const ps = win.filter((r) => r.protein_pct != null);
+    if (!ps.length) return { score: 0, detail: "尚無紀錄" };
+    const avg = ps.reduce((a, r) => a + (+r.protein_pct || 0), 0) / ps.length;
+    return { score: Math.round(avg), detail: Math.round(avg) + "%（平均達成率）" };
+  }
   if (metric === "water") {
     // 平均每日喝水達成率（已喝ML ÷ 該喝ML）；只計有記錄的天
     const ws = win.filter((r) => r.water_pct != null);
@@ -978,15 +984,16 @@ app.post("/api/dailystats", auth, async (req, res) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
       const b = (v) => (v ? 1 : 0);
       await pool.query(
-        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (user_id,date) DO UPDATE SET
            logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
            exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
-           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct`,
+           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct`,
         [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
          Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null,
-         r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null]
+         r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null,
+         r.protein_pct != null ? Math.max(0, Math.min(300, +r.protein_pct)) : null]
       );
     }
     res.json({ ok: true });
@@ -1044,7 +1051,7 @@ app.get("/api/groups", auth, async (req, res) => {
       mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
       const ids = mem.rows.map((u) => u.id);
       if (ids.length) {
-        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
+        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
         st.rows.forEach((r) => { (rowsByUser[r.user_id] = rowsByUser[r.user_id] || []).push(r); });
       }
       const len = roundLen(g.period);
