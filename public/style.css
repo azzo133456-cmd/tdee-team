@@ -111,24 +111,38 @@
   /* 名稱特效（積分解鎖）— 用 color/text-shadow，對 <b> 與一般文字皆適用 */
   .namefx{display:inline-flex; align-items:center; gap:2px; padding:0 3px; border-radius:9px; position:relative; overflow:visible;}
   .namefx::after{content:attr(data-emoji); font-size:.95em;}
+  .namefx .fxdec{position:absolute; pointer-events:none;}  /* 動態點綴 */
   .namefx.fx1{text-shadow:0 0 6px rgba(91,138,166,.7);}
   .namefx.fx2{color:#d46a90; text-shadow:0 0 6px rgba(212,106,144,.5);}
   .namefx.fx3{color:#e08a3c; text-shadow:0 0 5px rgba(224,138,60,.5);}
-  .namefx.fx4{color:#e0632e; text-shadow:0 0 9px rgba(224,99,46,.75); animation:fxflick 1.6s ease-in-out infinite;}
-  .namefx.fx5{color:#3a9d6b; text-shadow:0 0 8px rgba(58,157,107,.65);}
-  .namefx.fx6{color:#2aa7c0; text-shadow:0 0 9px rgba(60,170,200,.7);}
-  .namefx.fx6::before{content:"🫧"; position:absolute; left:-3px; top:-7px; font-size:.6em; animation:fxbub 2.2s ease-in infinite;}
-  .namefx.fx7{color:#d2722e; text-shadow:0 0 8px rgba(210,114,46,.6);}
-  .namefx.fx8{color:#9b6cd9; text-shadow:0 0 10px rgba(155,108,217,.7);}
-  .namefx.fx9{color:#caa11e; text-shadow:0 0 10px rgba(255,210,40,.85); animation:fxflick .9s ease-in-out infinite;}
-  .namefx.fx10{color:#caa53b; text-shadow:0 0 10px rgba(212,175,55,.85);}
-  .namefx.fx10::before{content:"✨"; position:absolute; right:-5px; top:-8px; font-size:.65em; animation:fxtwk 1.4s ease-in-out infinite;}
-  .namefx.fx11{color:#c0392b; text-shadow:0 0 11px rgba(212,80,55,.8),0 0 4px rgba(255,200,60,.7); animation:fxflick 1.3s ease-in-out infinite;}
-  .namefx.fx12{animation:fxrainbow 3.5s linear infinite; text-shadow:0 0 9px rgba(0,0,0,.12);}
-  .namefx.fx13{color:#3fd0e0; text-shadow:0 0 10px rgba(120,230,245,.9),0 0 4px #fff; animation:fxtwk 1.8s ease-in-out infinite;}
+  .namefx.fx3::before{content:"🐾"; position:absolute; left:-7px; bottom:-4px; font-size:.55em; opacity:.85; animation:fxpaw 1.8s steps(1) infinite;}
+  .namefx.fx4{color:#7fb1d6; text-shadow:0 0 7px rgba(160,200,235,.8); animation:fxbob 2.4s ease-in-out infinite;}
+  .namefx.fx4::before{content:"☁️"; position:absolute; left:-9px; top:-6px; font-size:.55em; animation:fxdrift 3.2s ease-in-out infinite;}
+  .namefx.fx5{color:#e0632e; text-shadow:0 0 9px rgba(224,99,46,.75); animation:fxflick 1.6s ease-in-out infinite;}
+  .namefx.fx5::before{content:"🔥"; position:absolute; left:-7px; top:-7px; font-size:.55em; animation:fxflick 1.0s ease-in-out infinite;}
+  .namefx.fx6{color:#3a9d6b; text-shadow:0 0 8px rgba(58,157,107,.65);}
+  .namefx.fx6::before{content:"💨"; position:absolute; left:-9px; top:-5px; font-size:.55em; animation:fxdrift 2.2s ease-in infinite;}
+  .namefx.fx7{color:#2aa7c0; text-shadow:0 0 9px rgba(60,170,200,.7);}
+  .namefx.fx7::before{content:"🫧"; position:absolute; left:-3px; top:-7px; font-size:.6em; animation:fxbub 2.2s ease-in infinite;}
+  .namefx.fx8{color:#d2722e; text-shadow:0 0 8px rgba(210,114,46,.6);}
+  .namefx.fx9{color:#4f7fb5; text-shadow:0 0 8px rgba(120,170,220,.7);}
+  .namefx.fx9::before{content:"❄️"; position:absolute; right:-7px; top:-7px; font-size:.55em; animation:fxsnow 2.6s linear infinite;}
+  .namefx.fx10{color:#9b6cd9; text-shadow:0 0 10px rgba(155,108,217,.7);}
+  .namefx.fx10::before{content:"🌟"; position:absolute; right:-6px; top:-7px; font-size:.6em; animation:fxtwk 1.6s ease-in-out infinite;}
+  .namefx.fx11{color:#caa11e; text-shadow:0 0 10px rgba(255,210,40,.85); animation:fxflick .9s ease-in-out infinite;}
+  .namefx.fx12{color:#caa53b; text-shadow:0 0 10px rgba(212,175,55,.85);}
+  .namefx.fx12::before{content:"✨"; position:absolute; right:-5px; top:-8px; font-size:.65em; animation:fxtwk 1.4s ease-in-out infinite;}
+  .namefx.fx13{color:#c0392b; text-shadow:0 0 11px rgba(212,80,55,.8),0 0 4px rgba(255,200,60,.7); animation:fxflick 1.3s ease-in-out infinite;}
+  .namefx.fx13::before{content:"🔥"; position:absolute; left:-8px; top:-7px; font-size:.6em; animation:fxflick .8s ease-in-out infinite;}
+  .namefx.fx14{animation:fxrainbow 3.5s linear infinite; text-shadow:0 0 9px rgba(0,0,0,.12);}
+  .namefx.fx15{color:#3fd0e0; text-shadow:0 0 10px rgba(120,230,245,.9),0 0 4px #fff; animation:fxtwk 1.8s ease-in-out infinite;}
   @keyframes fxflick{0%,100%{opacity:1;}50%{opacity:.72;}}
+  @keyframes fxbob{0%,100%{transform:translateY(0);}50%{transform:translateY(-2px);}}
   @keyframes fxbub{0%{transform:translateY(4px);opacity:0;}30%{opacity:1;}100%{transform:translateY(-13px);opacity:0;}}
   @keyframes fxtwk{0%,100%{opacity:.35;transform:scale(.8);}50%{opacity:1;transform:scale(1.25);}}
+  @keyframes fxpaw{0%{opacity:0;transform:translateX(0);}25%{opacity:.9;}50%{opacity:.9;transform:translateX(-4px);}75%,100%{opacity:0;transform:translateX(-8px);}}
+  @keyframes fxdrift{0%,100%{transform:translateX(0);opacity:.8;}50%{transform:translateX(-4px);opacity:1;}}
+  @keyframes fxsnow{0%{transform:translateY(-4px);opacity:0;}30%{opacity:1;}100%{transform:translateY(10px);opacity:0;}}
   @keyframes fxrainbow{0%{color:#ff5a5a;}16%{color:#ffb14a;}33%{color:#ffe24a;}50%{color:#5ad17c;}66%{color:#5b8aa6;}83%{color:#b86cd9;}100%{color:#ff5a5a;}}
   /* 結算慶祝 */
   .celebrate{position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); overflow:hidden;}

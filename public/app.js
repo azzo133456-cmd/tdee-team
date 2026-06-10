@@ -969,20 +969,22 @@ function renderGroups(){
 
 /* ---------- 積分制 + 名稱特效 ---------- */
 const FX_TIERS=[
-  {min:0,    cls:"fx0",  name:"新手",     emoji:""},
+  {min:0,    cls:"fx0",  name:"新手(預設)", emoji:""},
   {min:50,   cls:"fx1",  name:"微光",     emoji:"✨"},
   {min:120,  cls:"fx2",  name:"花環",     emoji:"🌸"},
   {min:220,  cls:"fx3",  name:"貓咪",     emoji:"🐱"},
-  {min:350,  cls:"fx4",  name:"火焰",     emoji:"🔥"},
-  {min:500,  cls:"fx5",  name:"幼龍",     emoji:"🐉"},
-  {min:700,  cls:"fx6",  name:"小美人魚", emoji:"🧜‍♀️"},
-  {min:950,  cls:"fx7",  name:"靈狐",     emoji:"🦊"},
-  {min:1200, cls:"fx8",  name:"獨角獸",   emoji:"🦄"},
-  {min:1600, cls:"fx9",  name:"雷霆",     emoji:"⚡"},
-  {min:2000, cls:"fx10", name:"皇冠",     emoji:"👑"},
-  {min:2800, cls:"fx11", name:"神龍",     emoji:"🐲"},
-  {min:3500, cls:"fx12", name:"彩虹傳說", emoji:"🌈"},
-  {min:5000, cls:"fx13", name:"鑽石傳奇", emoji:"💎"},
+  {min:280,  cls:"fx4",  name:"雲朵狗狗", emoji:"☁️"},
+  {min:350,  cls:"fx5",  name:"火焰",     emoji:"🔥"},
+  {min:500,  cls:"fx6",  name:"幼龍",     emoji:"🐉"},
+  {min:700,  cls:"fx7",  name:"小美人魚", emoji:"🧜‍♀️"},
+  {min:950,  cls:"fx8",  name:"靈狐",     emoji:"🦊"},
+  {min:1100, cls:"fx9",  name:"企鵝",     emoji:"🐧"},
+  {min:1300, cls:"fx10", name:"獨角獸",   emoji:"🦄"},
+  {min:1600, cls:"fx11", name:"雷霆",     emoji:"⚡"},
+  {min:2000, cls:"fx12", name:"皇冠",     emoji:"👑"},
+  {min:2800, cls:"fx13", name:"神龍",     emoji:"🐲"},
+  {min:3500, cls:"fx14", name:"彩虹傳說", emoji:"🌈"},
+  {min:5000, cls:"fx15", name:"鑽石傳奇", emoji:"💎"},
 ];
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
 function computePoints(){
