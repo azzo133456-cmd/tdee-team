@@ -225,6 +225,25 @@ app.delete("/api/exercise/:eid", auth, async (req, res) => {
   }
 });
 
+app.put("/api/exercise/:eid", auth, async (req, res) => {
+  try {
+    const { minutes, kcal, sets, reps, weight, volume } = req.body;
+    const r = await pool.query(
+      `UPDATE exercises SET
+         minutes=COALESCE($1,minutes), kcal=COALESCE($2,kcal),
+         sets=COALESCE($3,sets), reps=COALESCE($4,reps),
+         weight=COALESCE($5,weight), volume=COALESCE($6,volume)
+       WHERE id=$7 AND user_id=$8`,
+      [minutes ?? null, kcal ?? null, sets ?? null, reps ?? null, weight ?? null, volume ?? null, req.params.eid, req.user.id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: "找不到紀錄" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 我的最愛 ---------- */
 app.put("/api/favorites", auth, async (req, res) => {
   try {

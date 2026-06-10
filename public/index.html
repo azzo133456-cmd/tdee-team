@@ -1249,7 +1249,7 @@ function stSuggest(){
   box.style.display="block";
 }
 function pickSt(i){ const n=window.__st[i]; if(n==null) return; document.getElementById("stPick").value=n; document.getElementById("stSuggest").style.display="none"; if(MUSCLE[n]) document.getElementById("stMuscle").value=MUSCLE[n]; document.getElementById("stW").focus(); }
-function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(3.5,w)*(sets*2.5)); } // 保守估：每組約2.5分鐘、MET3.5(含組間休息)
+function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(2.0,w)*(sets*2.5)); } // 保守估：每組約2.5分鐘、MET2(含組間休息)
 function stPreview(){
   const w=+val("stW"),r=+val("stR"),s=+val("stS");
   if(!w||!r||!s){ set("stPreview",""); return; }
@@ -1281,33 +1281,64 @@ function renderPR(){
     `<div class="rec-line"><span>${n}</span><span><b>最佳 ${a.best}kg</b>×${a.bestReps}　<span style="color:var(--sub);font-size:12px">上次 ${a.last.weight}kg×${a.last.reps}×${a.last.sets}組</span></span></div>`).join("");
   box.innerHTML=`<div class="hint" style="margin-bottom:4px;">💪 各動作進度（依最佳重量排序）</div>${rows}`;
 }
+let editingEx=null;  // 正在編輯的紀錄 id
+function exRowHtml(e){
+  const isS=e.kind==="strength";
+  if(editingEx===e.id){
+    // 編輯表單
+    if(isS){
+      return `<div class="foodrow" style="flex-wrap:wrap;gap:6px;background:var(--soft);border-radius:8px;padding:8px;">`+
+        `<span class="nm" style="flex:1 1 100%;font-weight:500;">✏️ ${e.name}</span>`+
+        `<input id="edW" type="number" value="${e.weight||0}" style="width:60px;padding:5px" placeholder="kg"><span style="font-size:12px;color:var(--sub)">kg</span>`+
+        `<input id="edR" type="number" value="${e.reps||0}" style="width:50px;padding:5px" placeholder="次"><span style="font-size:12px;color:var(--sub)">次</span>`+
+        `<input id="edS" type="number" value="${e.sets||0}" style="width:50px;padding:5px" placeholder="組"><span style="font-size:12px;color:var(--sub)">組</span>`+
+        `<button class="ghost sm" onclick="saveExEdit(${e.id},true)">儲存</button><button class="ghost sm" onclick="cancelExEdit()">取消</button></div>`;
+    }
+    return `<div class="foodrow" style="flex-wrap:wrap;gap:6px;background:var(--soft);border-radius:8px;padding:8px;">`+
+      `<span class="nm" style="flex:1 1 100%;font-weight:500;">✏️ ${e.name}</span>`+
+      `<input id="edM" type="number" value="${e.minutes||0}" style="width:60px;padding:5px"><span style="font-size:12px;color:var(--sub)">分</span>`+
+      `<input id="edK" type="number" value="${e.kcal||0}" style="width:70px;padding:5px"><span style="font-size:12px;color:var(--sub)">kcal</span>`+
+      `<button class="ghost sm" onclick="saveExEdit(${e.id},false)">儲存</button><button class="ghost sm" onclick="cancelExEdit()">取消</button></div>`;
+  }
+  const detail=isS
+    ? `<span style="color:var(--sub)">${e.weight}kg × ${e.reps}次 × ${e.sets}組 · ${Math.round(+e.volume||0).toLocaleString()}kg</span>`
+    : `<span style="color:var(--sub)">${e.minutes||"—"} 分</span>`;
+  return `<div class="foodrow"><span class="nm">${isS?"💪":"🏃"} ${e.name}<br>${detail}</span>`+
+    `<span class="kc">${Math.round(+e.kcal||0)} kcal</span>`+
+    `<span class="x" style="color:var(--accent)" onclick="editExercise(${e.id})">✏️</span>`+
+    `<span class="x" onclick="delExercise(${e.id})">✕</span></div>`;
+}
 function renderExercises(){
   const box=document.getElementById("exItems");
-  if(!store.exercises.length){ box.innerHTML=""; return; }
-  // 同一天同動作的重訓合併顯示（總組數/總訓練量）
-  const rows=[]; const gmap={};
-  store.exercises.forEach(e=>{
-    if(e.kind==="strength"){
-      const k=e.date.slice(0,10)+"|"+e.name, gi=gmap[k];
-      if(gi){ gi.sets+=(+e.sets||0); gi.vol+=(+e.volume||0); gi.kcal+=(+e.kcal||0); gi.weight=Math.max(gi.weight,+e.weight||0); gi.ids.push(e.id); }
-      else { gmap[k]={t:"s",date:e.date,name:e.name,sets:+e.sets||0,reps:+e.reps||0,weight:+e.weight||0,vol:+e.volume||0,kcal:+e.kcal||0,ids:[e.id]}; rows.push(gmap[k]); }
-    } else rows.push({t:"c",date:e.date,name:e.name,minutes:e.minutes,kcal:e.kcal,ids:[e.id]});
-  });
-  // 依日期分組，可收放
+  if(!store.exercises.length){ box.innerHTML='<div class="empty">還沒有運動紀錄。</div>'; return; }
+  // 依日期分組（每筆獨立、可編輯）
   const byDate={}, dorder=[];
-  rows.forEach(r=>{ const d=r.date.slice(0,10); if(!byDate[d]){ byDate[d]=[]; dorder.push(d); } byDate[d].push(r); });
-  const rowHtml=(r)=> r.t==="s"
-    ? `<div class="foodrow"><span class="nm">💪 ${r.name}<br><span style="color:var(--sub)">最重 ${r.weight}kg · 共 ${r.sets} 組 · ${Math.round(r.vol).toLocaleString()}kg</span></span><span class="kc">${Math.round(r.kcal)} kcal</span><span class="x" onclick="delGroupEx('${r.ids.join(",")}')">✕</span></div>`
-    : `<div class="foodrow"><span class="nm">🏃 ${r.name}<br><span style="color:var(--sub)">${r.minutes||"—"}分</span></span><span class="kc">${r.kcal||0} kcal</span><span class="x" onclick="delExercise(${r.ids[0]})">✕</span></div>`;
+  store.exercises.forEach(e=>{ const d=e.date.slice(0,10); if(!byDate[d]){ byDate[d]=[]; dorder.push(d); } byDate[d].push(e); });
   box.innerHTML=dorder.slice(0,30).map((d,i)=>{
     const list=byDate[d];
-    const kcal=list.reduce((a,r)=>a+(+r.kcal||0),0);
-    const vol=list.filter(r=>r.t==="s").reduce((a,r)=>a+(+r.vol||0),0);
+    const kcal=list.reduce((a,e)=>a+(+e.kcal||0),0);
+    const vol=list.filter(e=>e.kind==="strength").reduce((a,e)=>a+(+e.volume||0),0);
     const open=i===0?" open":"";
     return `<details${open} style="border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:2px 10px;">`+
       `<summary style="cursor:pointer;padding:8px 0;font-weight:500;">${d} <span style="float:right;color:var(--sub);font-weight:400;font-size:12px">${Math.round(kcal)} kcal${vol?` · 💪${Math.round(vol).toLocaleString()}kg`:""}</span></summary>`+
-      list.map(rowHtml).join("")+`</details>`;
+      list.map(exRowHtml).join("")+`</details>`;
   }).join("");
+}
+function editExercise(id){ editingEx=id; renderExercises(); }
+function cancelExEdit(){ editingEx=null; renderExercises(); }
+async function saveExEdit(id,isStrength){
+  let body;
+  if(isStrength){
+    const w=+val("edW"), r=+val("edR"), s=+val("edS");
+    if(!w||!r||!s){ alert("請填重量/次數/組數"); return; }
+    const volume=s*r*w, kcal=stEstKcal(s);
+    body={weight:w,reps:r,sets:s,volume,kcal,minutes:Math.round(s*2.5)};
+  }else{
+    const m=+val("edM"), k=+val("edK");
+    body={minutes:m||0,kcal:k||0};
+  }
+  try{ await api("/api/exercise/"+id,{method:"PUT",body:JSON.stringify(body)}); editingEx=null; await reload(); }
+  catch(e){ alert(e.message); }
 }
 function renderExRec(){
   const goal=val("goal")||"maintain";
