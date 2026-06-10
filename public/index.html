@@ -380,6 +380,40 @@
       </div>
     </div>
 
+    <!-- 群組競賽（不顯示彼此體重） -->
+    <div class="card collapsed">
+      <h2 class="ch" data-ck="groups" onclick="toggleCard(this)">🏆 群組競賽 <span class="pill" id="groupCount"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div id="groupList"></div>
+        <details style="border:1px solid var(--line);border-radius:10px;margin-top:10px;padding:2px 10px;">
+          <summary style="cursor:pointer;padding:8px 0;font-size:14px;font-weight:500;">➕ 建立新競賽</summary>
+          <div style="padding-bottom:8px;">
+            <label>競賽名稱</label>
+            <input id="grpName" placeholder="例如：六月減重小隊" autocomplete="off">
+            <div class="row">
+              <div><label>比賽指標</label>
+                <select id="grpMetric">
+                  <option value="discipline">自律分(綜合)</option>
+                  <option value="streak">連續打卡天數</option>
+                  <option value="weightpct">體重變化%</option>
+                  <option value="exercise">運動次數/訓練量</option>
+                </select>
+              </div>
+              <div><label>週期</label>
+                <select id="grpPeriod"><option value="day">每日</option><option value="week" selected>每週</option><option value="month">每月</option></select>
+              </div>
+            </div>
+            <button class="sm" style="width:100%;" onclick="createGroup()">建立並取得邀請連結</button>
+          </div>
+        </details>
+        <div class="row" style="margin-top:8px;">
+          <div style="flex:1 1 auto;"><input id="grpJoinCode" placeholder="輸入邀請碼加入" autocomplete="off" style="text-transform:uppercase;"></div>
+          <div style="flex:0 0 auto; align-self:flex-end;"><button class="ghost sm" onclick="joinGroupByCode()">加入</button></div>
+        </div>
+        <div class="hint tip">排行榜只顯示暱稱與分數，看不到彼此的體重與飲食明細。</div>
+      </div>
+    </div>
+
     <!-- 週/月報表 -->
     <div class="card">
       <h2>📊 報表</h2>

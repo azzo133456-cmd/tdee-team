@@ -103,6 +103,30 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now(),
       UNIQUE(user_id, week_start)
     );
+    CREATE TABLE IF NOT EXISTS groups (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      metric TEXT NOT NULL DEFAULT 'discipline',
+      period TEXT NOT NULL DEFAULT 'week',
+      created_by INT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS group_members (
+      group_id INT REFERENCES groups(id) ON DELETE CASCADE,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(group_id, user_id)
+    );
+    -- 隱私安全的每日統計（成員自己計算後上傳；排行榜只用 flag/計數，體重只用來算個人%、不外傳絕對值）
+    CREATE TABLE IF NOT EXISTS daily_stats (
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      logged INT DEFAULT 0, kcal_hit INT DEFAULT 0, protein_hit INT DEFAULT 0,
+      exercised INT DEFAULT 0, water_hit INT DEFAULT 0,
+      ex_count INT DEFAULT 0, volume REAL DEFAULT 0, weight REAL,
+      UNIQUE(user_id, date)
+    );
   `);
   console.log("DB ready");
 }
@@ -760,6 +784,123 @@ app.post("/api/review", auth, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
   }
+});
+
+/* ---------- 群組競賽（不暴露彼此體重，只比分數/相對%） ---------- */
+const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
+function windowStart(period) {
+  const d = new Date();
+  if (period === "day") return isoD(d);
+  if (period === "month") { d.setDate(d.getDate() - 29); return isoD(d); }
+  d.setDate(d.getDate() - 6); return isoD(d); // week
+}
+function scoreMember(rows, metric, period) {
+  const since = windowStart(period), today = isoD(new Date());
+  const win = rows.filter((r) => r.date >= since);
+  if (metric === "exercise") {
+    const cnt = win.reduce((a, r) => a + (r.ex_count || 0), 0);
+    const vol = win.reduce((a, r) => a + (+r.volume || 0), 0);
+    return { score: cnt, detail: cnt + " 次" + (vol ? " · " + Math.round(vol).toLocaleString() + "kg" : "") };
+  }
+  if (metric === "weightpct") {
+    const w = win.filter((r) => r.weight != null).sort((a, b) => (a.date < b.date ? -1 : 1));
+    if (w.length < 2) return { score: 0, detail: "資料不足", sortAsc: true };
+    const pct = +(((+w[w.length - 1].weight - +w[0].weight) / +w[0].weight) * 100).toFixed(1);
+    return { score: pct, detail: (pct > 0 ? "+" : "") + pct + "%", sortAsc: true };
+  }
+  if (metric === "streak") {
+    const set = new Set(rows.filter((r) => r.logged).map((r) => r.date));
+    let s = 0; const d = new Date();
+    if (!set.has(today)) d.setDate(d.getDate() - 1); // 今天還沒記也算，從昨天起算
+    for (let i = 0; i < 400; i++) { if (set.has(isoD(d))) { s++; d.setDate(d.getDate() - 1); } else break; }
+    return { score: s, detail: s + " 天" };
+  }
+  // discipline（自律分）
+  const sc = win.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
+  return { score: sc, detail: sc + " 分" };
+}
+function genCode() {
+  const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = "";
+  for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
+  return s;
+}
+// 上傳自己近期每日統計（成員自算 flag，體重僅供算個人%、不外傳）
+app.post("/api/dailystats", auth, async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 40) : [];
+    for (const r of rows) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
+      const b = (v) => (v ? 1 : 0);
+      await pool.query(
+        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (user_id,date) DO UPDATE SET
+           logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
+           exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
+           volume=EXCLUDED.volume,weight=EXCLUDED.weight`,
+        [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
+         Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null]
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 建立群組
+app.post("/api/group", auth, async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim().slice(0, 40) || "減重小隊";
+    const metric = ["discipline", "streak", "weightpct", "exercise"].includes(req.body.metric) ? req.body.metric : "discipline";
+    const period = ["day", "week", "month"].includes(req.body.period) ? req.body.period : "week";
+    let code, ok = false;
+    for (let i = 0; i < 5 && !ok; i++) { code = genCode(); const e = await pool.query("SELECT 1 FROM groups WHERE code=$1", [code]); if (!e.rows[0]) ok = true; }
+    const g = await pool.query("INSERT INTO groups(name,code,metric,period,created_by) VALUES($1,$2,$3,$4,$5) RETURNING id", [name, code, metric, period, req.user.id]);
+    await pool.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [g.rows[0].id, req.user.id]);
+    res.json({ ok: true, id: g.rows[0].id, code });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 用邀請碼加入
+app.post("/api/group/join", auth, async (req, res) => {
+  try {
+    const code = String(req.body.code || "").trim().toUpperCase();
+    const g = await pool.query("SELECT id FROM groups WHERE code=$1", [code]);
+    if (!g.rows[0]) return res.status(404).json({ error: "找不到這個邀請碼" });
+    await pool.query("INSERT INTO group_members(group_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [g.rows[0].id, req.user.id]);
+    res.json({ ok: true, id: g.rows[0].id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 離開群組（建立者離開＝解散）
+app.post("/api/group/:id/leave", auth, async (req, res) => {
+  try {
+    const gid = +req.params.id;
+    const g = await pool.query("SELECT created_by FROM groups WHERE id=$1", [gid]);
+    if (g.rows[0] && g.rows[0].created_by === req.user.id) await pool.query("DELETE FROM groups WHERE id=$1", [gid]);
+    else await pool.query("DELETE FROM group_members WHERE group_id=$1 AND user_id=$2", [gid, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 我的群組 + 排行榜（只回暱稱與分數，不含體重/攝取細節）
+app.get("/api/groups", auth, async (req, res) => {
+  try {
+    const mine = await pool.query(
+      `SELECT g.* FROM groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=$1 ORDER BY g.created_at DESC`,
+      [req.user.id]
+    );
+    const out = [];
+    for (const g of mine.rows) {
+      const mem = await pool.query(
+        `SELECT u.id,u.username FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
+      const board = [];
+      for (const u of mem.rows) {
+        const st = await pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight FROM daily_stats WHERE user_id=$1 ORDER BY date", [u.id]);
+        const r = scoreMember(st.rows, g.metric, g.period);
+        board.push({ name: u.username, me: u.id === req.user.id, score: r.score, detail: r.detail });
+      }
+      const asc = g.metric === "weightpct";
+      board.sort((a, b) => asc ? a.score - b.score : b.score - a.score);
+      out.push({ id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period, isOwner: g.created_by === req.user.id, members: board });
+    }
+    res.json({ groups: out });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
 /* ---------- 營養標示『批次』辨識：一次多張，回傳陣列 ---------- */

@@ -876,6 +876,97 @@ function renderReviews(){
       `<div class="hint" style="color:var(--ink);line-height:1.6;">${(r.summary||"").replace(/\n/g,"<br>")}</div>${acts}</div>`;
   }).join("");
 }
+
+/* ---------- 群組競賽 ---------- */
+let myGroups=[];
+const METRIC_LABEL={discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數"};
+const PERIOD_LABEL={day:"每日",week:"每週",month:"每月"};
+// 計算自己近 35 天的隱私安全統計並上傳（flag 由本機算，體重只供算個人%）
+async function syncDailyStats(){
+  const t=goalTargets();
+  const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
+  const waterGoal=Math.round(w*45/50)*50;
+  const rows=[];
+  for(let i=0;i<35;i++){
+    const d=new Date(todayStr()); d.setDate(d.getDate()-i); const ds=isoLocal(d);
+    const nut=dayNutrition(ds);
+    const exsDay=(store.exercises||[]).filter(e=>e.date.slice(0,10)===ds);
+    const rec=(store.records||[]).find(r=>r.date.slice(0,10)===ds);
+    const logged=nut.k>0;
+    const exercised=exsDay.length>0;
+    const water=rec&&rec.water_ml?+rec.water_ml:0;
+    const hasAny=logged||exercised||water>0||(rec&&rec.weight!=null);
+    if(!hasAny) continue;
+    rows.push({ date:ds, logged,
+      kcal_hit: !!(t && logged && nut.k<=t.kcal),
+      protein_hit: !!(t && logged && nut.p>=t.protein),
+      exercised, water_hit: water>=waterGoal,
+      ex_count: exsDay.length,
+      volume: exsDay.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0),
+      weight: rec&&rec.weight!=null?+rec.weight:null });
+  }
+  if(!rows.length) return;
+  try{ await api("/api/dailystats",{method:"POST",body:JSON.stringify({rows})}); }catch(e){}
+}
+async function loadGroups(){
+  try{ const r=await api("/api/groups"); myGroups=r.groups||[]; }catch(e){ myGroups=[]; }
+  renderGroups();
+}
+function renderGroups(){
+  const box=document.getElementById("groupList"); if(!box) return;
+  const pill=document.getElementById("groupCount"); if(pill) pill.textContent=myGroups.length?myGroups.length+" 組":"";
+  if(!myGroups.length){ box.innerHTML='<div class="empty">還沒加入競賽。建立一個或用邀請碼加入，揪朋友一起比！</div>'; return; }
+  const medal=(i)=>["🥇","🥈","🥉"][i]||(i+1)+".";
+  box.innerHTML=myGroups.map(g=>{
+    const board=g.members.map((m,i)=>
+      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${medal(i)} ${m.name}${m.me?"（我）":""}</span><span>${m.detail}</span></div>`).join("");
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">`+
+      `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">`+
+        `<b>${g.name}</b><span class="pill">${PERIOD_LABEL[g.period]}·${METRIC_LABEL[g.metric]}</span></div>`+
+      board+
+      `<div class="chipbar" style="margin-top:8px;">`+
+        `<button class="ghost sm" onclick="copyInvite('${g.code}')">🔗 複製邀請連結</button>`+
+        `<button class="ghost sm" onclick="leaveGroup(${g.id},${g.isOwner})">${g.isOwner?"解散":"離開"}</button>`+
+      `</div>`+
+      `<div class="hint">邀請碼 <b>${g.code}</b></div></div>`;
+  }).join("");
+}
+async function createGroup(){
+  const name=val("grpName").trim()||"減重小隊";
+  const metric=val("grpMetric"), period=val("grpPeriod");
+  try{
+    const r=await api("/api/group",{method:"POST",body:JSON.stringify({name,metric,period})});
+    document.getElementById("grpName").value="";
+    await loadGroups();
+    copyInvite(r.code);
+  }catch(e){ alert(e.message); }
+}
+async function joinGroupByCode(){
+  const code=val("grpJoinCode").trim().toUpperCase();
+  if(!code){ alert("請輸入邀請碼"); return; }
+  try{ await api("/api/group/join",{method:"POST",body:JSON.stringify({code})}); document.getElementById("grpJoinCode").value=""; await syncDailyStats(); await loadGroups(); alert("已加入競賽！"); }
+  catch(e){ alert(e.message); }
+}
+async function leaveGroup(id,isOwner){
+  if(!confirm(isOwner?"解散這個競賽？所有成員都會移除。":"離開這個競賽？")) return;
+  try{ await api("/api/group/"+id+"/leave",{method:"POST"}); await loadGroups(); }catch(e){ alert(e.message); }
+}
+function copyInvite(code){
+  const url=location.origin+location.pathname+"?join="+code;
+  const done=()=>alert("邀請連結已複製，貼給朋友即可加入：\n"+url);
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done,()=>prompt("複製這個連結分享：",url));
+  else prompt("複製這個連結分享：",url);
+}
+// 處理 ?join=CODE 連結加入
+async function handleJoinParam(){
+  const m=location.search.match(/[?&]join=([A-Za-z0-9]+)/);
+  if(!m) return;
+  const code=m[1].toUpperCase();
+  history.replaceState(null,"",location.pathname);  // 清掉網址參數
+  try{ await api("/api/group/join",{method:"POST",body:JSON.stringify({code})}); await syncDailyStats(); alert("已加入競賽！"); }
+  catch(e){ alert("加入失敗："+e.message); }
+}
+
 async function addMeal(){
   if(!foodCart.length && !mealPhoto){ alert("先加入食物，或拍一張照片"); return; }
   const date=selDate(), meal=val("mealType");
@@ -1605,6 +1696,7 @@ async function boot(){
   restoreCards();
   applyTips();
   maybeWeeklyReview();   // 背景補產生上週覆盤（有資料且尚未產生時）
+  (async()=>{ await handleJoinParam(); await syncDailyStats(); await loadGroups(); })();  // 競賽：加入連結→上傳統計→載排行
 }
 
 window.addEventListener("DOMContentLoaded", ()=>{
