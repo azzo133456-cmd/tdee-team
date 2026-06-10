@@ -210,8 +210,9 @@
     </div>
 
     <!-- 真實 TDEE -->
-    <div class="card">
-      <h2>真實 TDEE <span class="pill">斜率反推</span></h2>
+    <div class="card collapsed">
+      <h2 class="ch" onclick="toggleCard(this)">真實 TDEE <span class="pill">斜率反推</span><span class="caret">▾</span></h2>
+      <div class="cardbody">
       <div class="hint" id="realDetail" style="text-align:center;margin-bottom:6px;">需要至少 7 天紀錄才能估算</div>
       <div class="row">
         <div class="result" style="margin-top:0;">
@@ -237,6 +238,7 @@
           <table id="cmpTbl"><tbody></tbody></table>
           <div class="hint" id="cmpHint"></div>
         </div>
+      </div>
       </div>
     </div>
 
@@ -340,10 +342,12 @@
     </div>
 
     <!-- 食譜 -->
-    <div class="card">
-      <h2>📖 我的食譜 <span class="pill" id="recipeCount"></span></h2>
-      <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
-      <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
+    <div class="card collapsed">
+      <h2 class="ch" onclick="toggleCard(this)">📖 我的食譜 <span class="pill" id="recipeCount"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div id="recipeList"><div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div></div>
+        <div class="hint">套用後會載入到食物計算機清單，可再選餐別加入今天的飲食。</div>
+      </div>
     </div>
 
     <!-- 共享食物庫管理 -->
@@ -1217,11 +1221,11 @@ function renderBalance(){
   if(!total){ box.innerHTML=""; return; }
   const colors={"胸":"#c0586f","背":"#5b8aa6","腿":"#7c9070","肩":"#c98b5e","手臂":"#9b7cb6","臀":"#d39bb0","核心":"#8a9a5b","其他":"#aaa"};
   const order=Object.entries(by).sort((a,b)=>b[1]-a[1]);
-  box.innerHTML=`<div class="hint" style="margin:10px 0 4px;">🧩 部位平衡（近30天 · 依組數）</div>`+
-    `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;">`+
+  const inner=`<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;">`+
     order.map(([m,v])=>`<i title="${m} ${v}組" style="width:${v/total*100}%;background:${colors[m]||"#aaa"}"></i>`).join("")+`</div>`+
     `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:12px;color:var(--sub)">`+
     order.map(([m,v])=>`<span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${colors[m]||"#aaa"};margin-right:3px"></i>${m} ${Math.round(v/total*100)}%</span>`).join("")+`</div>`;
+  box.innerHTML=collapsible("🧩 部位平衡（近30天）", inner, false);
 }
 // 近7天訓練量趨勢
 function renderVolTrend(){
@@ -1232,10 +1236,10 @@ function renderVolTrend(){
   for(let i=6;i>=0;i--){ const d=new Date(today); d.setDate(d.getDate()-i); const ds=isoLocal(d);
     days.push({ds, vol:st.filter(e=>e.date.slice(0,10)===ds).reduce((a,b)=>a+(+b.volume||0),0)}); }
   const max=Math.max(1,...days.map(d=>d.vol));
-  box.innerHTML=`<div class="hint" style="margin:10px 0 4px;">📊 近7天訓練量(kg)</div>`+
-    `<div style="display:flex;align-items:flex-end;gap:4px;height:60px;">`+
+  const inner=`<div style="display:flex;align-items:flex-end;gap:4px;height:60px;">`+
     days.map(d=>`<div style="flex:1;text-align:center;"><div style="background:var(--accent);border-radius:3px 3px 0 0;height:${Math.round(d.vol/max*50)}px;min-height:2px"></div><div style="font-size:9px;color:var(--sub)">${d.ds.slice(5)}</div></div>`).join("")+
     `</div><div class="hint">7天總量 ${Math.round(days.reduce((a,b)=>a+b.vol,0)).toLocaleString()} kg</div>`;
+  box.innerHTML=collapsible("📊 近7天訓練量", inner, false);
 }
 /* ---------- 重訓 ---------- */
 const STRENGTH=["臥推","上斜臥推","啞鈴臥推","胸推機","深蹲","前蹲舉","腿推","腿伸屈","腿後勾","硬舉","羅馬尼亞硬舉","肩推","啞鈴肩推","側平舉","引體向上","滑輪下拉","槓鈴划船","坐姿划船","二頭彎舉","三頭下壓","臀推","小腿推舉","核心捲腹","面拉"];
@@ -1268,6 +1272,11 @@ async function addStrength(){
     await reload();
   }catch(e){ alert(e.message); }
 }
+// 收放區塊小工具
+function collapsible(title, inner, open){
+  return `<details${open?" open":""} style="border:1px solid var(--line);border-radius:10px;margin-top:8px;padding:2px 10px;">`+
+    `<summary style="cursor:pointer;padding:8px 0;font-size:14px;font-weight:500;">${title}</summary><div style="padding-bottom:8px;">${inner}</div></details>`;
+}
 // 每個動作的最佳重量 / 最近一次（PR 進度）
 function renderPR(){
   const box=document.getElementById("stPR"); if(!box) return;
@@ -1279,7 +1288,7 @@ function renderPR(){
     if(e.date>=a.lastDate){ a.lastDate=e.date; a.last=e; } });
   const rows=Object.entries(by).sort((x,y)=>y[1].best-x[1].best).slice(0,12).map(([n,a])=>
     `<div class="rec-line"><span>${n}</span><span><b>最佳 ${a.best}kg</b>×${a.bestReps}　<span style="color:var(--sub);font-size:12px">上次 ${a.last.weight}kg×${a.last.reps}×${a.last.sets}組</span></span></div>`).join("");
-  box.innerHTML=`<div class="hint" style="margin-bottom:4px;">💪 各動作進度（依最佳重量排序）</div>${rows}`;
+  box.innerHTML=collapsible("💪 各動作進度（PR）", rows, false);
 }
 let editingEx=null;  // 正在編輯的紀錄 id
 function exRowHtml(e){
