@@ -910,7 +910,7 @@ async function syncDailyStats(){
 }
 async function loadGroups(){
   try{ const r=await api("/api/groups"); myGroups=r.groups||[]; }catch(e){ myGroups=[]; }
-  renderGroups();
+  renderGroups(); renderPoints(); checkCelebrations();
 }
 const RACE_ANIMALS=["🐎","🐇","🐅","🐕","🐖","🐐","🦊","🐱","🐢","🦄"];
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
@@ -964,6 +964,110 @@ function renderGroups(){
   }).join("");
   // 賽馬動畫：插入後再把跑者移到目標位置，觸發過場
   requestAnimationFrame(()=>{ box.querySelectorAll(".runner").forEach(el=>{ el.style.left=(el.dataset.p||0)+"%"; }); });
+}
+
+/* ---------- 積分制 + 名稱特效 ---------- */
+const FX_TIERS=[
+  {min:0,    cls:"fx0", name:"新手",     emoji:""},
+  {min:50,   cls:"fx1", name:"微光",     emoji:"✨"},
+  {min:150,  cls:"fx2", name:"花環",     emoji:"🌸"},
+  {min:350,  cls:"fx3", name:"火焰",     emoji:"🔥"},
+  {min:700,  cls:"fx4", name:"小美人魚", emoji:"🧜‍♀️"},
+  {min:1200, cls:"fx5", name:"獨角獸",   emoji:"🦄"},
+  {min:2000, cls:"fx6", name:"皇冠",     emoji:"👑"},
+  {min:3500, cls:"fx7", name:"彩虹傳說", emoji:"🌈"},
+];
+// 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
+function computePoints(){
+  const t=goalTargets();
+  const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
+  const waterGoal=Math.round(w*45/50)*50;
+  const dates=new Set();
+  (store.records||[]).forEach(r=>dates.add(r.date.slice(0,10)));
+  Object.keys(store.mealAgg||{}).forEach(d=>dates.add(d));
+  (store.exercises||[]).forEach(e=>dates.add(e.date.slice(0,10)));
+  let activity=0;
+  dates.forEach(ds=>{
+    const nut=dayNutrition(ds);
+    const rec=(store.records||[]).find(r=>r.date.slice(0,10)===ds);
+    const water=rec&&rec.water_ml?+rec.water_ml:0;
+    const logged=nut.k>0, exercised=(store.exercises||[]).some(e=>e.date.slice(0,10)===ds);
+    if(logged) activity+=1;
+    if(t&&logged&&nut.k<=t.kcal) activity+=1;
+    if(t&&logged&&nut.p>=t.protein) activity+=1;
+    if(exercised) activity+=1;
+    if(water>=waterGoal) activity+=1;
+  });
+  let trophies=0;
+  (myGroups||[]).forEach(g=>{ const me=(g.members||[]).find(m=>m.me); if(me&&me.trophies) trophies+=me.trophies; });
+  return {points:activity+trophies*100, activity, trophies};
+}
+function tierFor(points){ let cur=FX_TIERS[0]; for(const t of FX_TIERS){ if(points>=t.min) cur=t; } return cur; }
+function applyNameFx(){
+  const el=document.getElementById("nameFrame"); if(!el) return;
+  const {points}=computePoints();
+  const unlocked=FX_TIERS.filter(t=>points>=t.min);
+  // 選用：localStorage 記住手選，否則用最高已解鎖
+  let pick=null; try{ pick=localStorage.getItem("tdee_fx"); }catch(e){}
+  let tier=unlocked.find(t=>t.cls===pick)||unlocked[unlocked.length-1];
+  el.className="namefx "+tier.cls;
+  el.setAttribute("data-emoji", tier.emoji||"");
+}
+function chooseFx(cls){ try{ localStorage.setItem("tdee_fx",cls); }catch(e){} applyNameFx(); renderPoints(); }
+function renderPoints(){
+  const box=document.getElementById("pointsBox"); if(!box){ applyNameFx(); return; }
+  const {points,activity,trophies}=computePoints();
+  const cur=tierFor(points), next=FX_TIERS.find(t=>t.min>points);
+  const pill=document.getElementById("pointsPill"); if(pill) pill.textContent=points+" 分";
+  let pick=null; try{ pick=localStorage.getItem("tdee_fx"); }catch(e){}
+  const prog=next?Math.round((points-cur.min)/(next.min-cur.min)*100):100;
+  const gallery=FX_TIERS.map(t=>{
+    const got=points>=t.min, sel=(pick?pick===t.cls:(got&&t===tierFor(points)));
+    return `<div onclick="${got?`chooseFx('${t.cls}')`:''}" title="${t.min} 分解鎖" `+
+      `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${sel?'var(--accent)':'var(--line)'};border-radius:10px;${got?'cursor:pointer;':'opacity:.4;'}background:${sel?'var(--soft)':'#fff'};">`+
+      `<div style="font-size:18px;">${t.emoji||"🙂"}</div><div style="font-size:11px;${got?'':'color:var(--sub)'}">${t.name}</div>`+
+      `<div style="font-size:10px;color:var(--sub)">${got?(sel?"使用中":"可用"):t.min+"分"}</div></div>`;
+  }).join("");
+  box.innerHTML=
+    `<div class="stat-row" style="margin-top:2px;">`+
+      `<div><div class="v">${points.toLocaleString()}</div><div class="k">總積分</div></div>`+
+      `<div><div class="v">${activity.toLocaleString()}</div><div class="k">自律累積</div></div>`+
+      `<div><div class="v">🏆 ${trophies}</div><div class="k">冠軍(×100分)</div></div>`+
+    `</div>`+
+    `<div class="hint" style="margin-top:8px;">目前稱號：<b>${cur.emoji} ${cur.name}</b>${next?`　·　距「${next.emoji} ${next.name}」還差 ${next.min-points} 分`:`　·　已達最高稱號！`}</div>`+
+    (next?`<div class="prog" style="margin-top:6px;"><i style="width:${prog}%"></i></div>`:"")+
+    `<div style="font-weight:500;font-size:13px;margin:10px 0 6px;">名稱特效（點選已解鎖的套用）</div>`+
+    `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${gallery}</div>`+
+    `<div class="hint tip" style="margin-top:6px;">積分＝每天的自律分(記飲食/熱量達標/蛋白達標/運動/飲水)累積 ＋ 每座競賽冠軍 100 分。</div>`;
+  applyNameFx();
+}
+
+/* ---------- 賽季結算慶祝 ---------- */
+function celebrate(title,sub){
+  const ov=document.createElement("div"); ov.className="celebrate";
+  const conf=Array.from({length:24},(_,i)=>`<span style="left:${Math.random()*100}%;animation-delay:${(Math.random()*0.8).toFixed(2)}s;background:hsl(${Math.floor(Math.random()*360)},80%,60%)"></span>`).join("");
+  ov.innerHTML=`<div class="confetti">${conf}</div><div class="cele-card"><div style="font-size:46px;">🏆</div>`+
+    `<div style="font-size:20px;font-weight:700;margin-top:6px;">${title}</div>`+
+    `<div class="hint" style="margin-top:6px;">${sub||""}</div>`+
+    `<button class="sm" style="margin-top:12px;width:auto;padding:8px 20px;" onclick="this.closest('.celebrate').remove()">太讚了 🎉</button></div>`;
+  ov.onclick=(e)=>{ if(e.target===ov) ov.remove(); };
+  document.body.appendChild(ov);
+  setTimeout(()=>{ if(ov.parentNode) ov.remove(); }, 9000);
+}
+// 載入競賽後：找出我剛奪冠、還沒慶祝過的輪次
+function checkCelebrations(){
+  let done=[]; try{ done=JSON.parse(localStorage.getItem("tdee_celebrated")||"[]"); }catch(e){}
+  const me=session&&session.username;
+  for(const g of (myGroups||[])){
+    for(const h of (g.history||[])){
+      if(h.winner!==me) continue;
+      const key=g.id+":"+h.round;
+      if(done.includes(key)) continue;
+      done.push(key);
+      celebrate(`第 ${h.round} 輪冠軍是你！`, `「${g.name}」· ${PERIOD_LABEL[g.period]}${METRIC_LABEL[g.metric]}　獲得 🏆 +100 積分`);
+    }
+  }
+  try{ localStorage.setItem("tdee_celebrated",JSON.stringify(done.slice(-200))); }catch(e){}
 }
 async function createGroup(){
   const name=val("grpName").trim()||"減重小隊";
@@ -1689,7 +1793,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); } }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReviews(); renderReport(); renderReal(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
