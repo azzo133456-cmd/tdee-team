@@ -85,7 +85,7 @@ function portionHint(n,g){
 }
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
-  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {});
+  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
@@ -1021,6 +1021,14 @@ async function addWaterCustom(){
   if(!amt){ alert("請輸入 ml"); return; }
   el.value=""; await addWater(amt);
 }
+// 直接把今天總量設成輸入值（修正用，例如 350 改成 1180）
+async function setWaterCustom(){
+  const el=document.getElementById("waterCustom"), v=parseInt(el.value,10);
+  if(isNaN(v)||v<0){ alert("請輸入 ml（0 以上）"); return; }
+  const date=selDate(); el.value="";
+  try{ await api("/api/water",{method:"POST",body:JSON.stringify({date,water_ml:v})}); await reload(); }
+  catch(e){ alert(e.message); }
+}
 function renderWater(date){
   const cur=waterFor(date), w=+val("weight")||60, goal=Math.round(w*45/50)*50;
   set("waterOut", cur.toLocaleString()+" ml");
@@ -1140,7 +1148,7 @@ function renderBalance(){
   const by={}; let total=0;
   st.forEach(e=>{ const mu=e.muscle||MUSCLE[e.name]||"其他"; const sets=+e.sets||0; by[mu]=(by[mu]||0)+sets; total+=sets; });
   if(!total){ box.innerHTML=""; return; }
-  const colors={"胸":"#c0586f","背":"#5b8aa6","腿":"#7c9070","肩":"#c98b5e","手臂":"#9b7cb6","臀":"#d39bb0","核心":"#8a9a5b","其他":"#aaa"};
+  const colors={"胸":"#c0586f","背":"#5b8aa6","腿":"#7c9070","肩":"#c98b5e","手臂":"#9b7cb6","二頭":"#9b7cb6","三頭":"#7b6cae","前臂":"#b0a4d6","小腿":"#9aac84","臀":"#d39bb0","核心":"#8a9a5b","其他":"#aaa"};
   const order=Object.entries(by).sort((a,b)=>b[1]-a[1]);
   const inner=`<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;">`+
     order.map(([m,v])=>`<i title="${m} ${v}組" style="width:${v/total*100}%;background:${colors[m]||"#aaa"}"></i>`).join("")+`</div>`+
@@ -1163,8 +1171,21 @@ function renderVolTrend(){
   box.innerHTML=collapsible("📊 近7天訓練量", inner, "trend");
 }
 /* ---------- 重訓 ---------- */
-const STRENGTH=["臥推","上斜臥推","啞鈴臥推","胸推機","深蹲","前蹲舉","腿推","腿伸屈","腿後勾","硬舉","羅馬尼亞硬舉","肩推","啞鈴肩推","側平舉","引體向上","滑輪下拉","槓鈴划船","坐姿划船","二頭彎舉","三頭下壓","臀推","小腿推舉","核心捲腹","面拉"];
-const MUSCLE={"臥推":"胸","上斜臥推":"胸","啞鈴臥推":"胸","胸推機":"胸","深蹲":"腿","前蹲舉":"腿","腿推":"腿","腿伸屈":"腿","腿後勾":"腿","小腿推舉":"腿","硬舉":"背","羅馬尼亞硬舉":"腿","肩推":"肩","啞鈴肩推":"肩","側平舉":"肩","面拉":"肩","引體向上":"背","滑輪下拉":"背","槓鈴划船":"背","坐姿划船":"背","二頭彎舉":"手臂","三頭下壓":"手臂","臀推":"臀","核心捲腹":"核心"};
+// 各部位 → 該部位動作（含自由重量＋機械）。順序＝部位分組，方便閱讀
+const STRENGTH_BY_MUSCLE={
+  "胸":["臥推","上斜臥推","下斜臥推","啞鈴臥推","上斜啞鈴臥推","胸推機","蝴蝶機夾胸","滑輪夾胸","雙槓撐體","伏地挺身"],
+  "背":["硬舉","引體向上","滑輪下拉","槓鈴划船","啞鈴單臂划船","坐姿划船","T槓划船","直臂下壓","反式划船","山羊挺身"],
+  "腿":["深蹲","前蹲舉","哈克深蹲","史密斯深蹲","腿推","腿伸屈","腿後勾","羅馬尼亞硬舉","保加利亞分腿蹲","弓步蹲","腿外展機","腿內收機"],
+  "臀":["臀推","髖外展機","臀橋","驢踢","早安運動"],
+  "肩":["肩推","啞鈴肩推","阿諾肩推","史密斯肩推","側平舉","前平舉","反向飛鳥","面拉","直立划船","聳肩"],
+  "二頭":["二頭彎舉","啞鈴彎舉","錘式彎舉","槓鈴彎舉","牧師椅彎舉","滑輪彎舉"],
+  "三頭":["三頭下壓","過頭三頭伸展","窄距臥推","三頭撐體","仰臥臂屈伸"],
+  "前臂":["腕彎舉","反向腕彎舉"],
+  "小腿":["站姿提踵","坐姿提踵","小腿推舉"],
+  "核心":["核心捲腹","棒式","懸吊抬腿","俄羅斯轉體","滑輪捲腹"],
+};
+const STRENGTH=[], MUSCLE={};
+for(const mu in STRENGTH_BY_MUSCLE){ for(const n of STRENGTH_BY_MUSCLE[mu]){ STRENGTH.push(n); MUSCLE[n]=mu; } }
 function stSuggest(){
   const q=val("stPick").trim(), box=document.getElementById("stSuggest");
   if(!q){ box.style.display="none"; box.innerHTML=""; return; }

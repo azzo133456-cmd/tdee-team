@@ -18,6 +18,7 @@
 <script src="foods_5050.js"></script>
 <script src="foods_street.js"></script>
 <script src="foods_protein.js"></script>
+<script src="foods_pizza.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -287,9 +288,11 @@
           <div><button class="ghost sm" onclick="addWater(0,true)">歸零</button></div>
         </div>
         <div class="row" style="margin-top:8px;">
-          <div style="flex:1 1 auto;"><input id="waterCustom" type="number" inputmode="numeric" placeholder="自訂 ml，例如 350"></div>
+          <div style="flex:1 1 auto;"><input id="waterCustom" type="number" inputmode="numeric" placeholder="自訂 ml，例如 1180"></div>
           <div style="flex:0 0 auto; align-self:flex-end;"><button class="ghost sm" onclick="addWaterCustom()">＋ 加入</button></div>
+          <div style="flex:0 0 auto; align-self:flex-end;"><button class="ghost sm" onclick="setWaterCustom()">設為總量</button></div>
         </div>
+        <div class="hint tip">「＋加入」累加到目前；「設為總量」直接把今天總量改成輸入值（修正用）。</div>
       </div>
     </div>
   </div>
@@ -316,7 +319,7 @@
       <div class="suggest" id="stSuggest"></div>
       <div class="row">
         <div><label>部位（自訂動作請自選）</label>
-          <select id="stMuscle"><option value="胸">胸</option><option value="背">背</option><option value="腿">腿</option><option value="肩">肩</option><option value="手臂">手臂</option><option value="臀">臀</option><option value="核心">核心</option><option value="其他">其他</option></select>
+          <select id="stMuscle"><option value="胸">胸</option><option value="背">背</option><option value="腿">腿</option><option value="臀">臀</option><option value="肩">肩</option><option value="二頭">二頭</option><option value="三頭">三頭</option><option value="前臂">前臂</option><option value="小腿">小腿</option><option value="核心">核心</option><option value="手臂">手臂(其他)</option><option value="其他">其他</option></select>
         </div>
       </div>
       <div class="row">
