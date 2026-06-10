@@ -404,6 +404,12 @@ function addToCart(n,g){
   foodCart.push({n, g:g||100, base:[+d[0]||0,+d[1]||0,+d[2]||0,+d[3]||0]});
   renderFood(); return true;
 }
+// 照片辨識後：把所有 ✨ 項目的克數一次縮放（相對 AI 原始克數）
+let aiBaseG={};
+function scaleAiPortions(f){
+  foodCart.forEach(it=>{ const b=aiBaseG[it.n]; if(b!=null) it.g=Math.max(1,Math.round(b*f)); });
+  renderFood();
+}
 function cartMacros(it){
   const g=it.g, b=it.base;
   const lv=(it.sugarLv==null?1:it.sugarLv);
@@ -671,15 +677,19 @@ async function analyzePhoto(){
   try{
     const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto,hint})});
     const items=r.items||[]; let tot=0;
+    aiBaseG={};   // 記下 AI 原始克數，供「整體份數」縮放用
     items.forEach(it=>{
       const g=it.grams||100, sc=100/g;
       const name="✨ "+it.name;
       FOODS_DYN[name]=[Math.round(it.kcal*sc),+(it.protein*sc).toFixed(1),+(it.fat*sc).toFixed(1),+(it.carb*sc).toFixed(1)];
-      addToCart(name,g); tot+=it.kcal||0;
+      addToCart(name,g); aiBaseG[name]=g; tot+=it.kcal||0;
     });
     const mealNote=applyMealGuess(r.meal);
     if(h){
-      h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。${mealNote}可在下方清單逐筆改克數（幾人份就乘幾），確認後按「＋加入」存檔。`
+      h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。${mealNote}`
+        +`<div style="margin-top:8px;font-size:13px;">整體份量（一次調整全部）：`
+        +[["½",0.5],["原始",1],["1.5",1.5],["2人份",2],["3人份",3]].map(([lbl,f])=>`<button class="ghost sm" style="padding:5px 9px;" onclick="scaleAiPortions(${f})">${lbl}</button>`).join(" ")+`</div>`
+        +`<div class="hint" style="margin-top:4px;">或在下方清單逐筆改克數。確認後選餐別「＋加入」。</div>`
         +`<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
         +`<input id="aiFixInput" placeholder="辨識不對？例：這是滷肉飯不是燴飯／雞肉約300g" style="flex:1 1 200px;padding:6px 8px;font-size:13px">`
         +`<button class="ghost sm" onclick="analyzePhoto()">🔁 依提示重新辨識</button>`
