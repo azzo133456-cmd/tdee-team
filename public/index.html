@@ -1249,7 +1249,7 @@ function stSuggest(){
   box.style.display="block";
 }
 function pickSt(i){ const n=window.__st[i]; if(n==null) return; document.getElementById("stPick").value=n; document.getElementById("stSuggest").style.display="none"; if(MUSCLE[n]) document.getElementById("stMuscle").value=MUSCLE[n]; document.getElementById("stW").focus(); }
-function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(5.0,w)*(sets*3)); } // 每組約3分鐘、MET5
+function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(3.5,w)*(sets*2.5)); } // 保守估：每組約2.5分鐘、MET3.5(含組間休息)
 function stPreview(){
   const w=+val("stW"),r=+val("stR"),s=+val("stS");
   if(!w||!r||!s){ set("stPreview",""); return; }
@@ -1260,7 +1260,7 @@ async function addStrength(){
   const date=val("exDate")||todayStr();
   if(!n){ alert("請輸入或選擇重訓動作"); return; }
   if(!w||!r||!s){ alert("請填重量、次數、組數"); return; }
-  const volume=s*r*w, kcal=stEstKcal(s), minutes=s*3;
+  const volume=s*r*w, kcal=stEstKcal(s), minutes=Math.round(s*2.5);
   const muscle=val("stMuscle")||MUSCLE[n]||"其他";
   try{
     await api("/api/exercise",{method:"POST",body:JSON.stringify({date,name:n,minutes,kcal,kind:"strength",sets:s,reps:r,weight:w,volume,muscle})});
