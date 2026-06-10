@@ -306,6 +306,24 @@ app.delete("/api/meal/:mid", auth, async (req, res) => {
   }
 });
 
+app.put("/api/meal/:mid", auth, async (req, res) => {
+  try {
+    const { name, kcal, protein, fat, carb } = req.body;
+    const r = await pool.query(
+      `UPDATE meals SET
+         name=COALESCE($1,name), kcal=COALESCE($2,kcal), protein=COALESCE($3,protein),
+         fat=COALESCE($4,fat), carb=COALESCE($5,carb)
+       WHERE id=$6 AND user_id=$7`,
+      [name ?? null, kcal ?? null, protein ?? null, fat ?? null, carb ?? null, req.params.mid, req.user.id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: "找不到紀錄" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 飲水（設定當日總量） ---------- */
 app.post("/api/water", auth, async (req, res) => {
   try {
@@ -384,9 +402,15 @@ app.get("/api/barcode", auth, async (req, res) => {
 // flash-lite 通常較不壅塞，作為前段備援；再退到其他版本
 const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function geminiVision(key, prompt, mime, imgB64, temperature) {
+function geminiVision(key, prompt, mime, imgB64, temperature) {
+  return geminiParts(key, [{ text: prompt }, { inline_data: { mime_type: mime, data: imgB64 } }], temperature);
+}
+function geminiText(key, prompt, temperature) {
+  return geminiParts(key, [{ text: prompt }], temperature);
+}
+async function geminiParts(key, parts, temperature) {
   const body = JSON.stringify({
-    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: imgB64 } }] }],
+    contents: [{ parts }],
     generationConfig: { temperature, responseMimeType: "application/json" },
   });
   let lastErr = { status: 502, text: "未知錯誤" };
@@ -465,6 +489,50 @@ app.post("/api/analyze", auth, async (req, res) => {
       carb: num(p.carb),
     }));
     if (items.length === 0) return res.status(502).json({ error: "無法辨識內容" });
+    res.json({ ok: true, items });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- AI 文字估熱量（Gemini 代理） ---------- */
+app.post("/api/estimate", auth, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
+    const text = String(req.body.text || "").trim().slice(0, 300);
+    if (!text) return res.status(400).json({ error: "請輸入描述" });
+    const prompt =
+      "你是營養師。使用者用一句話描述吃了什麼，請估計其營養。把不同品項分別列出。" +
+      "若描述有提到重量（如 250g）就用該重量；沒提到就用合理常見份量。" +
+      "只回傳 JSON 陣列，不要任何說明文字、不要 markdown 圍欄。格式：" +
+      '[{"name":"中文品名","grams":重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]。' +
+      "數字一律阿拉伯數字（不含單位）。使用者描述：「" + text + "」";
+    const g = await geminiText(key, prompt, 0.2);
+    if (g.error) {
+      const msg = g.error.status === 503 || g.error.status === 429
+        ? "AI 服務目前流量壅塞，請稍候幾秒再試一次"
+        : "辨識服務錯誤(" + g.error.status + ")";
+      return res.status(502).json({ error: msg });
+    }
+    const txt = g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(txt); }
+    catch {
+      const j = txt.match(/\[[\s\S]*\]/) || txt.match(/\{[\s\S]*\}/);
+      if (!j) return res.status(502).json({ error: "無法解析估算結果" });
+      parsed = JSON.parse(j[0]);
+    }
+    const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const items = arr.filter((p) => p && (p.name || p.kcal)).map((p) => ({
+      name: String(p.name || "估算食物").slice(0, 40),
+      grams: Math.max(1, Math.round(num(p.grams) || 100)),
+      kcal: Math.round(num(p.kcal)),
+      protein: num(p.protein), fat: num(p.fat), carb: num(p.carb),
+    }));
+    if (items.length === 0) return res.status(502).json({ error: "無法估算內容" });
     res.json({ ok: true, items });
   } catch (e) {
     console.error(e);

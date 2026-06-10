@@ -187,6 +187,14 @@
       </div>
       <input id="labelInput" type="file" accept="image/*" style="display:none;" onchange="onLabelPick(event)">
       <div class="hint" id="labelHint" style="display:none; overflow-wrap:anywhere; word-break:break-word;"></div>
+      <div style="margin-top:8px;">
+        <label>✨ 用一句話估熱量</label>
+        <div class="row">
+          <div style="flex:1 1 auto;"><input id="estText" placeholder="例如：約250g豬梅花壽喜燒＋一碗白飯" autocomplete="off"></div>
+          <div style="flex:0 0 auto; align-self:flex-end;"><button class="ghost sm" onclick="estimateText()">估算</button></div>
+        </div>
+        <div class="hint" id="estHint" style="overflow-wrap:anywhere;"></div>
+      </div>
       <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
         <label>食物名稱</label>
         <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">

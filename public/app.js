@@ -532,6 +532,27 @@ async function analyzePhoto(){
     if(h){ h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="analyzePhoto()">🔁 再試一次</button>`; }
   }
 }
+// 用一句話估熱量（Gemini 文字），結果加入購物車
+async function estimateText(){
+  const text=val("estText").trim();
+  const h=document.getElementById("estHint");
+  if(!text){ h.textContent="請先輸入一句描述"; return; }
+  foodCart=foodCart.filter(it=>!String(it.n).startsWith("✨ ")); renderFood();
+  h.textContent="🔎 估算中…約 3–8 秒";
+  try{
+    const r=await api("/api/estimate",{method:"POST",body:JSON.stringify({text})});
+    const items=r.items||[]; let tot=0;
+    items.forEach(it=>{
+      const g=it.grams||100, sc=100/g;
+      const name="✨ "+it.name;
+      FOODS_DYN[name]=[Math.round(it.kcal*sc),+(it.protein*sc).toFixed(1),+(it.fat*sc).toFixed(1),+(it.carb*sc).toFixed(1)];
+      addToCart(name,g); tot+=it.kcal||0;
+    });
+    h.innerHTML=`已估 <b>${items.length}</b> 項、共約 <b>${Math.round(tot)} kcal</b>，已加入下方清單。可改克數後選餐別「＋加入」。 <button class="ghost sm" onclick="saveAiFoods()">💾 存成自訂</button>`;
+  }catch(e){
+    h.innerHTML=`估算失敗：${e.message} <button class="ghost sm" onclick="estimateText()">🔁 再試</button>`;
+  }
+}
 // 把目前 AI 辨識（✨）的項目存成自訂食物（去掉 ✨、進最愛＋共享庫，之後可直接搜尋）
 function saveAiFoods(){
   const ai=foodCart.filter(it=>String(it.n).startsWith("✨ "));
@@ -581,6 +602,43 @@ function copyDayPrompt(){
   const f=prompt("要複製哪一天？（格式 2026-06-08）", selDate());
   if(f&&/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) copyDayFrom(f.trim());
 }
+let editingMeal=null;
+function mealGramOf(name){ const m=String(name).match(/(\d+(?:\.\d+)?)\s*g\b/); return m?+m[1]:0; }
+function mealRowHtml(m){
+  if(editingMeal===m.id){
+    const gNow=mealGramOf(m.name);
+    const inner=gNow>0
+      ? `<input id="emG" type="number" value="${gNow}" style="width:70px;padding:5px"><span style="font-size:12px;color:var(--sub)">g（改克數自動換算）</span>`
+      : `<input id="emK" type="number" value="${m.kcal||0}" style="width:70px;padding:5px"><span style="font-size:12px;color:var(--sub)">kcal</span>`;
+    return `<div class="foodrow" style="flex-wrap:wrap;gap:6px;background:var(--soft);border-radius:8px;padding:8px;">`+
+      `<span class="nm" style="flex:1 1 100%;font-weight:500;">✏️ ${m.name}</span>${inner}`+
+      `<button class="ghost sm" onclick="saveMealEdit(${m.id},${gNow})">儲存</button>`+
+      `<button class="ghost sm" onclick="cancelMealEdit()">取消</button></div>`;
+  }
+  return `<div class="foodrow"><span class="nm">${m.name}<br><span style="color:var(--sub);font-size:11px">P${Math.round(m.protein||0)} F${Math.round(m.fat||0)} C${Math.round(m.carb||0)}</span></span>`+
+    `<span class="kc">${m.kcal||0}</span>`+
+    `<span class="x" style="color:var(--accent)" onclick="editMeal(${m.id})">✏️</span>`+
+    `<span class="x" onclick="delMeal(${m.id})">✕</span></div>`;
+}
+function editMeal(id){ editingMeal=id; renderDay(); }
+function cancelMealEdit(){ editingMeal=null; renderDay(); }
+async function saveMealEdit(id,gNow){
+  const m=(store.meals||[]).find(x=>x.id===id); if(!m) return;
+  let body;
+  if(gNow>0){
+    const ng=+val("emG"); if(!ng||ng<=0){ alert("請輸入克數"); return; }
+    const f=ng/gNow;
+    body={ name:m.name.replace(/(\d+(?:\.\d+)?)\s*g\b/, ng+"g"),
+      kcal:Math.round((+m.kcal||0)*f), protein:+((+m.protein||0)*f).toFixed(1),
+      fat:+((+m.fat||0)*f).toFixed(1), carb:+((+m.carb||0)*f).toFixed(1) };
+  }else{
+    const nk=+val("emK"); const ok=+m.kcal||0; const f=ok>0?nk/ok:1;
+    body={ kcal:Math.round(nk), protein:+((+m.protein||0)*f).toFixed(1),
+      fat:+((+m.fat||0)*f).toFixed(1), carb:+((+m.carb||0)*f).toFixed(1) };
+  }
+  try{ await api("/api/meal/"+id,{method:"PUT",body:JSON.stringify(body)}); editingMeal=null; await reload(); }
+  catch(e){ alert(e.message); }
+}
 async function delMeal(id){ await api("/api/meal/"+id,{method:"DELETE"}); await reload(); }
 async function delMealPhoto(id){ if(!confirm("移除這張照片？")) return; await api("/api/meal/"+id+"/photo",{method:"DELETE"}); await reload(); }
 function viewPhoto(id){
@@ -603,7 +661,7 @@ function renderMeals(date){
     const photos=g.filter(m=>m.photo).map(m=>`<div style="position:relative;display:inline-block;margin:6px 6px 0 0"><img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer"><span onclick="delMealPhoto(${m.id})" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;line-height:18px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:50%;color:#b5564e;font-size:12px;cursor:pointer">✕</span></div>`).join("");
     const subP=g.reduce((a,b)=>a+(+b.protein||0),0), subF=g.reduce((a,b)=>a+(+b.fat||0),0), subC=g.reduce((a,b)=>a+(+b.carb||0),0);
     html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal <span style="color:var(--sub);font-weight:400;font-size:11px">P${Math.round(subP)}·F${Math.round(subF)}·C${Math.round(subC)}</span></span></div>`+
-      g.map(m=>`<div class="foodrow"><span class="nm">${m.name}<br><span style="color:var(--sub);font-size:11px">P${Math.round(m.protein||0)} F${Math.round(m.fat||0)} C${Math.round(m.carb||0)}</span></span><span class="kc">${m.kcal||0}</span><span class="x" onclick="delMeal(${m.id})">✕</span></div>`).join("")+
+      g.map(mealRowHtml).join("")+
       (photos?`<div style="display:flex;flex-wrap:wrap">${photos}</div>`:"")+`</div>`;
   }
   box.innerHTML=html;
