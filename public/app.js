@@ -1122,4 +1122,9 @@ window.addEventListener("DOMContentLoaded", ()=>{
   if(session) boot();
 });
 // 註冊 Service Worker（PWA 可安裝 + 離線）
-if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+  // 有新版 service worker 接手時自動重整一次，套用最新版（避免手動清快取）
+  let swReloaded=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(swReloaded) return; swReloaded=true; location.reload(); });
+}
