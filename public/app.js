@@ -198,6 +198,42 @@ function goalTargets(){
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
   return {kcal:target, protein, fat, carb, base};
 }
+// 減重計畫脈絡：把「目標TDEE是否實測、目標體重、目標vs實際每週速度、預計達成日、赤字」整合一包
+// 給 AI 教練與報表共用，讓建議都對準『減重進度』而非泛泛營養
+function planContext(){
+  const base=baseTDEE();
+  const t=goalTargets();
+  const R=calcReal(store.records, store.exercises);
+  const goal=val("goal"), rate=+val("goalRate")||0;
+  const wRecs=(store.records||[]).filter(r=>r.weight!=null);
+  const curW=wRecs.length?+wRecs[wRecs.length-1].weight:(+val("weight")||null);
+  const tgtW=+val("targetWeight")||null;
+  const tdeeIsReal=!!(base&&/真實|基礎/.test(base.src||""));
+  // 目標每日赤字與每週應減公斤（減脂才有意義）
+  const dailyDeficitTarget = (goal==="cut" && base.tdee) ? Math.round(base.tdee*rate) : 0;
+  const weeklyTargetKg = dailyDeficitTarget ? +(dailyDeficitTarget*7/7700).toFixed(2) : null;
+  const weeklyObservedKg = R.slopeWk!=null ? +R.slopeWk.toFixed(2) : null;  // 實測每週體重變化(負=下降)
+  // 預計達成日
+  let etaText=null;
+  if(tgtW!=null && curW!=null){
+    const diff=tgtW-curW;
+    if(Math.abs(diff)<0.1) etaText="已達標 🎉";
+    else if(weeklyObservedKg!=null && weeklyObservedKg!==0){
+      const perDay=weeklyObservedKg/7;
+      if((diff<0&&perDay<0)||(diff>0&&perDay>0)){
+        const days=Math.round(diff/perDay), e=new Date(Date.now()+days*86400000);
+        etaText=`約 ${e.getFullYear()}/${e.getMonth()+1}/${e.getDate()}（${days}天）`;
+      }else etaText="趨勢與目標相反";
+    }
+  }
+  return {
+    goal, tdee:base.tdee||null, tdeeSource:base.src||"", tdeeIsReal, dataDays:R.days||0,
+    target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
+    weight:curW, targetWeight:tgtW,
+    dailyDeficitTarget, weeklyTargetKg, weeklyObservedKg,
+    dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText
+  };
+}
 function calcGoal(){
   const t=goalTargets();
   if(!t){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
@@ -625,7 +661,7 @@ async function coachDaily(){
     const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"daily",
       today:{kcal:d.k,protein:d.p,fat:d.f,carb:d.c},
       target:{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb},
-      burn, goal:val("goal")})});
+      burn, goal:val("goal"), plan:planContext()})});
     box.innerHTML=coachHtml(r);
   }catch(e){ box.innerHTML=`建議失敗：${e.message} <button class="ghost sm" onclick="coachDaily()">🔁 再試</button>`; }
 }
@@ -674,7 +710,7 @@ async function coachReport(){
     const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"report",days:reportDays,
       avg:{kcal:avgI,protein:avgP,fat:avgF,carb:avgC},
       target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
-      avgBurn, avgNet:avgI-avgBurn, weightDelta:wDelta, goal:val("goal")})});
+      avgBurn, avgNet:avgI-avgBurn, weightDelta:wDelta, goal:val("goal"), plan:planContext()})});
     box.innerHTML=coachHtml(r);
   }catch(e){ box.innerHTML=`點評失敗：${e.message} <button class="ghost sm" onclick="coachReport()">🔁 再試</button>`; }
 }
@@ -1217,8 +1253,37 @@ function renderReport(){
   const tgt=goalTargets();
   let underGoal=0;
   if(tgt){ underGoal=intakeDays.filter(r=>(+r.kcal||0)<=tgt.kcal).length; }
-  const stat=(v,k)=>`<div><div class="v">${v}</div><div class="k">${k}</div></div>`;
-  let html=`<div class="stat-row" style="margin-top:4px;">`+
+  const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
+  // ── 減重 KPI（最上方，核心）──
+  const P=planContext();
+  let html="";
+  if(P.goal==="cut"){
+    const obs=P.weeklyObservedKg;                       // 實測每週kg（負=下降）
+    const tgtRate=P.weeklyTargetKg!=null?-Math.abs(P.weeklyTargetKg):null; // 目標每週應為負
+    // 是否在軌道：有實測速度且在下降，且達到目標速度的 60% 以上
+    let track="—", trackCol="var(--sub)";
+    if(obs!=null && tgtRate!=null){
+      if(obs<=tgtRate*0.6){ track="✅ 在軌道"; trackCol="var(--green)"; }
+      else if(obs<0){ track="偏慢"; trackCol="var(--warm)"; }
+      else { track="⚠ 未下降"; trackCol="#b5564e"; }
+    }
+    const rateTxt=obs!=null?(obs>0?"+":"")+obs+"kg/週":"資料不足";
+    const tgtTxt=tgtRate!=null?tgtRate+"kg/週":"—";
+    const distTxt=(P.weight!=null&&P.targetWeight!=null)?(+(P.weight-P.targetWeight).toFixed(1))+"kg":"—";
+    html+=`<div class="stat-row" style="margin-top:4px;">`+
+      stat(rateTxt,"實際週速度",obs!=null&&obs<0?"var(--green)":(obs>0?"#b5564e":""))+
+      stat(tgtTxt,"目標週速度")+
+      stat(distTxt,"距目標")+
+      stat(track,"進度",trackCol)+`</div>`;
+    const etaTxt=P.etaText||"需更多體重紀錄";
+    const tdeeTxt=P.tdee?P.tdee.toLocaleString()+(P.tdeeIsReal?"":"*"):"—";
+    html+=`<div class="hint" style="margin-top:8px;">`+
+      `🎯 目標 ${P.targetWeight??"—"}kg｜預計達成：<b>${etaTxt}</b>　·　`+
+      `每日攝取目標 ${P.target?P.target.kcal.toLocaleString():"—"} kcal（赤字約 ${P.dailyDeficitTarget||"—"}）　·　`+
+      `TDEE ${tdeeTxt} ${P.tdeeIsReal?"（實測）":`（公式估*，已記 ${P.dataDays} 天，滿約7天自動轉實測）`}</div>`;
+  }
+  // ── 飲食/運動執行面（次要）──
+  html+=`<div class="stat-row" style="margin-top:10px;">`+
     stat(avgIntake?avgIntake.toLocaleString():"—","平均攝取/天")+
     stat(avgBurn?"−"+avgBurn.toLocaleString():"0","平均運動/天")+
     stat(avgNet?avgNet.toLocaleString():"—","平均淨/天")+
@@ -1231,7 +1296,6 @@ function renderReport(){
     stat(strengthDays+"天","重訓天數")+
     stat(Math.round(volTotal).toLocaleString(),"訓練量kg")+
     stat(exs.length+"筆","運動筆數")+`</div>`;
-  if(wFrom!=null) html+=`<div class="hint" style="margin-top:8px;">體重 ${wFrom} → ${wTo} kg（${reportDays}天）。平均淨熱量${avgNet<avgIntake?"赤字":"盈餘"}約 ${Math.abs(avgBurn).toLocaleString()} kcal/天來自運動。</div>`;
   box.innerHTML=html;
 }
 function renderReal(){

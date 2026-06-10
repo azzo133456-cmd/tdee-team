@@ -657,6 +657,21 @@ app.post("/api/coach", auth, async (req, res) => {
     const mode = ["daily", "report", "remain"].includes(b.mode) ? b.mode : "daily";
     const goalName = { cut: "減脂", maintain: "維持", bulk: "增肌" }[b.goal] || "維持";
     const j = (o) => JSON.stringify(o || {});
+    // 減重計畫脈絡（前端 planContext）→ 轉成給 AI 的白話描述，讓建議對準進度而非泛泛營養
+    const p = b.plan || {};
+    const planLine = (() => {
+      if (!p || !p.tdee) return "";
+      const parts = [];
+      parts.push("使用者的 TDEE＝" + p.tdee + " kcal（來源：" + (p.tdeeSource || "未知") +
+        "，" + (p.tdeeIsReal ? "已是依實際體重/攝取反推的『實測值』" : "目前資料僅 " + (p.dataDays || 0) + " 天、尚不足，仍是公式估算，請提醒這只是暫定、滿約7天會更準") + "）");
+      if (p.weight != null) parts.push("目前體重 " + p.weight + " kg" + (p.targetWeight != null ? "、目標 " + p.targetWeight + " kg" : ""));
+      if (p.goal === "cut") {
+        if (p.dailyDeficitTarget) parts.push("計畫每日熱量赤字約 " + p.dailyDeficitTarget + " kcal（每週應減約 " + (p.weeklyTargetKg ?? "?") + " kg）");
+        if (p.weeklyObservedKg != null) parts.push("實際觀察到每週體重變化 " + p.weeklyObservedKg + " kg" + (p.weeklyObservedKg < 0 ? "（下降中，方向正確）" : p.weeklyObservedKg > 0 ? "（上升中，與減重目標相反）" : "（持平）"));
+        if (p.etaText) parts.push("依目前速度預計達標：" + p.etaText);
+      }
+      return "【減重計畫脈絡】" + parts.join("；") + "。";
+    })();
     let prompt;
     if (mode === "remain") {
       // 剩餘額度 → 推薦具體品項（以台灣超商/手搖/常見食物為主）
@@ -670,19 +685,22 @@ app.post("/api/coach", auth, async (req, res) => {
         "數字一律阿拉伯數字、不含單位。若剩餘熱量已很少或為負，items 可給低卡高蛋白選項並在 reason 提醒已接近上限。";
     } else if (mode === "report") {
       prompt =
-        "你是營養師兼教練。這是使用者近 " + (b.days || 7) + " 天的飲食/運動摘要：" +
-        "平均攝取/天=" + j(b.avg) + "，每日目標=" + j(b.target) +
+        "你是專屬減重教練。" + planLine +
+        "這是使用者近 " + (b.days || 7) + " 天摘要：平均攝取/天=" + j(b.avg) + "，每日目標=" + j(b.target) +
         "，平均運動消耗/天=" + (b.avgBurn || 0) + " kcal，平均淨熱量/天=" + (b.avgNet || 0) + " kcal" +
-        (b.weightDelta != null ? "，期間體重變化=" + b.weightDelta + " kg" : "") +
-        "，目標類型=" + goalName + "。" +
-        "請做一段精簡『教練點評』：先講趨勢與做得好的地方，再指出最該調整的 1–2 點，最後給下週一個可執行的小目標。" +
-        "口語、鼓勵、具體（可引用數字），繁體中文。只回傳 JSON：" +
+        (b.weightDelta != null ? "，期間體重變化=" + b.weightDelta + " kg" : "") + "。" +
+        "請以『減重進度』為核心做教練點評：(1) 體重趨勢與每週速度，是否符合計畫的目標速度；" +
+        "(2) 熱量赤字夠不夠、蛋白質是否足量（保肌）；(3) 最該調整的 1–2 點；(4) 下週一個可執行小目標。" +
+        "若 TDEE 還是公式估算（資料不足），請明講『再多記幾天就能算出你真正的 TDEE、屆時目標會更準』，不要過度解讀短期體重波動。" +
+        "口語、鼓勵、具體可引用數字，繁體中文。只回傳 JSON：" +
         '{"summary":"2-4句總評","actions":["下週可做的具體小目標1","小目標2"]}。';
     } else {
       prompt =
-        "你是營養師兼教練。使用者今天到目前的攝取=" + j(b.today) + "，每日目標=" + j(b.target) +
-        "，今天運動消耗=" + (b.burn || 0) + " kcal，目標類型=" + goalName + "。" +
-        "請給今天剩餘時間的飲食建議：還缺/超出多少熱量與蛋白質，下一餐可以怎麼吃。" +
+        "你是專屬減重教練。" + planLine +
+        "使用者今天到目前的攝取=" + j(b.today) + "，每日目標=" + j(b.target) +
+        "，今天運動消耗=" + (b.burn || 0) + " kcal。" +
+        "請針對他的減重計畫給今天剩餘時間的建議：對照目標還能吃多少熱量、蛋白質還缺多少（要吃夠以保留肌肉）、下一餐怎麼安排才不會破壞當天的熱量赤字。" +
+        "若 TDEE 仍是公式估算（資料不足）就順帶鼓勵他持續記錄、滿幾天後目標會更精準。" +
         "口語、簡短、具體（可引用數字、給台灣常見食物例子），繁體中文。只回傳 JSON：" +
         '{"summary":"2-3句建議","actions":["可做的具體建議1","建議2"]}。';
     }
