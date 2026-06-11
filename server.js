@@ -186,6 +186,8 @@ async function initDb() {
       dex JSONB DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS coins_spent INT DEFAULT 0;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS owned JSONB DEFAULT '[]'::jsonb;
   `);
   console.log("DB ready");
 }
@@ -1103,7 +1105,23 @@ app.get("/api/pet", auth, async (req, res) => {
     if (row && JSON.stringify(row.dex || []) !== JSON.stringify(state.dex)) {
       await pool.query("UPDATE pets SET dex=$1 WHERE user_id=$2", [JSON.stringify(state.dex), req.user.id]);
     }
-    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP });
+    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/pet/buy", auth, async (req, res) => {
+  try {
+    const item = String(req.body.item || "");
+    const price = PET_SHOP_PRICE[item];
+    if (!price) return res.status(400).json({ error: "商店沒有這個飾品" });
+    const { state, row } = await computePet(req.user.id);
+    if (!row) return res.status(400).json({ error: "還沒領養寵物" });
+    if (state.owned.includes(item) || state.unlocked.includes(item)) return res.status(400).json({ error: "已經有這個飾品了" });
+    if (state.coins < price) return res.status(400).json({ error: `骨頭幣不夠（需要 ${price}，你有 ${state.coins}）` });
+    const owned = state.owned.concat([item]);
+    await pool.query("UPDATE pets SET owned=$1, coins_spent=COALESCE(coins_spent,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(owned), price, req.user.id]);
+    const { state: ns } = await computePet(req.user.id);
+    res.json({ pet: ns });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 app.post("/api/pet/choose", auth, async (req, res) => {
@@ -1132,7 +1150,7 @@ app.put("/api/pet", auth, async (req, res) => {
       // 只能戴已解鎖的飾品（伺服器再驗一次）
       const { state } = await computePet(req.user.id);
       const want = String(req.body.equipped || "");
-      const eq = want && state.unlocked.includes(want) ? want : (want === "" ? null : null);
+      const eq = want && state.equippable.includes(want) ? want : null;
       await pool.query("UPDATE pets SET equipped=$1 WHERE user_id=$2", [eq, req.user.id]);
     }
     const { state } = await computePet(req.user.id);
@@ -1185,6 +1203,31 @@ function petExpFromRows(rows) {
   return { exp, lastLogged: loggedDates.length ? loggedDates[loggedDates.length - 1] : null };
 }
 const petStageIdx = (exp) => { let i = 0; for (let k = 0; k < PET_STAGE_EXP.length; k++) if (exp >= PET_STAGE_EXP[k]) i = k; return i; };
+// 🦴 骨頭幣：每日記錄/達標賺幣，奪牌加碼。花幣不影響競賽積分（兩條線分開）。
+function petCoinsFromRows(rows, trophies) {
+  let c = 0;
+  rows.forEach((r) => {
+    if (r.logged) c += 5;
+    if (r.kcal_hit) c += 3;
+    if (r.exercised) c += 3;
+    if (r.water_hit) c += 2;
+    if (r.protein_hit) c += 2;
+    if ((r.poop || 0) > 0) c += 1;
+  });
+  return c + (trophies || 0) * 50;     // 每座獎盃 +50 幣
+}
+// 飾品商店（用骨頭幣買；與「達標/獎盃免費解鎖」的飾品不重複）
+const PET_SHOP = [
+  { it: "🧢", name: "鴨舌帽", price: 40 },
+  { it: "🍭", name: "棒棒糖", price: 50 },
+  { it: "🎈", name: "氣球", price: 60 },
+  { it: "🕶️", name: "墨鏡", price: 80 },
+  { it: "🎒", name: "小背包", price: 110 },
+  { it: "🎓", name: "學士帽", price: 150 },
+  { it: "🪄", name: "魔法棒", price: 220 },
+  { it: "💎", name: "鑽石飾", price: 300 },
+];
+const PET_SHOP_PRICE = Object.fromEntries(PET_SHOP.map((s) => [s.it, s.price]));
 // 把 pet 資料列 + 統計 + 獎盃數 → 完整寵物狀態（輕度衰減：掉心情＋少量EXP，但不退階）
 function petStateFromRows(petRow, rows, trophies) {
   const species = (petRow && petRow.species) || "cat";
@@ -1207,8 +1250,14 @@ function petStateFromRows(petRow, rows, trophies) {
   if (trophies >= 1) unlocked.push("🎩");
   if (trophies >= 3) unlocked.push("👑");
   if (trophies >= 5) unlocked.push("🌟");
+  // 🦴 骨頭幣：賺到的總額 − 已花費 ＝ 餘額；商店買到的飾品收進 owned
+  const earnedCoins = petCoinsFromRows(rows, trophies);
+  const spent = (petRow && petRow.coins_spent) || 0;
+  const coins = Math.max(0, earnedCoins - spent);
+  const owned = Array.isArray(petRow && petRow.owned) ? petRow.owned.slice() : [];
+  const equippable = unlocked.concat(owned.filter((o) => !unlocked.includes(o)));  // 免費解鎖 ∪ 已購買
   let equipped = petRow && petRow.equipped;
-  if (equipped && !unlocked.includes(equipped)) equipped = null;   // 還沒解鎖的不給戴
+  if (equipped && !equippable.includes(equipped)) equipped = null;   // 還沒解鎖/未購買的不給戴
   // 圖鑑：本物種達到的最高階段（合併舊紀錄）
   const dex = Array.isArray(petRow && petRow.dex) ? petRow.dex.slice() : [];
   const di = dex.findIndex((d) => d && d.species === species);
@@ -1218,7 +1267,7 @@ function petStateFromRows(petRow, rows, trophies) {
     chosen: !!petRow, species, speciesLabel: sp.label, name: (petRow && petRow.name) || sp.label,
     emoji: sp.stages[stageIdx], stageIdx, stageName: PET_STAGE_NAMES[stageIdx],
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
-    equipped: equipped || "", unlocked, dex, trophies,
+    equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies,
   };
 }
 

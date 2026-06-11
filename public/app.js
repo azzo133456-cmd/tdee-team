@@ -1180,29 +1180,64 @@ function renderPet(){
   const base=(petMeta&&petMeta.stageExp&&petMeta.stageExp[p.stageIdx])||0;
   const pct=next?Math.min(100,Math.round((p.exp-base)/((next-base)||1)*100)):100;
   const moodColor=p.mood>=70?"#3a9":p.mood>=40?"#b93":"#a66";
-  // 裝飾品列
-  const items=p.unlocked||[];
+  // 可裝備（免費解鎖 ∪ 已購買）
+  const items=p.equippable||p.unlocked||[];
   const itemBtns=items.length?items.map(it=>`<button class="ghost sm" style="${p.equipped===it?'background:var(--soft);border-color:var(--accent);':''}" onclick="equipPet('${p.equipped===it?'':it}')">${it}</button>`).join("")
-    :`<span class="hint">還沒有飾品～連續記錄、競賽奪牌就能解鎖帽子🎩、皇冠👑等。</span>`;
+    :`<span class="hint">還沒有飾品～連續記錄、競賽奪牌就能解鎖，或到下面商店用 🦴 骨頭幣買。</span>`;
+  // 🦴 商店：尚未擁有的品項
+  const owned=new Set([...(p.owned||[]),...(p.unlocked||[])]);
+  const shop=(petMeta&&petMeta.shop)||[];
+  const shopHtml=shop.filter(s=>!owned.has(s.it)).map(s=>{
+    const afford=p.coins>=s.price;
+    return `<button class="ghost sm" ${afford?"":"disabled"} style="${afford?"":"opacity:.45;"}" title="${s.name}" onclick="buyPet('${s.it}',${s.price})">${s.it} 🦴${s.price}</button>`;
+  }).join("")||`<span class="hint">商店飾品都收集完了，太強了！🎉</span>`;
   const dexHtml=(p.dex||[]).map(d=>{ const s=(petMeta&&petMeta.species&&petMeta.species[d.species]); if(!s)return""; return `<span title="${s.label} 最高${(petMeta.stageNames||[])[d.maxStage]||''}" style="font-size:20px;">${s.stages[d.maxStage]}</span>`; }).join("");
   box.innerHTML=
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:74px;height:74px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
-        (p.equipped?`<span style="position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:22px;">${p.equipped}</span>`:"")+
-        `<span style="font-size:42px;">${p.emoji}</span></div>`+
+        (p.equipped?`<span style="position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:22px;z-index:2;">${p.equipped}</span>`:"")+
+        `<span id="petEmoji" style="font-size:42px;display:inline-block;">${p.emoji}</span></div>`+
       `<div style="flex:1 1 auto;min-width:0;">`+
-        `<div style="display:flex;align-items:center;gap:6px;"><b style="font-size:16px;">${escapeHtml(p.name)}</b>`+
+        `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-size:16px;">${escapeHtml(p.name)}</b>`+
           `<span class="pill">${p.stageName}</span>`+
-          `<span style="cursor:pointer;color:var(--sub);font-size:13px;" onclick="renamePet()">✎</span></div>`+
+          `<span style="cursor:pointer;color:var(--sub);font-size:13px;" onclick="renamePet()">✎</span>`+
+          `<span class="pill" style="margin-left:auto;background:#fff4e0;color:#a5701a;">🦴 ${p.coins}</span></div>`+
         `<div style="font-size:13px;color:${moodColor};margin:2px 0;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
         `<div class="prog"><i style="width:${pct}%"></i></div>`+
         `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
       `</div>`+
     `</div>`+
-    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 飾品</div>`+
+    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 我的飾品</div>`+
     `<div class="chipbar" style="margin-top:4px;">${itemBtns}${p.equipped?`<button class="ghost sm" onclick="equipPet('')">脫下</button>`:""}</div>`+
+    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🦴 骨頭幣商店 <span class="hint" style="font-weight:400;">（記錄/達標賺幣，不影響競賽積分）</span></div>`+
+    `<div class="chipbar" style="margin-top:4px;">${shopHtml}</div>`+
     (dexHtml?`<div style="margin-top:10px;font-size:13px;font-weight:600;">📖 圖鑑</div><div style="margin-top:4px;">${dexHtml}</div>`:"")+
     `<div class="hint tip" style="margin-top:8px;">每天記錄飲食/喝水/運動/體重都會餵養牠，連續達標長更快。漏記只會讓牠想睡（不會生病或消失）。</div>`;
+  // 進化動畫：偵測到階段提升就慶祝一下
+  maybeEvolveFx(p);
+}
+// 偵測階段提升 → 動畫＋祝賀（用 localStorage 記住上次看到的階段）
+function maybeEvolveFx(p){
+  const key="petStage";
+  const prev=localStorage.getItem(key);
+  const cur=p.stageIdx;
+  if(prev!==null && +prev<cur){
+    const el=document.getElementById("petEmoji");
+    if(el){ el.classList.remove("evolve"); void el.offsetWidth; el.classList.add("evolve"); }
+    petToast(`🎉 你的寵物進化成「${p.stageName}」了！${p.emoji}`);
+  }
+  localStorage.setItem(key,String(cur));
+}
+function petToast(msg){
+  let t=document.getElementById("petToast");
+  if(!t){ t=document.createElement("div"); t.id="petToast"; document.body.appendChild(t); }
+  t.textContent=msg; t.className="show";
+  clearTimeout(t._tm); t._tm=setTimeout(()=>{ t.className=""; },3600);
+}
+async function buyPet(item,price){
+  if(!confirm(`用 🦴 ${price} 骨頭幣購買 ${item}？`)) return;
+  try{ const r=await api("/api/pet/buy",{method:"POST",body:JSON.stringify({item})}); petData=r.pet; renderPet(); petToast(`已購買 ${item}！到「我的飾品」就能幫牠戴上。`); }
+  catch(e){ alert(e.message); }
 }
 
 /* ---------- 積分制 + 名稱特效 ---------- */
