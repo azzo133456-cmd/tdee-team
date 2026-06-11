@@ -55,6 +55,7 @@ async function initDb() {
     ALTER TABLE records ADD COLUMN IF NOT EXISTS weight_pm REAL;
     ALTER TABLE records ADD COLUMN IF NOT EXISTS water_ml INT;
     ALTER TABLE records ADD COLUMN IF NOT EXISTS body_fat REAL;
+    ALTER TABLE records ADD COLUMN IF NOT EXISTS poop INT;
     CREATE TABLE IF NOT EXISTS meals (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -169,6 +170,7 @@ async function initDb() {
     );
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS water_pct REAL;
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS protein_pct REAL;
+    ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS poop INT;
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -431,6 +433,21 @@ app.post("/api/water", auth, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
   }
+});
+
+// 嗯嗯（排便）紀錄：每天次數
+app.post("/api/poop", auth, async (req, res) => {
+  try {
+    const { date } = req.body;
+    if (!date) return res.status(400).json({ error: "需要日期" });
+    const poop = Math.max(0, Math.min(20, parseInt(req.body.poop, 10) || 0));
+    await pool.query(
+      `INSERT INTO records(user_id,date,poop) VALUES($1,$2,$3)
+       ON CONFLICT (user_id,date) DO UPDATE SET poop=EXCLUDED.poop`,
+      [req.user.id, date, poop]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
 /* ---------- 食譜 ---------- */
@@ -990,6 +1007,8 @@ const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 6
 const TW_OFFSET = 8 * 3600 * 1000;
 const twToday = () => new Date(Date.now() + TW_OFFSET).toISOString().slice(0, 10);
 const roundLen = (period) => (period === "day" ? 1 : period === "month" ? 30 : 7);
+// 每座冠軍積分：每日15 / 每週100 / 每月500
+const periodPoints = (period) => (period === "day" ? 15 : period === "month" ? 500 : 100);
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoD(d); };
 // 在 [since, until] 窗內計分
 function scoreMember(rows, metric, since, until) {
@@ -1040,6 +1059,11 @@ function scoreMember(rows, metric, since, until) {
     const total = disc + streakOf() + exc;
     return { score: total, detail: total + " 分（自律" + disc + "·連" + streakOf() + "·動" + exc + "）" };
   }
+  if (metric === "poop") {
+    const cnt = win.reduce((a, r) => a + Math.max(0, +r.poop || 0), 0);
+    const days = win.filter((r) => (+r.poop || 0) > 0).length;
+    return { score: cnt, detail: cnt + " 次" + (days ? "（" + days + " 天）" : "") };
+  }
   if (metric === "team") return { score: disc, detail: disc + " 分" }; // 合作：個人貢獻，前端加總
   // discipline（自律分）
   return { score: disc, detail: disc + " 分" };
@@ -1069,16 +1093,17 @@ app.post("/api/dailystats", auth, async (req, res) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
       const b = (v) => (v ? 1 : 0);
       await pool.query(
-        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT (user_id,date) DO UPDATE SET
            logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
            exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
-           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct`,
+           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct,poop=EXCLUDED.poop`,
         [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
          Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null,
          r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null,
-         r.protein_pct != null ? Math.max(0, Math.min(300, +r.protein_pct)) : null]
+         r.protein_pct != null ? Math.max(0, Math.min(300, +r.protein_pct)) : null,
+         r.poop != null ? Math.max(0, Math.min(20, Math.round(+r.poop))) : null]
       );
     }
     res.json({ ok: true });
@@ -1088,7 +1113,7 @@ app.post("/api/dailystats", auth, async (req, res) => {
 app.post("/api/group", auth, async (req, res) => {
   try {
     const name = String(req.body.name || "").trim().slice(0, 40) || "減重小隊";
-    const metric = ["discipline", "streak", "weightpct", "exercise", "all", "protein", "water", "team"].includes(req.body.metric) ? req.body.metric : "discipline";
+    const metric = ["discipline", "streak", "weightpct", "exercise", "all", "protein", "water", "poop", "team"].includes(req.body.metric) ? req.body.metric : "discipline";
     const period = ["day", "week", "month"].includes(req.body.period) ? req.body.period : "week";
     let code, ok = false;
     for (let i = 0; i < 5 && !ok; i++) { code = genCode(); const e = await pool.query("SELECT 1 FROM groups WHERE code=$1", [code]); if (!e.rows[0]) ok = true; }
@@ -1137,7 +1162,7 @@ app.get("/api/groups", auth, async (req, res) => {
       mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
       const ids = mem.rows.map((u) => u.id);
       if (ids.length) {
-        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
+        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
         st.rows.forEach((r) => { (rowsByUser[r.user_id] = rowsByUser[r.user_id] || []).push(r); });
       }
       const len = roundLen(g.period);
@@ -1175,12 +1200,17 @@ app.get("/api/groups", auth, async (req, res) => {
       if (g.metric === "team") team = { total: board.reduce((a, m) => a + (m.score || 0), 0), goal: board.length * len * 5 };
       // 戰績：歷屆冠軍 + 獎盃統計
       const seasons = await pool.query("SELECT round_no,start_date::text,end_date::text,winner,boss FROM group_seasons WHERE group_id=$1 ORDER BY round_no DESC LIMIT 8", [g.id]);
-      const trophies = {};
+      const trophies = {}, trophyPts = {};
+      const winPer = periodPoints(g.period);   // 每座冠軍積分：每日15 / 每週100 / 每月500
       const allSeasons = await pool.query("SELECT winner,boss FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
-      allSeasons.rows.forEach((s) => { trophies[s.winner] = (trophies[s.winner] || 0) + (s.boss ? 2 : 1); });   // 魔王輪奪冠＝雙倍獎盃
+      allSeasons.rows.forEach((s) => {
+        trophies[s.winner] = (trophies[s.winner] || 0) + 1;                         // 獎盃「座數」（魔王輪也算 1 座）
+        trophyPts[s.winner] = (trophyPts[s.winner] || 0) + winPer * (s.boss ? 2 : 1); // 積分（魔王輪雙倍）
+      });
       const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });
       board.forEach((m) => {
         m.trophies = trophies[m.name] || 0;
+        m.trophyPts = trophyPts[m.name] || 0;
         // auto 特效用「自律分(不含本組獎盃)」計算，確保同一人在每個組看到的預設特效一致
         const actPts = memberPoints(rowsByUser[uidByName[m.name]] || [], 0);
         // 名稱特效：優先用本人選的造型（解鎖門檻由前端把關），否則用自律分對應特效

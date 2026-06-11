@@ -957,7 +957,7 @@ function renderReviews(){
 
 /* ---------- 群組競賽 ---------- */
 let myGroups=[];
-const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數",protein:"蛋白達成率",water:"喝水達成率",team:"團隊挑戰"};
+const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數",protein:"蛋白達成率",water:"喝水達成率",poop:"嗯嗯次數",team:"團隊挑戰"};
 const PERIOD_LABEL={day:"每日",week:"每週",month:"每月"};
 // 計算自己近 35 天的隱私安全統計並上傳（flag 由本機算，體重只供算個人%）
 async function syncDailyStats(){
@@ -986,7 +986,8 @@ async function syncDailyStats(){
       volume: exsDay.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0),
       weight: rec&&rec.weight!=null?+rec.weight:null,
       water_pct: (rec&&rec.water_ml!=null)?Math.round(water/waterGoal*100):null,  // 喝水達成率(已喝/該喝)
-      protein_pct: (t&&logged&&t.protein>0)?Math.round(nut.p/t.protein*100):null });  // 蛋白達成率(已吃/目標)
+      protein_pct: (t&&logged&&t.protein>0)?Math.round(nut.p/t.protein*100):null,  // 蛋白達成率(已吃/目標)
+      poop: (rec&&rec.poop!=null)?+rec.poop:null });  // 嗯嗯次數
   }
   if(!rows.length) return;
   try{ await api("/api/dailystats",{method:"POST",body:JSON.stringify({rows})}); }catch(e){}
@@ -1059,7 +1060,8 @@ function renderGroups(){
     const histHtml=hist.length?`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">🏆 歷屆冠軍（${hist.length}）</summary>`+
       hist.map(h=>`<div class="hint" style="margin-top:2px;">第 ${h.round} 輪（${h.start.slice(5)}~${h.end.slice(5)}）：<b>${h.winner}</b>${h.boss?" 🔥魔王(雙倍)":""}</div>`).join("")+`</details>`:"";
     // 魔王輪橫幅
-    const bossBanner=g.boss?`<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,#fde2d0,#f7c9b0);color:#9a4a2a;font-size:12.5px;font-weight:600;">🔥 本輪是「魔王輪」！奪冠可得 <b>雙倍獎盃</b>（等同 200 分），把握機會衝一波！</div>`:"";
+    const winPer={day:15,week:100,month:500}[g.period]||100;
+    const bossBanner=g.boss?`<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,#fde2d0,#f7c9b0);color:#9a4a2a;font-size:12.5px;font-weight:600;">🔥 本輪是「魔王輪」！奪冠積分 <b>雙倍（${winPer*2} 分）</b>，把握機會衝一波！</div>`:"";
     // 留言／加油
     const msgs=g.messages||[];
     const msgList=msgs.length?msgs.slice(-6).map(m=>`<div style="font-size:12px;margin:2px 0;"><b style="color:${m.me?'var(--accent)':'var(--ink)'}">${m.name}</b>：${escapeHtml(m.body)}</div>`).join(""):`<div class="hint">還沒有留言，先喊一聲幫大家加油吧！</div>`;
@@ -1169,9 +1171,9 @@ function computePoints(){
     if(exercised) activity+=1;
     if(water>=waterGoal) activity+=1;
   });
-  let trophies=0;
-  (myGroups||[]).forEach(g=>{ const me=(g.members||[]).find(m=>m.me); if(me&&me.trophies) trophies+=me.trophies; });
-  return {points:activity+trophies*100, activity, trophies};
+  let trophies=0, trophyPts=0;
+  (myGroups||[]).forEach(g=>{ const me=(g.members||[]).find(m=>m.me); if(me){ trophies+=me.trophies||0; trophyPts+=me.trophyPts||0; } });
+  return {points:activity+trophyPts, activity, trophies, trophyPts};
 }
 function tierFor(points){ let cur=FX_TIERS[0]; for(const t of FX_TIERS){ if(points>=t.min) cur=t; } return cur; }
 function fxEmoji(cls){ const t=FX_TIERS.find(t=>t.cls===cls); return t?t.emoji:""; }
@@ -1251,7 +1253,7 @@ async function testPush(){
 }
 function renderPoints(){
   const box=document.getElementById("pointsBox"); if(!box){ applyNameFx(); return; }
-  const {points,activity,trophies}=computePoints();
+  const {points,activity,trophies,trophyPts}=computePoints();
   const cur=tierFor(points), next=FX_TIERS.find(t=>t.min>points);
   const pill=document.getElementById("pointsPill"); if(pill) pill.textContent=points+" 分";
   let pick=null; try{ pick=localStorage.getItem("tdee_fx"); }catch(e){}
@@ -1295,7 +1297,7 @@ function renderPoints(){
     `<div class="stat-row" style="margin-top:2px;">`+
       `<div><div class="v">${points.toLocaleString()}</div><div class="k">總積分</div></div>`+
       `<div><div class="v">${activity.toLocaleString()}</div><div class="k">自律累積</div></div>`+
-      `<div><div class="v">🏆 ${trophies}</div><div class="k">冠軍(×100分)</div></div>`+
+      `<div><div class="v">🏆 ${trophies}</div><div class="k">冠軍 ${trophyPts?`(${trophyPts}分)`:""}</div></div>`+
     `</div>`+
     `<div class="hint" style="margin-top:8px;">目前稱號：<b>${cur.emoji} ${cur.name}</b>${next?`　·　距「${next.emoji} ${next.name}」還差 ${next.min-points} 分`:`　·　已達最高稱號！`}</div>`+
     (next?`<div class="prog" style="margin-top:6px;"><i style="width:${prog}%"></i></div>`:"")+
@@ -1309,8 +1311,8 @@ function renderPoints(){
     `<div class="hint tip" style="margin-top:6px;line-height:1.7;">📋 <b>積分怎麼算</b>（每天最多 +5）：<br>`+
       `・有記飲食 +1　・熱量達標(吃在目標內) +1<br>`+
       `・蛋白達標 +1　・有運動 +1　・喝水達標 +1<br>`+
-      `每拿一座<b>競賽冠軍 +100 分</b>。分數只會累積、不會倒扣。<br>`+
-      `用途：解鎖名稱特效、賽道角色、自訂頭像（${AV_MIN} 分）。</div>`;
+      `競賽奪冠加分：<b>每日 +15／每週 +100／每月 +500</b>（魔王輪雙倍）。分數只會累積、不會倒扣。<br>`+
+      `用途：解鎖名稱特效、賽道角色、賽道皮膚、自訂頭像（${AV_MIN} 分）。</div>`;
   applyNameFx(); applyAvatar();
 }
 function avatarSection(points){
@@ -1328,7 +1330,7 @@ const ONBOARD_STEPS=[
   {ic:"👋",t:"歡迎使用！",b:"這是你的個人減重夥伴。第一步：到<b>「概覽」</b>分頁的 ①②，填性別/年齡/身高/體重與目標，系統會算出你<b>每天該吃多少</b>。"},
   {ic:"🍽️",t:"記錄三餐很輕鬆",b:"「飲食」分頁可<b>搜尋台灣常見食物</b>、<b>掃條碼</b>、<b>拍照 AI 辨識</b>，或<b>一句話</b>讓 AI 估熱量。記得每天記，TDEE 才會越來越準。"},
   {ic:"🏆",t:"計畫・報表・競賽",b:"「紀錄」分頁有<b>自動減重計畫</b>、<b>每週覆盤</b>、還有<b>群組競賽</b>——揪朋友一起比，看不到彼此體重、累積積分還能解鎖名稱特效與賽道角色！"},
-  {ic:"🎖️",t:"積分怎麼累積",b:"每天最多 +5 分：<b>有記飲食</b>+1、<b>熱量達標</b>(吃在目標內)+1、<b>蛋白達標</b>+1、<b>有運動</b>+1、<b>喝水達標</b>+1。另外每拿一座<b>競賽冠軍 +100 分</b>。積分用來解鎖名稱特效、賽道角色、自訂頭像。<b>越自律分數越高，不會因偷懶倒扣。</b>"},
+  {ic:"🎖️",t:"積分怎麼累積",b:"每天最多 +5 分：<b>有記飲食</b>+1、<b>熱量達標</b>(吃在目標內)+1、<b>蛋白達標</b>+1、<b>有運動</b>+1、<b>喝水達標</b>+1。競賽奪冠：<b>每日+15／每週+100／每月+500</b>（魔王輪雙倍）。積分用來解鎖名稱特效、賽道角色、賽道皮膚、自訂頭像。<b>越自律分數越高，不會因偷懶倒扣。</b>"},
   {ic:"📲",t:"加到主畫面（重要）",b:"把網頁<b>加到手機主畫面</b>，就能像 App 一樣全螢幕開啟、收到提醒：<br><br><b>iPhone(Safari)：</b>點下方<b>分享 </b>↑<b> → 加入主畫面</b>。<br><b>Android(Chrome)：</b>點右上<b> ⋮ 選單 → 加到主畫面／安裝應用程式</b>。<br><br>之後從主畫面圖示開啟，到「紀錄→提醒通知」開啟喝水/記錄提醒。"},
 ];
 let onbI=0;
@@ -1403,9 +1405,10 @@ async function leaveGroup(id,isOwner){
 }
 function copyInvite(code){
   const url=location.origin+location.pathname+"?join="+code;
-  const done=()=>alert("邀請連結已複製，貼給朋友即可加入：\n"+url);
+  const msg=`邀請碼：${code}\n邀請連結（已複製）：\n${url}\n\n朋友可貼上連結直接加入，或在競賽區輸入邀請碼 ${code}。`;
+  const done=()=>alert(msg);
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done,()=>prompt("複製這個連結分享：",url));
-  else prompt("複製這個連結分享：",url);
+  else prompt("複製這個連結分享（邀請碼 "+code+"）：",url);
 }
 // 處理 ?join=CODE 連結加入
 async function handleJoinParam(){
@@ -1576,11 +1579,24 @@ function renderWater(date){
   set("waterGoal", `目標約 ${goal.toLocaleString()} ml（體重×45）　${cur>=goal?"✅ 已達標":"還差 "+(goal-cur).toLocaleString()+" ml"}`);
   document.getElementById("waterBar").style.width=Math.min(100,goal?cur/goal*100:0)+"%";
 }
+function poopFor(date){ const r=store.records.find(x=>x.date.slice(0,10)===date); return r&&r.poop?+r.poop:0; }
+async function addPoop(amt,reset){
+  const date=selDate(), cur=poopFor(date);
+  const nv=reset?0:Math.max(0,Math.min(20,cur+amt));
+  try{ await api("/api/poop",{method:"POST",body:JSON.stringify({date,poop:nv})}); await reload(); }
+  catch(e){ alert(e.message); }
+}
+function renderPoop(date){
+  const cur=poopFor(date);
+  const o=document.getElementById("poopOut"); if(o) o.textContent=cur+" 次";
+  const g=document.getElementById("poopGoal"); if(g) g.textContent=cur>0?(date===todayStr()?"今天順暢 👍":"這天 "+cur+" 次"):"記錄每天排便次數，可開「💩 嗯嗯比賽」跟朋友比規律。";
+  const today=poopFor(todayStr()); const pill=document.getElementById("poopPill"); if(pill) pill.textContent=today>0?"今日 "+today+" 次":"";
+}
 
 function renderDay(){
   const d=selDate();
   set("dayLabel", d.slice(5));
-  renderNet(); renderRings(d); renderMeals(d); renderWater(d);
+  renderNet(); renderRings(d); renderMeals(d); renderWater(d); renderPoop(d);
 }
 
 /* ---------- 食譜 ---------- */

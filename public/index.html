@@ -317,6 +317,23 @@
         <div class="hint tip">「＋加入」累加到目前；「設為總量」直接把今天總量改成輸入值（修正用）。</div>
       </div>
     </div>
+
+    <!-- 嗯嗯紀錄 -->
+    <div class="card collapsed">
+      <h2 class="ch" data-ck="poop" onclick="toggleCard(this)">💩 嗯嗯紀錄 <span class="pill" id="poopPill"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="result" style="margin-top:0;">
+          <div class="big" id="poopOut">0 次</div>
+          <div class="hint" id="poopGoal">記錄每天排便次數，可開「💩 嗯嗯比賽」跟朋友比規律。</div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div><button class="ghost sm" onclick="addPoop(1)">＋1 次</button></div>
+          <div><button class="ghost sm" onclick="addPoop(-1)">－1</button></div>
+          <div><button class="ghost sm" onclick="addPoop(0,true)">歸零</button></div>
+        </div>
+        <div class="hint tip">以「今日飲食」上方選的日期為準。次數會用於排便比賽（不洩漏其他資料）。</div>
+      </div>
+    </div>
   </div>
 
   <!-- ===== 分頁：運動 ===== -->
@@ -423,6 +440,7 @@
                   <option value="exercise">運動次數/訓練量</option>
                   <option value="protein">🥩 蛋白達成率%（已吃/目標）</option>
                   <option value="water">💧 喝水達成率%（已喝/該喝）</option>
+                  <option value="poop">💩 嗯嗯次數（排便比賽）</option>
                   <option value="team">🤝 團隊挑戰(合作)</option>
                 </select>
               </div>
