@@ -143,17 +143,21 @@ function aiThrottleOk(path){
   aiCalls.push(now); aiLastCall=now; return true;
 }
 async function api(path, opts={}){
-  aiThrottleOk(path);
-  const ai=isAiPath(path);
-  if(ai) aiInFlight=true;
+  const ai=isAiPath(path), bg=!!opts.bg;
+  // 背景自動呼叫(如每週覆盤)不走「連點鎖」：避免它把鎖佔住害到使用者的手動操作。
+  // 但仍會送到後端，受後端的回數/間隔/全站上限把關（安全性不變）。
+  if(ai && !bg) aiThrottleOk(path);
+  if(ai && !bg) aiInFlight=true;
   try{
     const headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
     if(session) headers["x-token"]=session.token;
-    const r = await fetch(API+path, Object.assign({}, opts, {headers}));
+    if(ai && bg) headers["x-ai-bg"]="1";
+    const fetchOpts={}; for(const k in opts) if(k!=="bg") fetchOpts[k]=opts[k];
+    const r = await fetch(API+path, Object.assign(fetchOpts, {headers}));
     if(r.status===401){ logout(); throw new Error("登入已失效"); }
     if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||"錯誤"); }
     return r.json();
-  } finally { if(ai) aiInFlight=false; }
+  } finally { if(ai && !bg) aiInFlight=false; }
 }
 
 /* ---------- 登入 / 註冊 ---------- */
@@ -951,7 +955,7 @@ async function genWeeklyReview(weekStart,manual){
   if(manual&&listBox) listBox.innerHTML=`<div class="hint">🤖 產生 ${weekStart} 那週的覆盤中…約 3–6 秒</div>`+listBox.innerHTML;
   const t=goalTargets();
   try{
-    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"report",days:7,
+    const r=await api("/api/coach",{method:"POST",bg:!manual,body:JSON.stringify({mode:"report",days:7,
       avg:{kcal:s.avgI,protein:s.avgP,fat:s.avgF,carb:s.avgC},
       target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
       avgBurn:s.avgBurn, avgNet:s.avgI-s.avgBurn, weightDelta:s.wDelta, goal:val("goal"), plan:planContext()})});
@@ -971,6 +975,7 @@ async function genWeeklyReview(weekStart,manual){
 async function maybeWeeklyReview(){
   const ws=prevWeekStart();
   if((store.reviews||[]).some(r=>r.week_start.slice(0,10)===ws)) return;
+  if(aiInFlight) return;   // 使用者正在用 AI，這次先讓賢，下次開 App 再補
   await genWeeklyReview(ws,false);
 }
 function renderReviews(){

@@ -642,10 +642,15 @@ const AI_USER_MAX = 6, AI_USER_GAP = 4000, AI_GLOBAL_MAX = 12, AI_WIN = 60000;
 const AI_BUSY_TTL = 45000;     // 保險：卡住的鎖最久 45 秒自動失效
 function aiLimit(req, res, next) {
   const now = Date.now();
+  // 背景自動呼叫(每週覆盤)只標記，不參與「連點鎖」，避免害到使用者的手動操作。
+  // 注意：bg 仍照常受下面的回數/間隔/全站上限把關，所以就算偽造此標頭也無法繞過限流。
+  const bg = req.headers["x-ai-bg"] === "1";
   // 防連點：同一使用者上一個 AI 請求還沒回來，就擋掉重送
-  const busyAt = aiBusy.get(req.user.id);
-  if (busyAt && now - busyAt < AI_BUSY_TTL) {
-    return res.status(429).json({ error: "AI 正在處理你上一個請求，請稍候再操作。" });
+  if (!bg) {
+    const busyAt = aiBusy.get(req.user.id);
+    if (busyAt && now - busyAt < AI_BUSY_TTL) {
+      return res.status(429).json({ error: "AI 正在處理你上一個請求，請稍候再操作。" });
+    }
   }
   // 全站
   aiGlobal = aiGlobal.filter((t) => now - t < AI_WIN);
@@ -666,7 +671,8 @@ function aiLimit(req, res, next) {
     return res.status(429).json({ error: `AI 請求太頻繁，請 ${wait} 秒後再試（每分鐘上限 ${AI_USER_MAX} 次）。` });
   }
   arr.push(now); aiHits.set(req.user.id, arr); aiLast.set(req.user.id, now); aiGlobal.push(now);
-  if (aiHits.size > 500) { for (const [k, v] of aiHits) if (!v.some((t) => now - t < AI_WIN)) { aiHits.delete(k); aiLast.delete(k); } }
+  if (aiHits.size > 500) { for (const [k, v] of aiHits) if (!v.some((t) => now - t < AI_WIN)) { aiHits.delete(k); aiLast.delete(k); aiBusy.delete(k); } }
+  if (bg) { next(); return; }   // 背景呼叫不上連點鎖
   // 上鎖，回應結束（成功或斷線）即釋放
   const uid = req.user.id;
   aiBusy.set(uid, now);
