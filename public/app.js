@@ -928,6 +928,9 @@ async function loadGroups(){
   renderGroups(); renderPoints(); checkCelebrations(); renderDashboard();
 }
 const RACE_ANIMALS=["🐎","🐇","🐅","🐕","🐖","🐐","🦊","🐱","🐢","🦄"];
+// 記住各競賽展開/收合狀態（重新整理排行榜時保留）
+const grpClosed=new Set();
+function onGroupToggle(d){ const id=+d.dataset.gid; if(d.open) grpClosed.delete(id); else grpClosed.add(id); }
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
 function renderGroups(){
   const box=document.getElementById("groupList"); if(!box) return;
@@ -965,9 +968,13 @@ function renderGroups(){
     const hist=(g.history||[]).filter(h=>h.winner);
     const histHtml=hist.length?`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">🏆 歷屆冠軍（${hist.length}）</summary>`+
       hist.map(h=>`<div class="hint" style="margin-top:2px;">第 ${h.round} 輪（${h.start.slice(5)}~${h.end.slice(5)}）：<b>${h.winner}</b></div>`).join("")+`</details>`:"";
-    return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;">`+
-      `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;">`+
-        `<b>${g.name}</b><span class="pill">${PERIOD_LABEL[g.period]}·${METRIC_LABEL[g.metric]}</span><span class="pill" style="background:var(--soft);color:var(--accent)">第 ${g.roundNo} 輪</span></div>`+
+    const myIdx=g.members.findIndex(m=>m.me); const myRank=myIdx>=0?`第 ${myIdx+1}/${g.members.length}`:"";
+    const open=(grpClosed.has(g.id))?"":" open";
+    return `<details${open} data-gid="${g.id}" ontoggle="onGroupToggle(this)" style="border:1px solid var(--line);border-radius:10px;padding:2px 12px;margin-bottom:10px;">`+
+      `<summary style="cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`+
+        `<b>${g.name}</b><span class="pill">${PERIOD_LABEL[g.period]}·${METRIC_LABEL[g.metric]}</span>`+
+        `<span class="pill" style="background:var(--soft);color:var(--accent)">第 ${g.roundNo} 輪</span>`+
+        (myRank?`<span class="pill" style="margin-left:auto;">${myRank}</span>`:"")+`</summary>`+
       `<div class="hint" style="margin-bottom:4px;">${cd}${g.stakes?`　·　🎁 ${g.stakes}`:""}</div>`+
       (isTeam?teamBar:raceBox)+board+
       histHtml+
@@ -976,7 +983,7 @@ function renderGroups(){
         `<button class="ghost sm" onclick="copyInvite('${g.code}')">🔗 邀請連結</button>`+
         `<button class="ghost sm" onclick="leaveGroup(${g.id},${g.isOwner})">${g.isOwner?"解散":"離開"}</button>`+
       `</div>`+
-      `<div class="hint">邀請碼 <b>${g.code}</b></div></div>`;
+      `<div class="hint" style="padding-bottom:6px;">邀請碼 <b>${g.code}</b></div></details>`;
   }).join("");
   // 賽馬動畫：插入後再把跑者移到目標位置，觸發過場
   requestAnimationFrame(()=>{ box.querySelectorAll(".runner").forEach(el=>{ el.style.left=(el.dataset.p||0)+"%"; }); });
@@ -1621,8 +1628,7 @@ function renderExercises(){
     const list=byDate[d];
     const kcal=list.reduce((a,e)=>a+(+e.kcal||0),0);
     const vol=list.filter(e=>e.kind==="strength").reduce((a,e)=>a+(+e.volume||0),0);
-    const open=i===0?" open":"";
-    return `<details${open} style="border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:2px 10px;">`+
+    return `<details style="border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:2px 10px;">`+
       `<summary style="cursor:pointer;padding:8px 0;font-weight:500;">${d} <span style="float:right;color:var(--sub);font-weight:400;font-size:12px">${Math.round(kcal)} kcal${vol?` · 💪${Math.round(vol).toLocaleString()}kg`:""}</span></summary>`+
       list.map(exRowHtml).join("")+`</details>`;
   }).join("");
@@ -1961,6 +1967,14 @@ async function reload(){
     a.k+=+m.kcal||0; a.p+=+m.protein||0; a.f+=+m.fat||0; a.c+=+m.carb||0; });
   store.records.forEach(r=>{ const a=store.mealAgg[r.date.slice(0,10)]; if(a){ r.kcal=Math.round(a.k); r.protein=Math.round(a.p); r.fat=Math.round(a.f); r.carb=Math.round(a.c); } });
   renderAll();
+  scheduleGroupSync();   // 資料更新後，背景自動同步並刷新競賽排行（免手動按更新）
+}
+// 防抖：資料變動 2.5 秒後，把最新統計上傳並重抓排行榜
+let _grpSyncTimer=null;
+function scheduleGroupSync(){
+  if(!(myGroups&&myGroups.length)) return;   // 沒參賽就不用打 API
+  clearTimeout(_grpSyncTimer);
+  _grpSyncTimer=setTimeout(async()=>{ try{ await syncDailyStats(); await loadGroups(); }catch(e){} },2500);
 }
 
 /* ---------- helpers ---------- */
