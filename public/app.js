@@ -1029,7 +1029,16 @@ async function syncDailyStats(){
       body_fat: (rec&&rec.body_fat!=null)?+rec.body_fat:null });  // 體脂%
   }
   if(!rows.length) return;
-  try{ await api("/api/dailystats",{method:"POST",body:JSON.stringify({rows})}); }catch(e){}
+  // 只上傳「有變動」的日期：跟上次同步的快照比對，沒變的不送（大幅減少傳輸量）
+  const ck="dstatsSig:"+(session&&session.userId||"");
+  let prev={}; try{ prev=JSON.parse(localStorage.getItem(ck)||"{}"); }catch(e){}
+  const changed=[], sig={};
+  for(const r of rows){ const s=JSON.stringify(r); sig[r.date]=s; if(prev[r.date]!==s) changed.push(r); }
+  if(!changed.length) return;
+  try{
+    await api("/api/dailystats",{method:"POST",body:JSON.stringify({rows:changed})});
+    localStorage.setItem(ck, JSON.stringify(sig));   // 成功才更新快照
+  }catch(e){}
 }
 async function loadGroups(){
   try{ const r=await api("/api/groups"); myGroups=r.groups||[]; }catch(e){ myGroups=[]; }

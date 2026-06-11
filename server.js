@@ -191,13 +191,28 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS breed TEXT;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS flock JSONB DEFAULT '{}'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS credited_through DATE;
+    -- 索引：加速常用查詢（資料變多時明顯有感）
+    CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_exercises_user_date ON exercises(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_daily_stats_user ON daily_stats(user_id);
+    CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
+    CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_group_seasons_winner ON group_seasons(winner);
+    CREATE INDEX IF NOT EXISTS idx_group_seasons_group ON group_seasons(group_id);
+    CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id);
   `);
   console.log("DB ready");
 }
 
 const app = express();
+// gzip 壓縮（JS/JSON 體積可大幅縮小）；若環境未安裝 compression 也不會壞，僅略過
+try { const compression = (await import("compression")).default; app.use(compression()); console.log("gzip on"); }
+catch (e) { console.log("compression 未安裝，略過 gzip"); }
 app.use(express.json({ limit: "8mb" }));
-app.use(express.static(join(__dirname, "public")));
+// 靜態檔：寵物插圖等長期不變的資源快取 1 天（HTML/JS 由 SW 控版本，這裡保守設短）
+app.use(express.static(join(__dirname, "public"), {
+  setHeaders: (res, p) => { if (/\.(png|jpg|jpeg|webp|svg|ico)$/i.test(p)) res.setHeader("Cache-Control", "public, max-age=86400"); },
+}));
 
 /* ---------- 密碼雜湊 ---------- */
 function hashPw(password, salt) {
@@ -1446,22 +1461,30 @@ function genCode() {
 app.post("/api/dailystats", auth, async (req, res) => {
   try {
     const rows = Array.isArray(req.body.rows) ? req.body.rows.slice(0, 400) : [];
+    const b = (v) => (v ? 1 : 0);
+    // 組成單筆多列 upsert（取代逐筆 INSERT 迴圈，最多 400 筆一次來回）
+    const vals = [], params = [];
     for (const r of rows) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
-      const b = (v) => (v ? 1 : 0);
+      const row = [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
+        Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null,
+        r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null,
+        r.protein_pct != null ? Math.max(0, Math.min(300, +r.protein_pct)) : null,
+        r.poop != null ? Math.max(0, Math.min(20, Math.round(+r.poop))) : null,
+        r.body_fat != null ? +r.body_fat : null];
+      const base = params.length;
+      vals.push(`(${row.map((_, i) => "$" + (base + i + 1)).join(",")})`);
+      params.push(...row);
+    }
+    if (vals.length) {
       await pool.query(
         `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop,body_fat)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         VALUES ${vals.join(",")}
          ON CONFLICT (user_id,date) DO UPDATE SET
            logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
            exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
            volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct,poop=EXCLUDED.poop,body_fat=EXCLUDED.body_fat`,
-        [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
-         Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null,
-         r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null,
-         r.protein_pct != null ? Math.max(0, Math.min(300, +r.protein_pct)) : null,
-         r.poop != null ? Math.max(0, Math.min(20, Math.round(+r.poop))) : null,
-         r.body_fat != null ? +r.body_fat : null]
+        params
       );
     }
     res.json({ ok: true });
