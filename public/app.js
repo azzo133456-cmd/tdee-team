@@ -927,7 +927,6 @@ async function loadGroups(){
   try{ const r=await api("/api/groups"); myGroups=r.groups||[]; }catch(e){ myGroups=[]; }
   renderGroups(); renderPoints(); checkCelebrations(); renderDashboard();
 }
-const RACE_ANIMALS=["🐎","🐇","🐅","🐕","🐖","🐐","🦊","🐱","🐢","🦄"];
 // 記住各競賽展開/收合狀態（重新整理排行榜時保留）
 const grpClosed=new Set();
 function onGroupToggle(d){ const id=+d.dataset.gid; if(d.open) grpClosed.delete(id); else grpClosed.add(id); }
@@ -1169,7 +1168,11 @@ function renderPoints(){
     `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🏇 賽道角色（解鎖後在競賽跑道變成你的專屬角色）</div>`+
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${racerGallery}</div>`+
     avatarSection(points)+
-    `<div class="hint tip" style="margin-top:6px;">積分＝每天的自律分(記飲食/熱量達標/蛋白達標/運動/飲水)累積 ＋ 每座競賽冠軍 100 分。</div>`;
+    `<div class="hint tip" style="margin-top:6px;line-height:1.7;">📋 <b>積分怎麼算</b>（每天最多 +5）：<br>`+
+      `・有記飲食 +1　・熱量達標(吃在目標內) +1<br>`+
+      `・蛋白達標 +1　・有運動 +1　・喝水達標 +1<br>`+
+      `每拿一座<b>競賽冠軍 +100 分</b>。分數只會累積、不會倒扣。<br>`+
+      `用途：解鎖名稱特效、賽道角色、自訂頭像（${AV_MIN} 分）。</div>`;
   applyNameFx(); applyAvatar();
 }
 function avatarSection(points){
@@ -1186,7 +1189,9 @@ function avatarSection(points){
 const ONBOARD_STEPS=[
   {ic:"👋",t:"歡迎使用！",b:"這是你的個人減重夥伴。第一步：到<b>「概覽」</b>分頁的 ①②，填性別/年齡/身高/體重與目標，系統會算出你<b>每天該吃多少</b>。"},
   {ic:"🍽️",t:"記錄三餐很輕鬆",b:"「飲食」分頁可<b>搜尋台灣常見食物</b>、<b>掃條碼</b>、<b>拍照 AI 辨識</b>，或<b>一句話</b>讓 AI 估熱量。記得每天記，TDEE 才會越來越準。"},
-  {ic:"🏆",t:"計畫・報表・競賽",b:"「紀錄」分頁有<b>自動減重計畫</b>、<b>每週覆盤</b>、還有<b>群組競賽</b>——揪朋友一起比，看不到彼此體重、累積積分還能解鎖名稱特效！"},
+  {ic:"🏆",t:"計畫・報表・競賽",b:"「紀錄」分頁有<b>自動減重計畫</b>、<b>每週覆盤</b>、還有<b>群組競賽</b>——揪朋友一起比，看不到彼此體重、累積積分還能解鎖名稱特效與賽道角色！"},
+  {ic:"🎖️",t:"積分怎麼累積",b:"每天最多 +5 分：<b>有記飲食</b>+1、<b>熱量達標</b>(吃在目標內)+1、<b>蛋白達標</b>+1、<b>有運動</b>+1、<b>喝水達標</b>+1。另外每拿一座<b>競賽冠軍 +100 分</b>。積分用來解鎖名稱特效、賽道角色、自訂頭像。<b>越自律分數越高，不會因偷懶倒扣。</b>"},
+  {ic:"📲",t:"加到主畫面（重要）",b:"把網頁<b>加到手機主畫面</b>，就能像 App 一樣全螢幕開啟、收到提醒：<br><br><b>iPhone(Safari)：</b>點下方<b>分享 </b>↑<b> → 加入主畫面</b>。<br><b>Android(Chrome)：</b>點右上<b> ⋮ 選單 → 加到主畫面／安裝應用程式</b>。<br><br>之後從主畫面圖示開啟，到「紀錄→提醒通知」開啟喝水/記錄提醒。"},
 ];
 let onbI=0;
 function showOnboarding(){
