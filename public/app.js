@@ -1237,10 +1237,10 @@ function renderPet(){
       const P=PET_BREEDS[species][b];
       return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`);
     }).join("");
-    // 其他 emoji 物種
+    // 其他 emoji 物種（自動列出所有非貓/狗物種）
     const sp=(petMeta&&petMeta.species)||{};
-    const others=["dragon","sprout","chick"].filter(k=>sp[k]).map(k=>
-      card(`<span style="font-size:34px;">${sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`)).join("");
+    const others=Object.keys(sp).filter(k=>!PET_BREEDS[k]).map(k=>
+      card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`)).join("");
     box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻夥伴吧！牠會跟著你的健康習慣一起長大（持續記錄＝餵食，跨賽季也不會不見）。</div>`+
       `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+
       `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🐶 狗</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("dog")}</div>`+

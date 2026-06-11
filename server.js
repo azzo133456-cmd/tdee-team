@@ -1178,11 +1178,20 @@ const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d
 
 /* ---------- 養寵物（純規則計算，不碰 AI；成長＝所有健康行為，持久夥伴） ---------- */
 const PET_SPECIES = {
-  cat:    { label: "貓", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
-  dog:    { label: "狗", stages: ["🥚", "🐶", "🐕", "🦮", "🐺"] },
-  dragon: { label: "龍", stages: ["🥚", "🐣", "🦎", "🐉", "🐲"] },
-  sprout: { label: "芽芽", stages: ["🌰", "🌱", "🌿", "🪴", "🌳"] },
-  chick:  { label: "小雞", stages: ["🥚", "🐤", "🐥", "🐔", "🦅"] },
+  cat:      { label: "貓", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
+  dog:      { label: "狗", stages: ["🥚", "🐶", "🐕", "🦮", "🐺"] },
+  dragon:   { label: "龍", stages: ["🥚", "🐣", "🦎", "🐉", "🐲"] },
+  dino:     { label: "恐龍", stages: ["🥚", "🦎", "🦖", "🦕", "🐲"] },
+  sprout:   { label: "芽芽", stages: ["🌰", "🌱", "🌿", "🪴", "🌳"] },
+  chick:    { label: "小雞", stages: ["🥚", "🐤", "🐥", "🐔", "🦅"] },
+  butterfly:{ label: "蝴蝶", stages: ["🥚", "🐛", "🐛", "🦋", "🦋"] },
+  ocean:    { label: "海寶", stages: ["🐚", "🐟", "🐠", "🐡", "🐳"] },
+  penguin:  { label: "企鵝", stages: ["🥚", "🐣", "🐧", "🐧", "🐧"] },
+  bunny:    { label: "兔兔", stages: ["🥚", "🐣", "🐰", "🐇", "🐇"] },
+  unicorn:  { label: "獨角獸", stages: ["🥚", "🐴", "🦄", "🦄", "🦄"] },
+  fox:      { label: "狐狸", stages: ["🥚", "🐣", "🦊", "🦊", "🦊"] },
+  frog:     { label: "青蛙", stages: ["🥚", "🐛", "🐸", "🐸", "🐲"] },
+  owl:      { label: "貓頭鷹", stages: ["🥚", "🐣", "🦉", "🦉", "🦅"] },
 };
 // 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
 const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream"], dog: ["shiba", "frenchie", "golden", "collie"] };
