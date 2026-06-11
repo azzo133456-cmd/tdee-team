@@ -242,21 +242,23 @@
 
     <!-- 今日飲食（在計算機下方） -->
     <div class="card">
-      <h2>🍽️ 今日飲食</h2>
-      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <label style="margin:0;">日期</label>
-        <input id="foodDate" type="date" onchange="renderDay()">
-        <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天飲食</button>
+      <h2 class="ch" data-ck="today-food" onclick="toggleCard(this)">🍽️ 今日飲食<span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <label style="margin:0;">日期</label>
+          <input id="foodDate" type="date" onchange="renderDay()">
+          <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天飲食</button>
+        </div>
+        <div class="rings" id="rings" style="margin-top:12px;"></div>
+        <div class="chipbar">
+          <button class="ghost sm" onclick="coachDaily()">🤖 今日建議</button>
+          <button class="ghost sm" onclick="coachRemain()">🍱 還能吃什麼</button>
+        </div>
+        <div id="coachBox" class="hint" style="overflow-wrap:anywhere;"></div>
+        <div class="result" id="netBox" style="display:none;"></div>
+        <div id="mealGroups"></div>
+        <div class="hint tip">環圈＝對②目標的達成度。AI 建議僅供參考。</div>
       </div>
-      <div class="rings" id="rings" style="margin-top:12px;"></div>
-      <div class="chipbar">
-        <button class="ghost sm" onclick="coachDaily()">🤖 今日建議</button>
-        <button class="ghost sm" onclick="coachRemain()">🍱 還能吃什麼</button>
-      </div>
-      <div id="coachBox" class="hint" style="overflow-wrap:anywhere;"></div>
-      <div class="result" id="netBox" style="display:none;"></div>
-      <div id="mealGroups"></div>
-      <div class="hint tip">環圈＝對②目標的達成度。AI 建議僅供參考。</div>
     </div>
 
     <!-- 食譜 -->

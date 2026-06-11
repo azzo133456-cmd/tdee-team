@@ -377,10 +377,34 @@ function renderShared(){
   rows=rows.slice(0,200);
   box.innerHTML=rows.map(s=>{
     const mine=session&&s.created_by===session.userId;
-    const del=mine?`<span class="x" onclick="delShared('${s.name.replace(/'/g,"\\'")}')">✕</span>`:`<span class="x" style="visibility:hidden">✕</span>`;
+    const esc=s.name.replace(/'/g,"\\'");
+    if(mine&&editingShared===s.name){
+      // 編輯模式：每100g 數值（名稱固定，避免產生孤兒）
+      return `<div class="foodrow" style="flex-wrap:wrap;gap:4px;"><span class="nm" style="flex:1 1 100%;">✏️ ${s.name}<span style="color:var(--sub);font-size:11px"> · 每100g</span></span>`+
+        `<input id="esK" type="number" value="${Math.round(s.kcal||0)}" style="width:64px;padding:5px" placeholder="kcal"><span style="font-size:11px;color:var(--sub)">kcal</span>`+
+        `<input id="esP" type="number" value="${Math.round(s.protein||0)}" style="width:52px;padding:5px" placeholder="蛋"><span style="font-size:11px;color:var(--sub)">蛋</span>`+
+        `<input id="esF" type="number" value="${Math.round(s.fat||0)}" style="width:52px;padding:5px" placeholder="脂"><span style="font-size:11px;color:var(--sub)">脂</span>`+
+        `<input id="esC" type="number" value="${Math.round(s.carb||0)}" style="width:52px;padding:5px" placeholder="碳"><span style="font-size:11px;color:var(--sub)">碳</span>`+
+        `<span style="flex:1 1 100%;margin-top:4px;"><button class="sm" style="width:auto;padding:6px 14px;margin:0;" onclick="saveShared('${esc}')">儲存</button> `+
+        `<button class="ghost sm" onclick="cancelSharedEdit()">取消</button></span></div>`;
+    }
+    const btns=mine
+      ?`<span class="x" style="color:var(--accent)" onclick="editSharedItem('${esc}')">✏️</span><span class="x" onclick="delShared('${esc}')">✕</span>`
+      :`<span class="x" style="visibility:hidden">✕</span>`;
     return `<div class="foodrow"><span class="nm">${mine?"⭐ ":""}${s.name}<br><span style="color:var(--sub);font-size:11px">每100g · 蛋${Math.round(s.protein||0)} 脂${Math.round(s.fat||0)} 碳${Math.round(s.carb||0)}</span></span>`+
-      `<span class="kc">${Math.round(s.kcal||0)}</span>${del}</div>`;
+      `<span class="kc">${Math.round(s.kcal||0)}</span>${btns}</div>`;
   }).join("");
+}
+let editingShared=null;
+function editSharedItem(name){ editingShared=name; renderShared(); }
+function cancelSharedEdit(){ editingShared=null; renderShared(); }
+async function saveShared(name){
+  const it=(store.sharedFoods||[]).find(s=>s.name===name); if(!it) return;
+  const kcal=+val("esK")||0;
+  if(kcal<=0){ alert("熱量需大於 0"); return; }
+  const body={name, kcal, protein:+val("esP")||0, fat:+val("esF")||0, carb:+val("esC")||0, grams:it.grams||100, kind:it.kind||"food"};
+  try{ await api("/api/sharedfood",{method:"POST",body:JSON.stringify(body)}); editingShared=null; await reload(); }
+  catch(e){ alert(e.message); }
 }
 async function delShared(name){
   if(!confirm(`從共享庫刪除「${name}」？`)) return;
@@ -958,8 +982,7 @@ function renderGroups(){
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
           `<span style="margin-left:auto;color:var(--sub);">${m.detail}</span></div>`+
         `<div style="position:relative;height:18px;border-bottom:1px dashed var(--line);">`+
-          `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${racer}</span>`+
-          `<span style="position:absolute;right:0;top:0;font-size:13px;opacity:.8;">🏁</span></div>`+
+          `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${racer}</span></div>`+
       `</div>`;
     }).join("");
     const raceBox=`<div style="margin:8px 0;">${race}</div>`;
@@ -973,7 +996,9 @@ function renderGroups(){
         `<div class="prog"><i style="width:${pct}%"></i></div><div class="hint">大家一起衝，達 ${g.team.goal} 分過關（${pct}%）</div></div>`;
     }
     const left=g.seasonEnd?daysBetween(today,g.seasonEnd):null;
-    const cd=left==null?"":left<0?"結算中…":left===0?"今天結算！":`距結算還有 ${left} 天`;
+    // 非每日賽顯示實際結算日期；每日賽只顯示倒數
+    const endTxt=(g.period!=="day"&&g.seasonEnd)?`結算日 ${g.seasonEnd.slice(5)}（週${"日一二三四五六"[new Date(g.seasonEnd+"T00:00:00").getDay()]}）　·　`:"";
+    const cd=left==null?"":left<0?"結算中…":left===0?`${endTxt}今天結算！`:`${endTxt}距結算還有 ${left} 天`;
     const hist=(g.history||[]).filter(h=>h.winner);
     const histHtml=hist.length?`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">🏆 歷屆冠軍（${hist.length}）</summary>`+
       hist.map(h=>`<div class="hint" style="margin-top:2px;">第 ${h.round} 輪（${h.start.slice(5)}~${h.end.slice(5)}）：<b>${h.winner}</b></div>`).join("")+`</details>`:"";
@@ -1021,15 +1046,25 @@ const FX_TIERS=[
 const RACER_TIERS=[
   {min:0,    emoji:"🏁", name:"旗子(預設)"},
   {min:30,   emoji:"🐢", name:"烏龜"},
-  {min:80,   emoji:"🐱", name:"貓咪"},
-  {min:150,  emoji:"🐇", name:"兔子"},
-  {min:250,  emoji:"🐕", name:"狗狗"},
-  {min:380,  emoji:"🐖", name:"小豬"},
-  {min:520,  emoji:"🐐", name:"山羊"},
-  {min:700,  emoji:"🦊", name:"狐狸"},
-  {min:1000, emoji:"🐅", name:"老虎"},
-  {min:1400, emoji:"🐎", name:"駿馬"},
-  {min:2000, emoji:"🦄", name:"獨角獸"},
+  {min:70,   emoji:"🐹", name:"倉鼠"},
+  {min:110,  emoji:"🐱", name:"貓咪"},
+  {min:160,  emoji:"🐇", name:"兔子"},
+  {min:230,  emoji:"🐧", name:"企鵝"},
+  {min:320,  emoji:"🐕", name:"狗狗"},
+  {min:420,  emoji:"🐨", name:"無尾熊"},
+  {min:540,  emoji:"🐖", name:"小豬"},
+  {min:680,  emoji:"🦊", name:"狐狸"},
+  {min:850,  emoji:"🐼", name:"熊貓"},
+  {min:1050, emoji:"🐐", name:"山羊"},
+  {min:1300, emoji:"🦌", name:"小鹿"},
+  {min:1600, emoji:"🐅", name:"老虎"},
+  {min:2000, emoji:"🦁", name:"獅子"},
+  {min:2500, emoji:"🐎", name:"駿馬"},
+  {min:3200, emoji:"🦅", name:"老鷹"},
+  {min:4000, emoji:"🐬", name:"海豚"},
+  {min:5000, emoji:"🦄", name:"獨角獸"},
+  {min:6500, emoji:"🐉", name:"飛龍"},
+  {min:8000, emoji:"🚀", name:"火箭"},
 ];
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
 function computePoints(){

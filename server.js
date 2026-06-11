@@ -981,11 +981,9 @@ function scoreMember(rows, metric, since, until) {
 // 名稱特效階級（與前端 FX_TIERS 對齊）：[最低分, cls]
 const FX_MINS = [[0,"fx0"],[50,"fx1"],[120,"fx2"],[220,"fx3"],[280,"fx4"],[350,"fx5"],[500,"fx6"],[700,"fx7"],[950,"fx8"],[1100,"fx9"],[1300,"fx10"],[1600,"fx11"],[2000,"fx12"],[2800,"fx13"],[3500,"fx14"],[5000,"fx15"]];
 function clsForPoints(pts) { let c = "fx0"; for (const [m, cls] of FX_MINS) if (pts >= m) c = cls; return c; }
+// 造型有效值集合（解鎖門檻由前端把關；後端只驗證是已知的造型，不用每組積分當門檻）
 const FX_MIN_MAP = Object.fromEntries(FX_MINS.map(([m, cls]) => [cls, m]));
-function fxUnlocked(cls, pts) { return cls in FX_MIN_MAP && pts >= FX_MIN_MAP[cls]; }
-// 賽道角色解鎖門檻（與前端 RACER_TIERS 一致）；🏁 為預設、永遠可用
-const RACER_MINS = { "🏁": 0, "🐢": 30, "🐱": 80, "🐇": 150, "🐕": 250, "🐖": 380, "🐐": 520, "🦊": 700, "🐅": 1000, "🐎": 1400, "🦄": 2000 };
-function racerUnlocked(emoji, pts) { return emoji in RACER_MINS && pts >= RACER_MINS[emoji]; }
+const RACER_MINS = { "🏁": 0, "🐢": 30, "🐹": 70, "🐱": 110, "🐇": 160, "🐧": 230, "🐕": 320, "🐨": 420, "🐖": 540, "🦊": 680, "🐼": 850, "🐐": 1050, "🦌": 1300, "🐅": 1600, "🦁": 2000, "🐎": 2500, "🦅": 3200, "🐬": 4000, "🦄": 5000, "🐉": 6500, "🚀": 8000 };
 function memberPoints(rows, trophyCount) {
   const act = rows.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
   return act + (trophyCount || 0) * 100;
@@ -1116,13 +1114,13 @@ app.get("/api/groups", auth, async (req, res) => {
       board.forEach((m) => {
         m.trophies = trophies[m.name] || 0;
         const pts = memberPoints(rowsByUser[uidByName[m.name]] || [], m.trophies);
-        // 名稱特效：優先用本人選的（須已解鎖），否則用目前積分對應的最高特效
-        const auto = clsForPoints(pts);
+        // 名稱特效：優先用本人選的造型（解鎖門檻由前端把關；此處只驗證是有效值），
+        // 否則用目前積分對應的最高特效。註：不可用每組積分當解鎖門檻，否則在沒奪冠的組會被誤判為未解鎖。
         const picked = fxByName[m.name];
-        m.fx = (picked && fxUnlocked(picked, pts)) ? picked : auto;
-        // 賽道角色：本人選的動物（須已解鎖），否則預設旗子
+        m.fx = (picked && picked in FX_MIN_MAP) ? picked : clsForPoints(pts);
+        // 賽道角色：本人選的動物，否則預設旗子
         const pr = racerByName[m.name];
-        m.racer = (pr && racerUnlocked(pr, pts)) ? pr : "🏁";
+        m.racer = (pr && pr in RACER_MINS) ? pr : "🏁";
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
       });
       out.push({
@@ -1193,7 +1191,8 @@ app.post("/api/sharedfood", auth, async (req, res) => {
        VALUES($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (name) DO UPDATE SET
          kcal=EXCLUDED.kcal, protein=EXCLUDED.protein, fat=EXCLUDED.fat,
-         carb=EXCLUDED.carb, grams=EXCLUDED.grams, kind=EXCLUDED.kind, created_by=EXCLUDED.created_by`,
+         carb=EXCLUDED.carb, grams=EXCLUDED.grams, kind=EXCLUDED.kind
+       WHERE shared_foods.created_by = EXCLUDED.created_by`,
       [name, kcal, num(req.body.protein), num(req.body.fat), num(req.body.carb), grams, kind, req.user.id]
     );
     res.json({ ok: true });
