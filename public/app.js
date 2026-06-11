@@ -89,7 +89,8 @@ function portionHint(n,g){
 }
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
-  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_MORECHAINS || {});
+  // 注意：FOODS_XLSX 放最前面＝優先序最低，遇到既有(已校正)品項由後面的包覆蓋，只新增沒有的品項。
+  const C = Object.assign({}, window.FOODS_XLSX || {}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_MORECHAINS || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
@@ -127,7 +128,17 @@ const EXS = {
 function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 
 /* ---------- API ---------- */
+// AI 端點的前端節流：避免短時間連發（與後端限流呼應，減少觸發上游限流）
+const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels"];
+let aiCalls=[];
+function aiThrottleOk(path){
+  if(!AI_PATHS.some(p=>path.startsWith(p))) return true;
+  const now=Date.now(); aiCalls=aiCalls.filter(t=>now-t<60000);
+  if(aiCalls.length>=8){ const wait=Math.ceil((60000-(now-aiCalls[0]))/1000); throw new Error(`AI 請求太頻繁，請 ${wait} 秒後再試（避免被系統限流）`); }
+  aiCalls.push(now); return true;
+}
 async function api(path, opts={}){
+  aiThrottleOk(path);
   const headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
   if(session) headers["x-token"]=session.token;
   const r = await fetch(API+path, Object.assign({}, opts, {headers}));
@@ -157,6 +168,18 @@ async function doAuth(){
   }catch(e){ set("auErr", e.message); }
 }
 function logout(){ localStorage.removeItem(SKEY); session=null; location.reload(); }
+async function changeName(){
+  const cur=session&&session.username||"";
+  const nv=(prompt("輸入新的暱稱（最多 20 字）：",cur)||"").trim();
+  if(!nv||nv===cur) return;
+  try{
+    const r=await api("/api/username",{method:"PUT",body:JSON.stringify({username:nv})});
+    session.username=r.username; localStorage.setItem(SKEY,JSON.stringify(session));
+    set("curName",session.username); applyNameFx();
+    await loadGroups();   // 排行榜/戰績換成新名字
+    alert("暱稱已更新為「"+session.username+"」");
+  }catch(e){ alert(e.message); }
+}
 
 /* ---------- profile ---------- */
 const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight"];
@@ -1029,20 +1052,22 @@ function renderGroups(){
         :(racer==="avatar"?"🏁":racer);
       const fxCls=(m.fx&&m.fx!=="fx0")?(" "+m.fx):"";
       const nm=`<span class="namefx${fxCls}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>`;
-      return `<div style="margin:7px 0;">`+
-        `<div style="display:flex;align-items:center;gap:5px;font-size:12px;margin-bottom:1px;">`+
+      // 各自的賽道皮膚：套在「自己這條跑道」的背景，給所有人看（增加特殊感）
+      const sk=skinById(m.skin);
+      const laneBg=sk.id?`background:${sk.css};border-radius:8px;padding:0 8px;${sk.dark?"color:#eef;":""}`:"";
+      const dashCol=sk.dark?"rgba(255,255,255,.35)":"var(--line)";
+      return `<div style="margin:7px 0;${laneBg}">`+
+        `<div style="display:flex;align-items:center;gap:5px;font-size:12px;margin-bottom:1px;${sk.id?'padding-top:4px;':''}">`+
           `<span>${medal(i)}</span>`+
           (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
-          `<span style="${m.me?'font-weight:700;color:var(--accent);':''}">${nm}${m.me?'（我）':''}</span>`+
+          `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}${m.me?'（我）':''}</span>`+
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
-          `<span style="margin-left:auto;color:var(--sub);">${m.detail}</span></div>`+
-        `<div style="position:relative;height:18px;border-bottom:1px dashed var(--line);">`+
+          `<span style="margin-left:auto;${sk.dark?'color:#dde;':'color:var(--sub);'}">${m.detail}</span></div>`+
+        `<div style="position:relative;height:18px;border-bottom:1px dashed ${dashCol};${sk.id?'margin-bottom:4px;':''}">`+
           `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${runnerInner}</span></div>`+
       `</div>`;
     }).join("");
-    const sk=skinById(store&&store.skin);
-    const skStyle=sk.id?`background:${sk.css};border-radius:10px;padding:8px 10px;${sk.dark?"color:#eef;":""}`:"";
-    const raceBox=`<div style="margin:8px 0;${skStyle}">${race}</div>`;
+    const raceBox=`<div style="margin:8px 0;">${race}</div>`;
     // 團隊模式沒有賽道，用精簡清單
     const teamList=g.members.map((m,i)=>
       `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>• ${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
@@ -1305,13 +1330,13 @@ function renderPoints(){
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${gallery}</div>`+
     `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🏇 賽道角色（解鎖後在競賽跑道變成你的專屬角色）</div>`+
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${racerGallery}</div>`+
-    `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🎨 賽道皮膚（競賽跑道背景，只改自己的畫面）</div>`+
+    `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🎨 賽道皮膚（套在你的跑道背景，<b>所有人都看得到</b>）</div>`+
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${skinGallery}</div>`+
     avatarSection(points)+
     `<div class="hint tip" style="margin-top:6px;line-height:1.7;">📋 <b>積分怎麼算</b>（每天最多 +5）：<br>`+
       `・有記飲食 +1　・熱量達標(吃在目標內) +1<br>`+
       `・蛋白達標 +1　・有運動 +1　・喝水達標 +1<br>`+
-      `競賽奪冠加分：<b>每日 +15／每週 +100／每月 +500</b>（魔王輪雙倍）。分數只會累積、不會倒扣。<br>`+
+      `競賽<b>前三名</b>都有分（冠軍 每日15/每週100/每月500，亞軍 50%、季軍 30%，魔王輪雙倍）。分數只會累積、不會倒扣。<br>`+
       `用途：解鎖名稱特效、賽道角色、賽道皮膚、自訂頭像（${AV_MIN} 分）。</div>`;
   applyNameFx(); applyAvatar();
 }

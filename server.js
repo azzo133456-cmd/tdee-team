@@ -251,6 +251,29 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+/* ---------- 變更暱稱 ---------- */
+app.put("/api/username", auth, async (req, res) => {
+  try {
+    const newName = String(req.body.username || "").trim().slice(0, 20);
+    if (newName.length < 1) return res.status(400).json({ error: "暱稱不可空白" });
+    const oldName = req.user.username;
+    if (newName === oldName) return res.json({ ok: true, username: newName });
+    const dup = await pool.query("SELECT 1 FROM users WHERE username=$1 AND id<>$2", [newName, req.user.id]);
+    if (dup.rowCount) return res.status(409).json({ error: "這個暱稱已被使用" });
+    await pool.query("UPDATE users SET username=$1 WHERE id=$2", [newName, req.user.id]);
+    // 競賽戰績沿用舊暱稱字串，改名後一併搬移，讓過往冠軍/前三名積分不流失
+    await pool.query("UPDATE group_seasons SET winner=$1 WHERE winner=$2", [newName, oldName]);
+    const sea = await pool.query("SELECT id,results FROM group_seasons WHERE results::text LIKE $1", ["%" + oldName + "%"]);
+    for (const s of sea.rows) {
+      if (!Array.isArray(s.results)) continue;
+      let changed = false;
+      const r = s.results.map((row) => { if (row && row.name === oldName) { changed = true; return { ...row, name: newName }; } return row; });
+      if (changed) await pool.query("UPDATE group_seasons SET results=$1 WHERE id=$2", [JSON.stringify(r), s.id]);
+    }
+    res.json({ ok: true, username: newName });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 /* ---------- 個人資料 ---------- */
 app.put("/api/profile", auth, async (req, res) => {
   try {
@@ -608,8 +631,22 @@ async function geminiParts(key, parts, temperature) {
   return { error: lastErr };
 }
 
+// AI 請求限流（每使用者）：避免短時間連發觸發 Gemini 上游限流。預設 60 秒內最多 10 次。
+const aiHits = new Map();   // userId -> [timestamps]
+function aiLimit(req, res, next) {
+  const now = Date.now(), win = 60000, max = 10;
+  const arr = (aiHits.get(req.user.id) || []).filter((t) => now - t < win);
+  if (arr.length >= max) {
+    const wait = Math.ceil((win - (now - arr[0])) / 1000);
+    return res.status(429).json({ error: `AI 請求太頻繁，請 ${wait} 秒後再試（每分鐘上限 ${max} 次）` });
+  }
+  arr.push(now); aiHits.set(req.user.id, arr);
+  if (aiHits.size > 500) { for (const [k, v] of aiHits) if (!v.some((t) => now - t < win)) aiHits.delete(k); }
+  next();
+}
+
 /* ---------- AI 食物照片辨識（Gemini 代理） ---------- */
-app.post("/api/analyze", auth, async (req, res) => {
+app.post("/api/analyze", auth, aiLimit, async (req, res) => {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
@@ -661,7 +698,7 @@ app.post("/api/analyze", auth, async (req, res) => {
 });
 
 /* ---------- AI 文字估熱量（Gemini 代理） ---------- */
-app.post("/api/estimate", auth, async (req, res) => {
+app.post("/api/estimate", auth, aiLimit, async (req, res) => {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
@@ -703,7 +740,7 @@ app.post("/api/estimate", auth, async (req, res) => {
 });
 
 /* ---------- 營養標示 OCR（Gemini 代理，回傳每100g） ---------- */
-app.post("/api/label", auth, async (req, res) => {
+app.post("/api/label", auth, aiLimit, async (req, res) => {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
@@ -774,7 +811,7 @@ function geminiErrMsg(status) {
 }
 
 /* ---------- AI 教練：每日建議 / 週報點評 / 剩餘額度推薦 ---------- */
-app.post("/api/coach", auth, async (req, res) => {
+app.post("/api/coach", auth, aiLimit, async (req, res) => {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });
@@ -1009,6 +1046,8 @@ const twToday = () => new Date(Date.now() + TW_OFFSET).toISOString().slice(0, 10
 const roundLen = (period) => (period === "day" ? 1 : period === "month" ? 30 : 7);
 // 每座冠軍積分：每日15 / 每週100 / 每月500
 const periodPoints = (period) => (period === "day" ? 15 : period === "month" ? 500 : 100);
+// 前三名積分 [冠, 亞, 季]：亞=50%、季=30%（四捨五入）
+const placePoints = (period) => { const p = periodPoints(period); return [p, Math.round(p * 0.5), Math.round(p * 0.3)]; };
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoD(d); };
 // 在 [since, until] 窗內計分
 function scoreMember(rows, metric, since, until) {
@@ -1154,9 +1193,9 @@ app.get("/api/groups", auth, async (req, res) => {
     const out = [];
     for (const g of mine.rows) {
       const mem = await pool.query(
-        `SELECT u.id,u.username,u.avatar,u.fx,u.racer FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
-      const avatarByName = {}, fxByName = {}, racerByName = {};
-      mem.rows.forEach((u) => { if (u.avatar) avatarByName[u.username] = u.avatar; if (u.fx) fxByName[u.username] = u.fx; if (u.racer) racerByName[u.username] = u.racer; });
+        `SELECT u.id,u.username,u.avatar,u.fx,u.racer,u.skin FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
+      const avatarByName = {}, fxByName = {}, racerByName = {}, skinByName = {};
+      mem.rows.forEach((u) => { if (u.avatar) avatarByName[u.username] = u.avatar; if (u.fx) fxByName[u.username] = u.fx; if (u.racer) racerByName[u.username] = u.racer; if (u.skin) skinByName[u.username] = u.skin; });
       // 一次抓齊所有成員統計（避免 N+1）
       const rowsByUser = {};
       mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
@@ -1201,11 +1240,18 @@ app.get("/api/groups", auth, async (req, res) => {
       // 戰績：歷屆冠軍 + 獎盃統計
       const seasons = await pool.query("SELECT round_no,start_date::text,end_date::text,winner,boss FROM group_seasons WHERE group_id=$1 ORDER BY round_no DESC LIMIT 8", [g.id]);
       const trophies = {}, trophyPts = {};
-      const winPer = periodPoints(g.period);   // 每座冠軍積分：每日15 / 每週100 / 每月500
-      const allSeasons = await pool.query("SELECT winner,boss FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
+      const place = placePoints(g.period);   // [冠,亞,季] 積分（依週期）
+      // 依每輪 results 的前三名給分（修正：不只冠軍，前三名都有分；魔王輪雙倍）。舊資料若無 results 則只給冠軍。
+      const allSeasons = await pool.query("SELECT winner,boss,results FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
       allSeasons.rows.forEach((s) => {
-        trophies[s.winner] = (trophies[s.winner] || 0) + 1;                         // 獎盃「座數」（魔王輪也算 1 座）
-        trophyPts[s.winner] = (trophyPts[s.winner] || 0) + winPer * (s.boss ? 2 : 1); // 積分（魔王輪雙倍）
+        const mult = s.boss ? 2 : 1;
+        trophies[s.winner] = (trophies[s.winner] || 0) + 1;                         // 🏆 座數＝冠軍次數
+        let podium = Array.isArray(s.results) ? s.results : [];
+        if (!podium.length && s.winner) podium = [{ name: s.winner }];
+        podium.slice(0, 3).forEach((row, idx) => {
+          const nm = row && row.name; if (!nm) return;
+          trophyPts[nm] = (trophyPts[nm] || 0) + place[idx] * mult;
+        });
       });
       const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });
       board.forEach((m) => {
@@ -1219,6 +1265,7 @@ app.get("/api/groups", auth, async (req, res) => {
         // 賽道角色：本人選的動物 / 頭像，否則預設旗子
         const pr = racerByName[m.name];
         m.racer = (pr && (pr in RACER_MINS || pr === "avatar")) ? pr : "🏁";
+        if (skinByName[m.name]) m.skin = skinByName[m.name];   // 各自的賽道皮膚（給所有人看）
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
       });
       // 留言／加油（最近 20 則，最舊在前），不洩漏體重
@@ -1256,7 +1303,7 @@ app.post("/api/group/:id/message", auth, async (req, res) => {
 });
 
 /* ---------- 營養標示『批次』辨識：一次多張，回傳陣列 ---------- */
-app.post("/api/labels", auth, async (req, res) => {
+app.post("/api/labels", auth, aiLimit, async (req, res) => {
   try {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });

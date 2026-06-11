@@ -17,11 +17,13 @@
 <script src="foods_convenience.js"></script>
 <script src="foods_5050.js"></script>
 <script src="foods_drinks_sugar.js"></script>
+<script src="foods_xlsx_drinks.js"></script>
 <script src="foods_street.js"></script>
 <script src="foods_protein.js"></script>
 <script src="foods_pizza.js"></script>
 <script src="foods_bread.js"></script>
 <script src="foods_morechains.js"></script>
+<script src="foods_xlsx.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -48,7 +50,7 @@
 <!-- ===== 主畫面 ===== -->
 <div id="appView" class="hidden">
   <div class="topbar">
-    <div class="who" style="display:flex;align-items:center;gap:6px;"><img id="myAvatar" class="avatar" style="display:none;" alt="">嗨，<span id="nameFrame" class="namefx"><b id="curName"></b></span></div>
+    <div class="who" style="display:flex;align-items:center;gap:6px;"><img id="myAvatar" class="avatar" style="display:none;" alt="">嗨，<span id="nameFrame" class="namefx"><b id="curName"></b></span><span onclick="changeName()" title="變更暱稱" style="cursor:pointer;opacity:.6;font-size:13px;">✎</span></div>
     <button class="ghost sm" id="tipBtn" onclick="toggleTips()" style="margin-left:auto;">ℹ️ 說明</button>
     <button class="ghost sm" onclick="logout()" style="margin-left:8px;">登出</button>
   </div>
