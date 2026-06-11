@@ -1251,6 +1251,16 @@ function renderPet(){
     return `<button class="ghost sm" ${afford?"":"disabled"} style="${afford?"":"opacity:.45;"}" title="${s.name}" onclick="buyPet('${s.it}',${s.price})">${s.it} 🦴${s.price}</button>`;
   }).join("")||`<span class="hint">商店飾品都收集完了，太強了！🎉</span>`;
   const dexHtml=(p.dex||[]).map(d=>{ const s=(petMeta&&petMeta.species&&petMeta.species[d.species]); if(!s)return""; return `<span title="${s.label} 最高${(petMeta.stageNames||[])[d.maxStage]||''}" style="font-size:20px;">${s.stages[d.maxStage]}</span>`; }).join("");
+  // 我的寵物收藏（每隻各自 EXP；點一下就換成出戰）
+  const coll=p.collection||[];
+  const collHtml=coll.map(c=>{
+    const sn=(petMeta&&petMeta.stageNames&&petMeta.stageNames[c.stageIdx])||"";
+    const on=c.active;
+    return `<div onclick="choosePet('${c.species}',${c.breed?`'${c.breed}'`:"null"})" title="${escapeHtml(c.name)}・${sn}・EXP ${c.exp}" `+
+      `style="cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;padding:5px 4px 3px;text-align:center;flex:0 0 auto;width:60px;${on?'background:var(--soft);':''}">`+
+      `<div style="height:40px;display:flex;align-items:center;justify-content:center;line-height:0;">${petGlyph(c,36)}</div>`+
+      `<div style="font-size:10.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">EXP ${c.exp}</div></div>`;
+  }).join("");
   box.innerHTML=
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:74px;height:74px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
@@ -1268,18 +1278,20 @@ function renderPet(){
         `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
       `</div>`+
     `</div>`+
+    (coll.length>1?`<div style="margin-top:10px;font-size:13px;font-weight:600;">🐾 我的寵物 <span class="hint" style="font-weight:400;">（各養各的 EXP，點一下換出戰）</span></div>`+
+      `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${collHtml}</div>`:"")+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 我的飾品</div>`+
     `<div class="chipbar" style="margin-top:4px;">${itemBtns}${p.equipped?`<button class="ghost sm" onclick="equipPet('')">脫下</button>`:""}</div>`+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🦴 骨頭幣商店 <span class="hint" style="font-weight:400;">（記錄/達標賺幣，不影響競賽積分）</span></div>`+
     `<div class="chipbar" style="margin-top:4px;">${shopHtml}</div>`+
     (dexHtml?`<div style="margin-top:10px;font-size:13px;font-weight:600;">📖 圖鑑</div><div style="margin-top:4px;">${dexHtml}</div>`:"")+
-    `<div class="hint tip" style="margin-top:8px;">每天記錄飲食/喝水/運動/體重都會餵養牠，連續達標長更快。漏記只會讓牠想睡（不會生病或消失）。</div>`;
+    `<div class="hint tip" style="margin-top:8px;">記錄飲食/喝水/運動/體重會餵養<b>目前出戰</b>的這隻，連續達標長更快。換寵物時其他隻的 EXP 會凍結保留，可以同時收集養很多種！漏記只會讓牠想睡（不會生病或消失）。</div>`;
   // 進化動畫：偵測到階段提升就慶祝一下
   maybeEvolveFx(p);
 }
 // 偵測階段提升 → 動畫＋祝賀（用 localStorage 記住上次看到的階段）
 function maybeEvolveFx(p){
-  const key="petStage";
+  const key="petStage:"+p.species;   // 每隻寵物各自記階段，避免換寵物誤觸進化動畫
   const prev=localStorage.getItem(key);
   const cur=p.stageIdx;
   if(prev!==null && +prev<cur){
@@ -1314,7 +1326,7 @@ function petChooserHtml(cur){
 // 整個換成別的物種（進度/飾品/幣/圖鑑都保留）
 function switchPet(){
   const box=document.getElementById("petBox"); if(!box||!petData) return;
-  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換一隻夥伴吧！<b>EXP、骨頭幣、飾品、圖鑑都會保留</b>，養過的型態也會留在圖鑑。</div>`+
+  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換一隻出戰吧！<b>每隻各自累積 EXP</b>，目前這隻會凍結保留、新的接著養（骨頭幣與飾品共用）。可以同時收集很多種！</div>`+
     petChooserHtml(petData.species)+
     `<div class="chipbar" style="margin-top:10px;"><button class="ghost sm" onclick="renderPet()">取消</button></div>`;
 }

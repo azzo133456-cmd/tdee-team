@@ -189,6 +189,8 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS coins_spent INT DEFAULT 0;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS owned JSONB DEFAULT '[]'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS breed TEXT;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS flock JSONB DEFAULT '{}'::jsonb;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS credited_through DATE;
   `);
   console.log("DB ready");
 }
@@ -1090,6 +1092,29 @@ async function trophyCount(username) {
   const r = await pool.query("SELECT COUNT(*)::int AS n FROM group_seasons WHERE winner=$1", [username]);
   return (r.rows[0] && r.rows[0].n) || 0;
 }
+// 分流結算：把「上次結算到今天」之間賺到的 EXP 記在「出戰中」那隻身上（只有牠成長）。
+// 利用 petExpFromRows 對歷史單調遞增的特性：gain = 全量(到今天) − 全量(到上次結算日)。
+async function creditActivePet(userId, petRow, rows) {
+  const species = petRow.species;
+  const flock = (petRow.flock && typeof petRow.flock === "object") ? Object.assign({}, petRow.flock) : {};
+  if (!flock[species]) flock[species] = { breed: petRow.breed || null, exp: 0, name: petRow.name || null };
+  const today = twToday();
+  const credited = petRow.credited_through
+    ? (petRow.credited_through instanceof Date ? isoD(petRow.credited_through) : String(petRow.credited_through).slice(0, 10))
+    : null;
+  const fullNow = petExpFromRows(rows).exp;
+  if (credited === null) {
+    // 首次分流（含舊資料遷移）：把全部歷史 EXP 灌給目前出戰的這隻，既有玩家不歸零
+    flock[species].exp = Math.max(flock[species].exp || 0, fullNow);
+  } else if (today > credited) {
+    const fullPrev = petExpFromRows(rows.filter((r) => r.date <= credited)).exp;
+    flock[species].exp = (flock[species].exp || 0) + Math.max(0, fullNow - fullPrev);
+  }
+  petRow.flock = flock;
+  petRow.credited_through = today;
+  await pool.query("UPDATE pets SET flock=$1, credited_through=$2 WHERE user_id=$3", [JSON.stringify(flock), today, userId]);
+  return petRow;
+}
 async function computePet(userId) {
   const [petR, statR, uR] = await Promise.all([
     pool.query("SELECT * FROM pets WHERE user_id=$1", [userId]),
@@ -1097,7 +1122,9 @@ async function computePet(userId) {
     pool.query("SELECT username FROM users WHERE id=$1", [userId]),
   ]);
   const trophies = uR.rows.length ? await trophyCount(uR.rows[0].username) : 0;
-  return { state: petStateFromRows(petR.rows[0] || null, statR.rows, trophies), row: petR.rows[0] || null };
+  let row = petR.rows[0] || null;
+  if (row) row = await creditActivePet(userId, row, statR.rows);   // 出戰中那隻先結算成長
+  return { state: petStateFromRows(row, statR.rows, trophies), row };
 }
 app.get("/api/pet", auth, async (req, res) => {
   try {
@@ -1133,10 +1160,22 @@ app.post("/api/pet/choose", auth, async (req, res) => {
     if (PET_BREED_IDS[species]) { if (!PET_BREED_IDS[species].includes(breed)) breed = PET_BREED_IDS[species][0]; }
     else breed = null;   // 非貓/狗物種沒有品種
     const name = req.body.name === undefined ? null : String(req.body.name || "").trim().slice(0, 16) || null;
+    const [petR, statR] = await Promise.all([
+      pool.query("SELECT * FROM pets WHERE user_id=$1", [req.user.id]),
+      pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop FROM daily_stats WHERE user_id=$1", [req.user.id]),
+    ]);
+    let flock = {};
+    if (petR.rows[0]) {
+      // 先把現任出戰寵物的成長結算存好，再換隻（換寵物不損失任何一隻的進度）
+      const credited = await creditActivePet(req.user.id, petR.rows[0], statR.rows);
+      flock = credited.flock || {};
+    }
+    if (!flock[species]) flock[species] = { breed, exp: 0, name: name || null };
+    else { flock[species].breed = breed; if (name) flock[species].name = name; }
     await pool.query(
-      `INSERT INTO pets(user_id,species,breed,name) VALUES($1,$2,$3,$4)
-       ON CONFLICT (user_id) DO UPDATE SET species=$2, breed=$3, name=COALESCE($4,pets.name)`,
-      [req.user.id, species, breed, name]
+      `INSERT INTO pets(user_id,species,breed,name,flock,credited_through) VALUES($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (user_id) DO UPDATE SET species=$2, breed=$3, name=COALESCE($4,pets.name), flock=$5`,
+      [req.user.id, species, breed, name, JSON.stringify(flock), twToday()]
     );
     const { state } = await computePet(req.user.id);
     res.json({ pet: state });
@@ -1148,7 +1187,12 @@ app.put("/api/pet", auth, async (req, res) => {
     if (!exists.rowCount) return res.status(400).json({ error: "還沒領養寵物" });
     if (req.body.name !== undefined) {
       const name = String(req.body.name || "").trim().slice(0, 16) || null;
-      await pool.query("UPDATE pets SET name=$1 WHERE user_id=$2", [name, req.user.id]);
+      const r = await pool.query("SELECT species,flock FROM pets WHERE user_id=$1", [req.user.id]);
+      const sp = r.rows[0].species;
+      const flock = (r.rows[0].flock && typeof r.rows[0].flock === "object") ? r.rows[0].flock : {};
+      if (!flock[sp]) flock[sp] = {};
+      flock[sp].name = name;     // 名字跟著「出戰中那隻」走
+      await pool.query("UPDATE pets SET name=$1, flock=$2 WHERE user_id=$3", [name, JSON.stringify(flock), req.user.id]);
     }
     if (req.body.equipped !== undefined) {
       // 只能戴已解鎖的飾品（伺服器再驗一次）
@@ -1247,7 +1291,13 @@ const PET_SHOP_PRICE = Object.fromEntries(PET_SHOP.map((s) => [s.it, s.price]));
 function petStateFromRows(petRow, rows, trophies) {
   const species = (petRow && petRow.species) || "cat";
   const sp = PET_SPECIES[species] || PET_SPECIES.cat;
-  const { exp: rawExp, lastLogged } = petExpFromRows(rows);
+  const stat = petExpFromRows(rows);
+  const lastLogged = stat.lastLogged;
+  // 分流制：每隻寵物各自累積 EXP（存在 flock）。只有出戰的那隻會成長。
+  // 舊資料（還沒分流，flock 沒這隻）→ 回退用全量計算，確保既有玩家寵物不歸零。
+  const flock = (petRow && petRow.flock) || {};
+  const fp = flock[species] || null;
+  const rawExp = fp ? (fp.exp || 0) : stat.exp;
   const today = twToday();
   const daysSince = lastLogged ? Math.max(0, daysBetween(lastLogged, today)) : 0;
   const stageIdx = petStageIdx(rawExp);                   // 階段由原始EXP決定→永不退階
@@ -1278,11 +1328,18 @@ function petStateFromRows(petRow, rows, trophies) {
   const di = dex.findIndex((d) => d && d.species === species);
   if (di < 0) dex.push({ species, maxStage: stageIdx });
   else if ((dex[di].maxStage || 0) < stageIdx) dex[di].maxStage = stageIdx;
+  const breed = (fp && fp.breed) || (petRow && petRow.breed) || null;
+  const name = (fp && fp.name) || (petRow && petRow.name) || sp.label;
+  // 我的寵物收藏（每隻各自的 EXP/階段），給「同時養很多種」的清單用
+  const collection = Object.keys(flock).map((k) => {
+    const f = flock[k] || {}, e = f.exp || 0, si = petStageIdx(e), s2 = PET_SPECIES[k] || sp;
+    return { species: k, breed: f.breed || null, name: f.name || s2.label, exp: e, stageIdx: si, emoji: s2.stages[si], active: k === species };
+  }).sort((a, b) => b.exp - a.exp);
   return {
-    chosen: !!petRow, species, breed: (petRow && petRow.breed) || null, speciesLabel: sp.label, name: (petRow && petRow.name) || sp.label,
+    chosen: !!petRow, species, breed, speciesLabel: sp.label, name,
     emoji: sp.stages[stageIdx], stageIdx, stageName: PET_STAGE_NAMES[stageIdx],
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
-    equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies,
+    equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies, collection,
   };
 }
 
