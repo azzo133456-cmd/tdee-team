@@ -1148,6 +1148,7 @@ const PET_BREEDS={
     frenchie:{label:"法鬥", body:"#bcb3a6", body2:"#a89e90", belly:"#efe9df", inner:"#d8b0b0", ear:"bat", eye:"#3a3a3a", markings:"frenchie", white:"#efe9df"},
     golden:{label:"黃金獵犬", body:"#f0c47a", body2:"#e3b066", belly:"#f8e6c2", inner:"#e8c79a", ear:"flop", eye:"#5a3a2a", markings:"solid"},
     collie:{label:"那那狗", body:"#34343c", body2:"#24242b", belly:"#ffffff", inner:"#cba6a6", ear:"flop", eye:"#7a5a3a", markings:"collie", white:"#ffffff"},
+    dachshund:{label:"臘腸狗", body:"#bf6a30", body2:"#9c511d", belly:"#e8b27a", inner:"#d98c5a", ear:"longflop", eye:"#3a241a", markings:"dachshund", white:"#edc594"},
   },
 };
 function petBreedOf(species,breed){ const m=PET_BREEDS[species]; if(!m) return null; return m[breed]||m[Object.keys(m)[0]]; }
@@ -1160,6 +1161,7 @@ function petFacial(species,P){
   if(m==="shiba") return `<ellipse cx="50" cy="56" rx="15" ry="11" fill="${P.white}"/><ellipse cx="33" cy="50" rx="7" ry="8" fill="${P.white}"/><ellipse cx="67" cy="50" rx="7" ry="8" fill="${P.white}"/><ellipse cx="40" cy="36" rx="2.4" ry="2" fill="#e8c79a"/><ellipse cx="60" cy="36" rx="2.4" ry="2" fill="#e8c79a"/>`;
   if(m==="frenchie") return `<ellipse cx="50" cy="56" rx="13" ry="10" fill="${P.white}"/><ellipse cx="50" cy="40" rx="4" ry="12" fill="${P.white}"/>`;
   if(m==="collie") return `<ellipse cx="50" cy="44" rx="6" ry="20" fill="${P.white}"/><ellipse cx="50" cy="58" rx="12" ry="9" fill="${P.white}"/>`;
+  if(m==="dachshund") return `<ellipse cx="50" cy="58" rx="10" ry="8" fill="${P.white}"/><ellipse cx="50" cy="40" rx="9" ry="11" fill="${P.body2}" opacity=".35"/>`;   // 淺色口鼻＋額頭深紅
   return `<ellipse cx="50" cy="55" rx="11" ry="8" fill="${P.body2}" opacity=".45"/>`;   // solid：淺色口鼻
 }
 // 產生寵物 SVG；species 不是貓/狗回 null（呼叫端 fallback emoji）
@@ -1179,6 +1181,7 @@ function petSVG(species,breed,stage,px){
   let ears="";
   if(P.ear==="up") ears=`<path d="M32,28 L24,8 L46,24 Z" fill="${body}"/><path d="M68,28 L76,8 L54,24 Z" fill="${body}"/><path d="M33,26 L28,13 L43,24 Z" fill="${inner}"/><path d="M67,26 L72,13 L57,24 Z" fill="${inner}"/>`;
   else if(P.ear==="bat") ears=`<ellipse cx="30" cy="20" rx="9" ry="15" fill="${body}" transform="rotate(-10 30 20)"/><ellipse cx="70" cy="20" rx="9" ry="15" fill="${body}" transform="rotate(10 70 20)"/><ellipse cx="30" cy="21" rx="4.5" ry="9" fill="${inner}" transform="rotate(-10 30 21)"/><ellipse cx="70" cy="21" rx="4.5" ry="9" fill="${inner}" transform="rotate(10 70 21)"/>`;
+  else if(P.ear==="longflop") ears=`<path d="M33,30 Q12,40 17,66 Q24,74 33,60 Q31,42 39,33 Z" fill="${body2}"/><path d="M67,30 Q88,40 83,66 Q76,74 67,60 Q69,42 61,33 Z" fill="${body2}"/>`;   // 長毛臘腸的長垂耳
   else ears=`<ellipse cx="26" cy="46" rx="9" ry="16" fill="${body2}"/><ellipse cx="74" cy="46" rx="9" ry="16" fill="${body2}"/>`;
   const noseCol=species==="cat"?"#c8697e":"#3a3033";
   let s=`<g transform="translate(50,54) scale(${sc}) translate(-50,-54)">`;

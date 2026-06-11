@@ -1238,7 +1238,7 @@ const PET_SPECIES = {
   owl:      { label: "貓頭鷹", stages: ["🥚", "🐣", "🦉", "🦉", "🦅"] },
 };
 // 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
-const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream"], dog: ["shiba", "frenchie", "golden", "collie"] };
+const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream"], dog: ["shiba", "frenchie", "golden", "collie", "dachshund"] };
 const PET_STAGE_NAMES = ["蛋", "幼體", "成長期", "成體", "進化體"];
 const PET_STAGE_EXP = [0, 50, 200, 600, 1500];
 const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
