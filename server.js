@@ -1113,14 +1113,14 @@ app.get("/api/groups", auth, async (req, res) => {
       const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });
       board.forEach((m) => {
         m.trophies = trophies[m.name] || 0;
-        const pts = memberPoints(rowsByUser[uidByName[m.name]] || [], m.trophies);
-        // 名稱特效：優先用本人選的造型（解鎖門檻由前端把關；此處只驗證是有效值），
-        // 否則用目前積分對應的最高特效。註：不可用每組積分當解鎖門檻，否則在沒奪冠的組會被誤判為未解鎖。
+        // auto 特效用「自律分(不含本組獎盃)」計算，確保同一人在每個組看到的預設特效一致
+        const actPts = memberPoints(rowsByUser[uidByName[m.name]] || [], 0);
+        // 名稱特效：優先用本人選的造型（解鎖門檻由前端把關），否則用自律分對應特效
         const picked = fxByName[m.name];
-        m.fx = (picked && picked in FX_MIN_MAP) ? picked : clsForPoints(pts);
-        // 賽道角色：本人選的動物，否則預設旗子
+        m.fx = (picked && picked in FX_MIN_MAP) ? picked : clsForPoints(actPts);
+        // 賽道角色：本人選的動物 / 頭像，否則預設旗子
         const pr = racerByName[m.name];
-        m.racer = (pr && pr in RACER_MINS) ? pr : "🏁";
+        m.racer = (pr && (pr in RACER_MINS || pr === "avatar")) ? pr : "🏁";
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
       });
       out.push({
@@ -1186,6 +1186,19 @@ app.post("/api/sharedfood", auth, async (req, res) => {
     if (kcal <= 0) return res.json({ ok: true }); // 沒熱量就不收
     const grams = Math.max(1, num(req.body.grams) || 100);
     const kind = req.body.kind === "recipe" ? "recipe" : "food";
+    // 改名：把自己建立的舊品項改成新名稱（新名稱不可已存在）
+    const oldName = String(req.body.oldName || "").trim().slice(0, 60);
+    if (oldName && oldName !== name) {
+      const own = await pool.query("SELECT 1 FROM shared_foods WHERE name=$1 AND created_by=$2", [oldName, req.user.id]);
+      if (!own.rowCount) return res.status(403).json({ error: "只能修改自己建立的品項" });
+      const taken = await pool.query("SELECT 1 FROM shared_foods WHERE name=$1", [name]);
+      if (taken.rowCount) return res.status(409).json({ error: "已有同名品項，請換個名稱" });
+      await pool.query(
+        "UPDATE shared_foods SET name=$1,kcal=$2,protein=$3,fat=$4,carb=$5,grams=$6,kind=$7 WHERE name=$8 AND created_by=$9",
+        [name, kcal, num(req.body.protein), num(req.body.fat), num(req.body.carb), grams, kind, oldName, req.user.id]
+      );
+      return res.json({ ok: true });
+    }
     await pool.query(
       `INSERT INTO shared_foods(name,kcal,protein,fat,carb,grams,kind,created_by)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8)

@@ -379,8 +379,10 @@ function renderShared(){
     const mine=session&&s.created_by===session.userId;
     const esc=s.name.replace(/'/g,"\\'");
     if(mine&&editingShared===s.name){
-      // 編輯模式：每100g 數值（名稱固定，避免產生孤兒）
-      return `<div class="foodrow" style="flex-wrap:wrap;gap:4px;"><span class="nm" style="flex:1 1 100%;">✏️ ${s.name}<span style="color:var(--sub);font-size:11px"> · 每100g</span></span>`+
+      // 編輯模式：可改名稱 + 每100g 數值
+      return `<div class="foodrow" style="flex-wrap:wrap;gap:4px;">`+
+        `<span class="nm" style="flex:1 1 100%;">✏️ 編輯<span style="color:var(--sub);font-size:11px"> · 每100g</span></span>`+
+        `<input id="esN" type="text" value="${s.name.replace(/"/g,'&quot;')}" style="flex:1 1 100%;padding:5px" placeholder="名稱">`+
         `<input id="esK" type="number" value="${Math.round(s.kcal||0)}" style="width:64px;padding:5px" placeholder="kcal"><span style="font-size:11px;color:var(--sub)">kcal</span>`+
         `<input id="esP" type="number" value="${Math.round(s.protein||0)}" style="width:52px;padding:5px" placeholder="蛋"><span style="font-size:11px;color:var(--sub)">蛋</span>`+
         `<input id="esF" type="number" value="${Math.round(s.fat||0)}" style="width:52px;padding:5px" placeholder="脂"><span style="font-size:11px;color:var(--sub)">脂</span>`+
@@ -398,11 +400,12 @@ function renderShared(){
 let editingShared=null;
 function editSharedItem(name){ editingShared=name; renderShared(); }
 function cancelSharedEdit(){ editingShared=null; renderShared(); }
-async function saveShared(name){
-  const it=(store.sharedFoods||[]).find(s=>s.name===name); if(!it) return;
+async function saveShared(oldName){
+  const it=(store.sharedFoods||[]).find(s=>s.name===oldName); if(!it) return;
+  const name=(val("esN")||"").trim()||oldName;
   const kcal=+val("esK")||0;
   if(kcal<=0){ alert("熱量需大於 0"); return; }
-  const body={name, kcal, protein:+val("esP")||0, fat:+val("esF")||0, carb:+val("esC")||0, grams:it.grams||100, kind:it.kind||"food"};
+  const body={name, oldName, kcal, protein:+val("esP")||0, fat:+val("esF")||0, carb:+val("esC")||0, grams:it.grams||100, kind:it.kind||"food"};
   try{ await api("/api/sharedfood",{method:"POST",body:JSON.stringify(body)}); editingShared=null; await reload(); }
   catch(e){ alert(e.message); }
 }
@@ -970,8 +973,12 @@ function renderGroups(){
     const range=Math.abs(best-worst)||1;
     // 賽馬跑道：每人一條，上排顯示名次/名字(特效)/分數，下排是自己的角色往🏁前進
     const race=g.members.map((m,i)=>{
-      const p=Math.round(Math.abs(m.score-worst)/range*86);   // 0~86%，尾端留給🏁
+      const p=Math.round(Math.abs(m.score-worst)/range*86);   // 0~86%
       const racer=m.racer||"🏁";
+      // 角色：頭像圖（avatar）或表情符號
+      const runnerInner=(racer==="avatar"&&m.avatar)
+        ?`<img src="${m.avatar}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;display:block;">`
+        :(racer==="avatar"?"🏁":racer);
       const fxCls=(m.fx&&m.fx!=="fx0")?(" "+m.fx):"";
       const nm=`<span class="namefx${fxCls}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>`;
       return `<div style="margin:7px 0;">`+
@@ -982,7 +989,7 @@ function renderGroups(){
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
           `<span style="margin-left:auto;color:var(--sub);">${m.detail}</span></div>`+
         `<div style="position:relative;height:18px;border-bottom:1px dashed var(--line);">`+
-          `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${racer}</span></div>`+
+          `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${runnerInner}</span></div>`+
       `</div>`;
     }).join("");
     const raceBox=`<div style="margin:8px 0;">${race}</div>`;
@@ -1183,13 +1190,22 @@ function renderPoints(){
   }).join("");
   // 賽道角色畫廊
   let pickR="🏁"; try{ pickR=localStorage.getItem("tdee_racer")||"🏁"; }catch(e){}
-  const racerGallery=RACER_TIERS.map(t=>{
+  let racerGallery=RACER_TIERS.map(t=>{
     const got=points>=t.min, on=pickR===t.emoji;
     return `<div onclick="${got?`chooseRacer('${t.emoji}')`:''}" title="${t.min} 分解鎖" `+
       `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;${got?'cursor:pointer;':'opacity:.4;'}background:${on?'var(--soft)':'#fff'};">`+
       `<div style="font-size:18px;">${t.emoji}</div><div style="font-size:11px;${got?'':'color:var(--sub)'}">${t.name}</div>`+
       `<div style="font-size:10px;color:var(--sub)">${got?(on?"使用中":"可用"):t.min+"分"}</div></div>`;
   }).join("");
+  // 用「自訂頭像」當賽道角色（需先在下方上傳頭像，滿 AV_MIN 分）
+  {
+    const okAv=points>=AV_MIN&&!!store.avatar, on=pickR==="avatar";
+    const inner=store.avatar?`<img src="${store.avatar}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;margin:0 auto;display:block;">`:"🖼️";
+    racerGallery+=`<div onclick="${okAv?`chooseRacer('avatar')`:''}" title="滿 ${AV_MIN} 分並上傳頭像" `+
+      `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;${okAv?'cursor:pointer;':'opacity:.4;'}background:${on?'var(--soft)':'#fff'};">`+
+      `<div style="font-size:18px;">${inner}</div><div style="font-size:11px;${okAv?'':'color:var(--sub)'}">我的頭像</div>`+
+      `<div style="font-size:10px;color:var(--sub)">${okAv?(on?"使用中":"可用"):(store.avatar?AV_MIN+"分":"需頭像")}</div></div>`;
+  }
   box.innerHTML=
     `<div class="stat-row" style="margin-top:2px;">`+
       `<div><div class="v">${points.toLocaleString()}</div><div class="k">總積分</div></div>`+
@@ -2034,8 +2050,15 @@ function renderAll(){ set("curName",session.username); renderDerived(); renderTa
 
 async function reload(){
   store = await api("/api/me/all");
-  // 同步伺服器存的造型選擇到本機（換裝置也一致）
-  try{ if(store.fx) localStorage.setItem("tdee_fx",store.fx); if(store.racer) localStorage.setItem("tdee_racer",store.racer); }catch(e){}
+  // 造型選擇雙向同步：伺服器有就用伺服器；伺服器沒有但本機有（舊版只存本機）就補傳到伺服器，
+  // 確保你選的特效/角色在所有競賽都生效。
+  try{
+    const lfx=localStorage.getItem("tdee_fx"), lrc=localStorage.getItem("tdee_racer");
+    if(store.fx){ localStorage.setItem("tdee_fx",store.fx); }
+    else if(lfx){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({fx:lfx})}).catch(()=>{}); }
+    if(store.racer){ localStorage.setItem("tdee_racer",store.racer); }
+    else if(lrc){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({racer:lrc})}).catch(()=>{}); }
+  }catch(e){}
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
