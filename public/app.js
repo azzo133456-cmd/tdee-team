@@ -1077,7 +1077,7 @@ function renderGroups(){
           `<span>${medal(i)}</span>`+
           (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
           `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}</span>`+
-          (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="position:relative;display:inline-flex;align-items:center;line-height:0;">${m.pet.hat?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;z-index:2;">${m.pet.hat}</span>`:""}${petGlyph(m.pet,22)}</span>`:"")+
+          (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="position:relative;display:inline-flex;align-items:center;line-height:0;">${(m.pet.hat&&!petArtUrl(m.pet.species,m.pet.breed,m.pet.stageIdx))?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;z-index:2;">${m.pet.hat}</span>`:""}${petGlyph(m.pet,22)}</span>`:"")+
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
           `<span style="margin-left:auto;${sk.dark?'color:#dde;':'color:var(--sub);'}">${m.detail}</span></div>`+
         `<div style="position:relative;height:18px;border-bottom:1px dashed ${dashCol};${sk.id?'margin-bottom:4px;':''}">`+
@@ -1143,7 +1143,7 @@ const PET_BREEDS={
     tuxedo:{label:"賓士貓", body:"#34343c", body2:"#24242b", belly:"#ffffff", inner:"#cba6a6", ear:"up", eye:"#8ad06a", markings:"tuxedo"},
     calico:{label:"三花貓", body:"#fbf6ef", body2:"#ece3d6", belly:"#ffffff", inner:"#f3c9a0", ear:"up", eye:"#5bb6c9", markings:"calico", patchA:"#e89636", patchB:"#3a3a40"},
     cream:{label:"奶油金", body:"#f7d489", body2:"#eec76a", belly:"#fdf3d6", inner:"#f7dca7", ear:"up", eye:"#49a6d8", markings:"solid"},
-    silvertabby:{label:"銀虎斑", body:"#b9bcc0", body2:"#8f9398", belly:"#edeef0", inner:"#e3b7b7", ear:"up", eye:"#8aa86a", markings:"tabby", stripe:"#6b6f76"},
+    silvertabby:{label:"花花", body:"#b9bcc0", body2:"#8f9398", belly:"#edeef0", inner:"#e3b7b7", ear:"up", eye:"#8aa86a", markings:"tabby", stripe:"#6b6f76"},
   },
   dog:{
     shiba:{label:"柴犬", body:"#e7a05a", body2:"#d98c40", belly:"#fbf3e6", inner:"#f3c79a", ear:"up", eye:"#5a3a2a", markings:"shiba", white:"#fbf3e6"},
@@ -1155,24 +1155,19 @@ const PET_BREEDS={
 };
 function petBreedOf(species,breed){ const m=PET_BREEDS[species]; if(!m) return null; return m[breed]||m[Object.keys(m)[0]]; }
 
-/* ===== 寵物階段名（每物種可有主題名；插圖由使用者提供，放 public/pets/） ===== */
-// levels[0..4] 對應 蛋→幼體→成長期→成體→進化體。只留階段名＋星級，主打好看的插圖。
-const PET_LORE={
-  "cat:silvertabby":{ levels:[
-    {name:"蛋中幼患", stars:1},{name:"被窩幼患", stars:1},{name:"枕頭霸主", stars:2},
-    {name:"被窩領主", stars:3},{name:"棉被神獸", stars:5},
-  ]},
-};
-function petLore(species,breed){ return PET_LORE[species+":"+breed]||PET_LORE[species]||null; }
-// 哪些 species:breed 有「使用者提供的插圖」。圖檔放 public/pets/<key>/<stage>.png（stage 0~4，缺哪張就回退 SVG）。
-// 例：銀虎斑貓 → public/pets/cat_silvertabby/1.png ... 4.png（0.png 為蛋，可不放）
+// 哪些寵物有「使用者提供的插圖」。圖檔放 public/pets/<資料夾>/<stage>.png（stage 0~4，缺哪張就回退）。
+//   有品種：key "species:breed" → 資料夾 species_breed/   （例 cat_silvertabby）
+//   無品種：key "species"        → 資料夾 species/        （例 jelly）
 const PET_ART_KEYS=new Set([
-  "cat:silvertabby",   // public/pets/cat_silvertabby/0~4.png
+  "cat:silvertabby",   // public/pets/cat_silvertabby/
+  "bubu",              // public/pets/bubu/
+  "jelly",             // public/pets/jelly/
+  "money",             // public/pets/money/
 ]);
 function petArtUrl(species,breed,stage){
-  const key=species+":"+breed;
-  if(!PET_ART_KEYS.has(key)) return null;
-  return "pets/"+species+"_"+breed+"/"+stage+".png";
+  if(breed && PET_ART_KEYS.has(species+":"+breed)) return "pets/"+species+"_"+breed+"/"+stage+".png";
+  if(PET_ART_KEYS.has(species)) return "pets/"+species+"/"+stage+".png";
+  return null;
 }
 function petFacial(species,P){
   const m=P.markings;
@@ -1237,8 +1232,8 @@ function petSVG(species,breed,stage,px){
 function petGlyph(pet,size){
   if(!pet) return "";
   const art=petArtUrl(pet.species,pet.breed,pet.stageIdx);
-  if(art){ const svgFb=(petSVG(pet.species,pet.breed,pet.stageIdx,size)||"").replace(/"/g,"&quot;");
-    return `<img src="${art}" width="${size}" height="${size}" style="object-fit:contain;display:block;" onerror="this.outerHTML='${svgFb}'">`; }
+  if(art){ const fb=(petSVG(pet.species,pet.breed,pet.stageIdx,size)||`<span style='font-size:${Math.round((size||40)*0.6)}px'>${pet.emoji||"🐾"}</span>`).replace(/"/g,"&quot;");
+    return `<img src="${art}" width="${size}" height="${size}" style="object-fit:contain;display:block;" onerror="this.outerHTML='${fb}'">`; }
   const svg=petSVG(pet.species,pet.breed,pet.stageIdx,size);
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
@@ -1300,16 +1295,12 @@ function renderPet(){
       `<div style="height:40px;display:flex;align-items:center;justify-content:center;line-height:0;">${petGlyph(c,36)}</div>`+
       `<div style="font-size:10.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">EXP ${c.exp}</div></div>`;
   }).join("");
-  // 敘事：主題故事線（階段名/星級/描述/專屬技能/特徵）
-  const lore=petLore(p.species,p.breed), lv=lore&&lore.levels[p.stageIdx];
-  const lvName=lv?lv.name:p.stageName;
-  const stars=lv?'⭐'.repeat(lv.stars):'⭐'.repeat(p.stageIdx||1);
   const isArt=!!petArtUrl(p.species,p.breed,p.stageIdx);
   const avSize=isArt?96:64, avBox=isArt?108:74;
   box.innerHTML=
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:${avBox}px;height:${avBox}px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
-        (p.equipped?`<span style="position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:22px;z-index:2;">${p.equipped}</span>`:"")+
+        (p.equipped&&!isArt?`<span style="position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:22px;z-index:2;">${p.equipped}</span>`:"")+
         `<span id="petEmoji" style="display:inline-flex;align-items:center;justify-content:center;line-height:0;">${petGlyph(p,avSize)}</span></div>`+
       `<div style="flex:1 1 auto;min-width:0;">`+
         `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-size:16px;">${escapeHtml(p.name)}</b>`+
@@ -1317,10 +1308,7 @@ function renderPet(){
           (PET_BREEDS[p.species]?`<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="changePetBreed()">換品種</span>`:"")+
           `<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="switchPet()">換寵物</span>`+
           `<span class="pill" style="margin-left:auto;background:#fff4e0;color:#a5701a;">🦴 ${p.coins}</span></div>`+
-        `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:3px 0;">`+
-          `<span class="pill" style="background:${p.stageIdx>=4?'#efe2ff':'var(--soft)'};color:${p.stageIdx>=4?'#7a4fd0':'var(--accent)'};">🐾 Lv.${p.stageIdx} ${lvName}</span>`+
-          `<span style="font-size:11px;letter-spacing:1px;">${stars}</span></div>`+
-        `<div style="font-size:13px;color:${moodColor};margin:2px 0;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
+        `<div style="font-size:13px;color:${moodColor};margin:3px 0 2px;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
         `<div class="prog"><i style="width:${pct}%"></i></div>`+
         `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
       `</div>`+

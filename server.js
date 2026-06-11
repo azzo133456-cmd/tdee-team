@@ -1236,6 +1236,10 @@ const PET_SPECIES = {
   fox:      { label: "狐狸", stages: ["🥚", "🐣", "🦊", "🦊", "🦊"] },
   frog:     { label: "青蛙", stages: ["🥚", "🐛", "🐸", "🐸", "🐲"] },
   owl:      { label: "貓頭鷹", stages: ["🥚", "🐣", "🦉", "🦉", "🦅"] },
+  // 以下為「插圖寵物」：造型由 public/pets/<species>/ 的圖呈現，emoji 只是缺圖時的暫代
+  bubu:     { label: "布布", stages: ["🥚", "🐾", "🐾", "🐾", "🐾"] },
+  jelly:    { label: "水母", stages: ["🥚", "🌊", "🪼", "🪼", "🪼"] },
+  money:    { label: "MONEY", stages: ["🥚", "🪙", "💰", "💵", "🤑"] },
 };
 // 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
 const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream", "silvertabby"], dog: ["shiba", "frenchie", "golden", "collie", "dachshund"] };
