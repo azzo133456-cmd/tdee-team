@@ -130,12 +130,14 @@ function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 /* ---------- API ---------- */
 // AI 端點的前端節流：避免短時間連發（與後端限流呼應，減少觸發上游限流）
 const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels"];
-let aiCalls=[];
+let aiCalls=[], aiLastCall=0;
 function aiThrottleOk(path){
   if(!AI_PATHS.some(p=>path.startsWith(p))) return true;
-  const now=Date.now(); aiCalls=aiCalls.filter(t=>now-t<60000);
-  if(aiCalls.length>=8){ const wait=Math.ceil((60000-(now-aiCalls[0]))/1000); throw new Error(`AI 請求太頻繁，請 ${wait} 秒後再試（避免被系統限流）`); }
-  aiCalls.push(now); return true;
+  const now=Date.now();
+  if(now-aiLastCall<4000){ const w=Math.ceil((4000-(now-aiLastCall))/1000); throw new Error(`操作太快，請 ${w} 秒後再試一次。`); }
+  aiCalls=aiCalls.filter(t=>now-t<60000);
+  if(aiCalls.length>=6){ const wait=Math.ceil((60000-(now-aiCalls[0]))/1000); throw new Error(`AI 請求太頻繁，請 ${wait} 秒後再試（每分鐘上限 6 次，避免被系統限流）。`); }
+  aiCalls.push(now); aiLastCall=now; return true;
 }
 async function api(path, opts={}){
   aiThrottleOk(path);
@@ -980,7 +982,7 @@ function renderReviews(){
 
 /* ---------- 群組競賽 ---------- */
 let myGroups=[];
-const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",exercise:"運動次數",protein:"蛋白達成率",water:"喝水達成率",poop:"嗯嗯次數",team:"團隊挑戰"};
+const METRIC_LABEL={all:"全能賽",discipline:"自律分",streak:"連續打卡",weightpct:"體重變化%",bodyfat:"體脂變化%",exercise:"運動次數",volume:"訓練量",kcaldays:"熱量達標天數",protein:"蛋白達成率",water:"喝水達成率",poop:"嗯嗯次數",team:"團隊挑戰"};
 const PERIOD_LABEL={day:"每日",week:"每週",month:"每月"};
 // 計算自己近 35 天的隱私安全統計並上傳（flag 由本機算，體重只供算個人%）
 async function syncDailyStats(){
@@ -1010,7 +1012,8 @@ async function syncDailyStats(){
       weight: rec&&rec.weight!=null?+rec.weight:null,
       water_pct: (rec&&rec.water_ml!=null)?Math.round(water/waterGoal*100):null,  // 喝水達成率(已喝/該喝)
       protein_pct: (t&&logged&&t.protein>0)?Math.round(nut.p/t.protein*100):null,  // 蛋白達成率(已吃/目標)
-      poop: (rec&&rec.poop!=null)?+rec.poop:null });  // 嗯嗯次數
+      poop: (rec&&rec.poop!=null)?+rec.poop:null,  // 嗯嗯次數
+      body_fat: (rec&&rec.body_fat!=null)?+rec.body_fat:null });  // 體脂%
   }
   if(!rows.length) return;
   try{ await api("/api/dailystats",{method:"POST",body:JSON.stringify({rows})}); }catch(e){}
@@ -1036,7 +1039,7 @@ function renderGroups(){
   const medal=(i)=>["🥇","🥈","🥉"][i]||(i+1)+".";
   const today=todayStr();
   box.innerHTML=myGroups.map(g=>{
-    const isTeam=g.metric==="team", asc=g.metric==="weightpct";
+    const isTeam=g.metric==="team", asc=g.metric==="weightpct"||g.metric==="bodyfat";
     // 賽馬跑道：依分數相對名次定位（領先=最右）
     const scores=g.members.map(m=>m.score);
     const best=asc?Math.min(...scores):Math.max(...scores);
@@ -1954,7 +1957,8 @@ function renderExRec(){
 }
 
 /* ---------- 紀錄 ---------- */
-function todayStr(){ const d=new Date(),o=d.getTimezoneOffset(); return new Date(d-o*60000).toISOString().slice(0,10); }
+// 一天的分界＝凌晨 4 點（台灣時間）；00:00–03:59 仍算前一天，與競賽結算一致（夜貓族友善）
+function todayStr(){ return new Date(Date.now()+8*3600000-4*3600000).toISOString().slice(0,10); }
 async function addRecord(){
   const date=val("rDate")||todayStr();
   const w=parseFloat(val("rWeight")), wpm=parseFloat(val("rWeightPm")), bf=parseFloat(val("rBodyFat"));

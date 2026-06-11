@@ -171,6 +171,7 @@ async function initDb() {
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS water_pct REAL;
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS protein_pct REAL;
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS poop INT;
+    ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS body_fat REAL;
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -631,17 +632,34 @@ async function geminiParts(key, parts, temperature) {
   return { error: lastErr };
 }
 
-// AI 請求限流（每使用者）：避免短時間連發觸發 Gemini 上游限流。預設 60 秒內最多 10 次。
-const aiHits = new Map();   // userId -> [timestamps]
+// AI 請求限流：三層把關，避免觸發 Gemini 上游(共用金鑰約 15/分)的限流。
+//  (1) 每使用者每分鐘 6 次  (2) 同一使用者兩次間隔至少 4 秒  (3) 全站每分鐘 12 次(留安全邊際)
+const aiHits = new Map();      // userId -> [timestamps]
+const aiLast = new Map();      // userId -> last ts
+let aiGlobal = [];             // 全站時間戳
+const AI_USER_MAX = 6, AI_USER_GAP = 4000, AI_GLOBAL_MAX = 12, AI_WIN = 60000;
 function aiLimit(req, res, next) {
-  const now = Date.now(), win = 60000, max = 10;
-  const arr = (aiHits.get(req.user.id) || []).filter((t) => now - t < win);
-  if (arr.length >= max) {
-    const wait = Math.ceil((win - (now - arr[0])) / 1000);
-    return res.status(429).json({ error: `AI 請求太頻繁，請 ${wait} 秒後再試（每分鐘上限 ${max} 次）` });
+  const now = Date.now();
+  // 全站
+  aiGlobal = aiGlobal.filter((t) => now - t < AI_WIN);
+  if (aiGlobal.length >= AI_GLOBAL_MAX) {
+    const wait = Math.ceil((AI_WIN - (now - aiGlobal[0])) / 1000);
+    return res.status(429).json({ error: `AI 服務目前較忙，請 ${wait} 秒後再試。` });
   }
-  arr.push(now); aiHits.set(req.user.id, arr);
-  if (aiHits.size > 500) { for (const [k, v] of aiHits) if (!v.some((t) => now - t < win)) aiHits.delete(k); }
+  // 同使用者間隔
+  const last = aiLast.get(req.user.id) || 0;
+  if (now - last < AI_USER_GAP) {
+    const wait = Math.ceil((AI_USER_GAP - (now - last)) / 1000);
+    return res.status(429).json({ error: `操作太快，請 ${wait} 秒後再試一次。` });
+  }
+  // 每使用者每分鐘
+  const arr = (aiHits.get(req.user.id) || []).filter((t) => now - t < AI_WIN);
+  if (arr.length >= AI_USER_MAX) {
+    const wait = Math.ceil((AI_WIN - (now - arr[0])) / 1000);
+    return res.status(429).json({ error: `AI 請求太頻繁，請 ${wait} 秒後再試（每分鐘上限 ${AI_USER_MAX} 次）。` });
+  }
+  arr.push(now); aiHits.set(req.user.id, arr); aiLast.set(req.user.id, now); aiGlobal.push(now);
+  if (aiHits.size > 500) { for (const [k, v] of aiHits) if (!v.some((t) => now - t < AI_WIN)) { aiHits.delete(k); aiLast.delete(k); } }
   next();
 }
 
@@ -1042,7 +1060,9 @@ app.post("/api/cosmetic", auth, async (req, res) => {
 const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
 // 一律以台灣時間(UTC+8)判斷「今天」，避免伺服器 UTC 造成競賽/打卡差一天
 const TW_OFFSET = 8 * 3600 * 1000;
-const twToday = () => new Date(Date.now() + TW_OFFSET).toISOString().slice(0, 10);
+// 「一天」的分界改成凌晨 4 點（夜貓族友善）：00:00–03:59 仍算前一天，每日賽結算時間＝隔天 04:00。
+const DAY_CUTOFF_MS = 4 * 3600 * 1000;
+const twToday = () => new Date(Date.now() + TW_OFFSET - DAY_CUTOFF_MS).toISOString().slice(0, 10);
 const roundLen = (period) => (period === "day" ? 1 : period === "month" ? 30 : 7);
 // 每座冠軍積分：每日15 / 每週100 / 每月500
 const periodPoints = (period) => (period === "day" ? 15 : period === "month" ? 500 : 100);
@@ -1069,6 +1089,26 @@ function scoreMember(rows, metric, since, until) {
     if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true };
     const pct = +(((+current.weight - +baseline.weight) / +baseline.weight) * 100).toFixed(1);
     return { score: pct, detail: (pct > 0 ? "+" : "") + pct + "%", sortAsc: true };
+  }
+  if (metric === "bodyfat") {
+    // 體脂變化%（下降越多越前面），基準同 weightpct 算法
+    const all = rows.filter((r) => r.body_fat != null && r.date <= until).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const inWin = all.filter((r) => r.date >= since);
+    const pre = all.filter((r) => r.date < since);
+    const current = inWin.length ? inWin[inWin.length - 1] : (all.length ? all[all.length - 1] : null);
+    const baseline = pre.length ? pre[pre.length - 1] : (inWin.length ? inWin[0] : null);
+    if (!current || !baseline) return { score: 0, detail: "尚無體脂", sortAsc: true };
+    if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true };
+    const d = +(+current.body_fat - +baseline.body_fat).toFixed(1);
+    return { score: d, detail: (d > 0 ? "+" : "") + d + "%", sortAsc: true };
+  }
+  if (metric === "volume") {
+    const vol = win.reduce((a, r) => a + (+r.volume || 0), 0);
+    return { score: Math.round(vol), detail: Math.round(vol).toLocaleString() + " kg" };
+  }
+  if (metric === "kcaldays") {
+    const cnt = win.reduce((a, r) => a + (r.kcal_hit || 0), 0);
+    return { score: cnt, detail: cnt + " 天達標" };
   }
   const streakOf = () => {
     const set = new Set(rows.filter((r) => r.logged).map((r) => r.date));
@@ -1132,17 +1172,18 @@ app.post("/api/dailystats", auth, async (req, res) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date || ""))) continue;
       const b = (v) => (v ? 1 : 0);
       await pool.query(
-        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop,body_fat)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          ON CONFLICT (user_id,date) DO UPDATE SET
            logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
            exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
-           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct,poop=EXCLUDED.poop`,
+           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct,poop=EXCLUDED.poop,body_fat=EXCLUDED.body_fat`,
         [req.user.id, r.date, b(r.logged), b(r.kcal_hit), b(r.protein_hit), b(r.exercised), b(r.water_hit),
          Math.max(0, Math.round(+r.ex_count || 0)), Math.max(0, +r.volume || 0), r.weight != null ? +r.weight : null,
          r.water_pct != null ? Math.max(0, Math.min(300, +r.water_pct)) : null,
          r.protein_pct != null ? Math.max(0, Math.min(300, +r.protein_pct)) : null,
-         r.poop != null ? Math.max(0, Math.min(20, Math.round(+r.poop))) : null]
+         r.poop != null ? Math.max(0, Math.min(20, Math.round(+r.poop))) : null,
+         r.body_fat != null ? +r.body_fat : null]
       );
     }
     res.json({ ok: true });
@@ -1152,7 +1193,7 @@ app.post("/api/dailystats", auth, async (req, res) => {
 app.post("/api/group", auth, async (req, res) => {
   try {
     const name = String(req.body.name || "").trim().slice(0, 40) || "減重小隊";
-    const metric = ["discipline", "streak", "weightpct", "exercise", "all", "protein", "water", "poop", "team"].includes(req.body.metric) ? req.body.metric : "discipline";
+    const metric = ["discipline", "streak", "weightpct", "bodyfat", "exercise", "volume", "kcaldays", "all", "protein", "water", "poop", "team"].includes(req.body.metric) ? req.body.metric : "discipline";
     const period = ["day", "week", "month"].includes(req.body.period) ? req.body.period : "week";
     let code, ok = false;
     for (let i = 0; i < 5 && !ok; i++) { code = genCode(); const e = await pool.query("SELECT 1 FROM groups WHERE code=$1", [code]); if (!e.rows[0]) ok = true; }
@@ -1201,11 +1242,11 @@ app.get("/api/groups", auth, async (req, res) => {
       mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
       const ids = mem.rows.map((u) => u.id);
       if (ids.length) {
-        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
+        const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop,body_fat FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
         st.rows.forEach((r) => { (rowsByUser[r.user_id] = rowsByUser[r.user_id] || []).push(r); });
       }
       const len = roundLen(g.period);
-      const asc = g.metric === "weightpct";
+      const asc = g.metric === "weightpct" || g.metric === "bodyfat";   // 變化%越低(降越多)越前面
       const buildBoard = (since, until) => {
         const b = mem.rows.map((u) => { const r = scoreMember(rowsByUser[u.id], g.metric, since, until); return { name: u.username, me: u.id === req.user.id, score: r.score, detail: r.detail }; });
         b.sort((a, b2) => asc ? a.score - b2.score : b2.score - a.score);
