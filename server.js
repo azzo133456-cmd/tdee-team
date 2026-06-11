@@ -42,6 +42,8 @@ async function initDb() {
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS fx TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS racer TEXT;
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -904,6 +906,18 @@ app.post("/api/avatar", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
+/* ---------- 名稱特效 + 賽道角色（積分解鎖，存使用者選擇，讓所有競賽都套用） ---------- */
+app.post("/api/cosmetic", auth, async (req, res) => {
+  try {
+    // fx：fx0~fx15；racer：單一表情符號或空字串（空＝預設旗子）。null=不更動該欄
+    const fx = req.body.fx === undefined ? undefined : (req.body.fx === null ? null : String(req.body.fx).slice(0, 8));
+    const racer = req.body.racer === undefined ? undefined : (req.body.racer === null ? null : String(req.body.racer).slice(0, 8));
+    if (fx !== undefined) await pool.query("UPDATE users SET fx=$1 WHERE id=$2", [fx || null, req.user.id]);
+    if (racer !== undefined) await pool.query("UPDATE users SET racer=$1 WHERE id=$2", [racer || null, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 /* ---------- 群組競賽（不暴露彼此體重，只比分數/相對%） ---------- */
 const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
 // 一律以台灣時間(UTC+8)判斷「今天」，避免伺服器 UTC 造成競賽/打卡差一天
@@ -967,6 +981,11 @@ function scoreMember(rows, metric, since, until) {
 // 名稱特效階級（與前端 FX_TIERS 對齊）：[最低分, cls]
 const FX_MINS = [[0,"fx0"],[50,"fx1"],[120,"fx2"],[220,"fx3"],[280,"fx4"],[350,"fx5"],[500,"fx6"],[700,"fx7"],[950,"fx8"],[1100,"fx9"],[1300,"fx10"],[1600,"fx11"],[2000,"fx12"],[2800,"fx13"],[3500,"fx14"],[5000,"fx15"]];
 function clsForPoints(pts) { let c = "fx0"; for (const [m, cls] of FX_MINS) if (pts >= m) c = cls; return c; }
+const FX_MIN_MAP = Object.fromEntries(FX_MINS.map(([m, cls]) => [cls, m]));
+function fxUnlocked(cls, pts) { return cls in FX_MIN_MAP && pts >= FX_MIN_MAP[cls]; }
+// 賽道角色解鎖門檻（與前端 RACER_TIERS 一致）；🏁 為預設、永遠可用
+const RACER_MINS = { "🏁": 0, "🐢": 30, "🐱": 80, "🐇": 150, "🐕": 250, "🐖": 380, "🐐": 520, "🦊": 700, "🐅": 1000, "🐎": 1400, "🦄": 2000 };
+function racerUnlocked(emoji, pts) { return emoji in RACER_MINS && pts >= RACER_MINS[emoji]; }
 function memberPoints(rows, trophyCount) {
   const act = rows.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
   return act + (trophyCount || 0) * 100;
@@ -1044,8 +1063,9 @@ app.get("/api/groups", auth, async (req, res) => {
     const out = [];
     for (const g of mine.rows) {
       const mem = await pool.query(
-        `SELECT u.id,u.username,u.avatar FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
-      const avatarByName = {}; mem.rows.forEach((u) => { if (u.avatar) avatarByName[u.username] = u.avatar; });
+        `SELECT u.id,u.username,u.avatar,u.fx,u.racer FROM group_members gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1`, [g.id]);
+      const avatarByName = {}, fxByName = {}, racerByName = {};
+      mem.rows.forEach((u) => { if (u.avatar) avatarByName[u.username] = u.avatar; if (u.fx) fxByName[u.username] = u.fx; if (u.racer) racerByName[u.username] = u.racer; });
       // 一次抓齊所有成員統計（避免 N+1）
       const rowsByUser = {};
       mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
@@ -1095,7 +1115,14 @@ app.get("/api/groups", auth, async (req, res) => {
       const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });
       board.forEach((m) => {
         m.trophies = trophies[m.name] || 0;
-        m.fx = clsForPoints(memberPoints(rowsByUser[uidByName[m.name]] || [], m.trophies));   // 各自積分特效
+        const pts = memberPoints(rowsByUser[uidByName[m.name]] || [], m.trophies);
+        // 名稱特效：優先用本人選的（須已解鎖），否則用目前積分對應的最高特效
+        const auto = clsForPoints(pts);
+        const picked = fxByName[m.name];
+        m.fx = (picked && fxUnlocked(picked, pts)) ? picked : auto;
+        // 賽道角色：本人選的動物（須已解鎖），否則預設旗子
+        const pr = racerByName[m.name];
+        m.racer = (pr && racerUnlocked(pr, pts)) ? pr : "🏁";
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
       });
       out.push({
@@ -1197,7 +1224,7 @@ app.get("/api/me/all", auth, async (req, res) => {
     const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
     const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name");
     const rvw = await pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]);
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, avatar: req.user.avatar || null });
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }

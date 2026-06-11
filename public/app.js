@@ -945,18 +945,28 @@ function renderGroups(){
     const best=asc?Math.min(...scores):Math.max(...scores);
     const worst=asc?Math.max(...scores):Math.min(...scores);
     const range=Math.abs(best-worst)||1;
+    // 賽馬跑道：每人一條，上排顯示名次/名字(特效)/分數，下排是自己的角色往🏁前進
     const race=g.members.map((m,i)=>{
-      const p=Math.round(Math.abs(m.score-worst)/range*92);   // 0~92%，留尾端給🏁
-      const an=RACE_ANIMALS[i%RACE_ANIMALS.length];
-      const fx=m.fx?` namefx ${m.fx}`:"";
-      return `<div style="position:relative;height:24px;margin:3px 0;border-bottom:1px dashed var(--line);">`+
-        `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:0;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:17px;">${an}</span>`+
-        `<span style="position:absolute;right:0;top:3px;font-size:11px;color:${m.me?'var(--accent)':'var(--sub)'};font-weight:${m.me?700:400}">${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="${fx.trim()}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"(我)":""} ${m.detail}${m.trophies?` 🏆×${m.trophies}`:""}</span></div>`;
+      const p=Math.round(Math.abs(m.score-worst)/range*86);   // 0~86%，尾端留給🏁
+      const racer=m.racer||"🏁";
+      const fxCls=(m.fx&&m.fx!=="fx0")?(" "+m.fx):"";
+      const nm=`<span class="namefx${fxCls}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>`;
+      return `<div style="margin:7px 0;">`+
+        `<div style="display:flex;align-items:center;gap:5px;font-size:12px;margin-bottom:1px;">`+
+          `<span>${medal(i)}</span>`+
+          (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
+          `<span style="${m.me?'font-weight:700;color:var(--accent);':''}">${nm}${m.me?'（我）':''}</span>`+
+          (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
+          `<span style="margin-left:auto;color:var(--sub);">${m.detail}</span></div>`+
+        `<div style="position:relative;height:18px;border-bottom:1px dashed var(--line);">`+
+          `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${racer}</span>`+
+          `<span style="position:absolute;right:0;top:0;font-size:13px;opacity:.8;">🏁</span></div>`+
+      `</div>`;
     }).join("");
-    const raceBox=`<div style="position:relative;margin:8px 0;padding-right:18px;">${race}<span style="position:absolute;right:0;top:0;bottom:0;display:flex;align-items:center;font-size:14px;">🏁</span></div>`;
-    // 排行清單（含獎盃、各自特效）
-    const board=g.members.map((m,i)=>
-      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>${isTeam?"•":medal(i)} ${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
+    const raceBox=`<div style="margin:8px 0;">${race}</div>`;
+    // 團隊模式沒有賽道，用精簡清單
+    const teamList=g.members.map((m,i)=>
+      `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>• ${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
     let teamBar="";
     if(isTeam&&g.team){
       const pct=Math.min(100,g.team.goal?Math.round(g.team.total/g.team.goal*100):0);
@@ -976,7 +986,7 @@ function renderGroups(){
         `<span class="pill" style="background:var(--soft);color:var(--accent)">第 ${g.roundNo} 輪</span>`+
         (myRank?`<span class="pill" style="margin-left:auto;">${myRank}</span>`:"")+`</summary>`+
       `<div class="hint" style="margin-bottom:4px;">${cd}${g.stakes?`　·　🎁 ${g.stakes}`:""}</div>`+
-      (isTeam?teamBar:raceBox)+board+
+      (isTeam?teamBar+teamList:raceBox)+
       histHtml+
       `<div class="chipbar" style="margin-top:8px;">`+
         `<button class="ghost sm" onclick="loadGroups()">🔄 更新</button>`+
@@ -1007,6 +1017,20 @@ const FX_TIERS=[
   {min:2800, cls:"fx13", name:"神龍",     emoji:"🐲"},
   {min:3500, cls:"fx14", name:"彩虹傳說", emoji:"🌈"},
   {min:5000, cls:"fx15", name:"鑽石傳奇", emoji:"💎"},
+];
+// 賽道角色（積分解鎖）：預設 🏁 旗子，解鎖後在所有競賽的賽馬跑道變成你的專屬角色
+const RACER_TIERS=[
+  {min:0,    emoji:"🏁", name:"旗子(預設)"},
+  {min:30,   emoji:"🐢", name:"烏龜"},
+  {min:80,   emoji:"🐱", name:"貓咪"},
+  {min:150,  emoji:"🐇", name:"兔子"},
+  {min:250,  emoji:"🐕", name:"狗狗"},
+  {min:380,  emoji:"🐖", name:"小豬"},
+  {min:520,  emoji:"🐐", name:"山羊"},
+  {min:700,  emoji:"🦊", name:"狐狸"},
+  {min:1000, emoji:"🐅", name:"老虎"},
+  {min:1400, emoji:"🐎", name:"駿馬"},
+  {min:2000, emoji:"🦄", name:"獨角獸"},
 ];
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
 function computePoints(){
@@ -1045,7 +1069,14 @@ function applyNameFx(){
   el.className="namefx "+tier.cls;
   el.setAttribute("data-emoji", tier.emoji||"");
 }
-function chooseFx(cls){ try{ localStorage.setItem("tdee_fx",cls); }catch(e){} applyNameFx(); renderPoints(); }
+function chooseFx(cls){ try{ localStorage.setItem("tdee_fx",cls); }catch(e){} applyNameFx(); renderPoints();
+  // 存到伺服器，讓所有競賽的名字都套用這個特效
+  api("/api/cosmetic",{method:"POST",body:JSON.stringify({fx:cls})}).then(()=>loadGroups()).catch(()=>{});
+}
+// 選擇賽道角色（解鎖後在所有競賽的賽馬跑道顯示）
+function chooseRacer(emoji){ try{ localStorage.setItem("tdee_racer",emoji); }catch(e){} renderPoints();
+  api("/api/cosmetic",{method:"POST",body:JSON.stringify({racer:emoji})}).then(()=>loadGroups()).catch(()=>{});
+}
 // 自訂頭像（積分獎勵，滿 AV_MIN 解鎖）
 const AV_MIN=1000;
 function applyAvatar(){ const el=document.getElementById("myAvatar"); if(!el) return; if(store.avatar){ el.src=store.avatar; el.style.display=""; } else { el.style.display="none"; } }
@@ -1116,6 +1147,15 @@ function renderPoints(){
       `<div style="font-size:18px;">${t.emoji||"🙂"}</div><div style="font-size:11px;${got?'':'color:var(--sub)'}">${t.name}</div>`+
       `<div style="font-size:10px;color:var(--sub)">${got?(sel?"使用中":"可用"):t.min+"分"}</div></div>`;
   }).join("");
+  // 賽道角色畫廊
+  let pickR="🏁"; try{ pickR=localStorage.getItem("tdee_racer")||"🏁"; }catch(e){}
+  const racerGallery=RACER_TIERS.map(t=>{
+    const got=points>=t.min, on=pickR===t.emoji;
+    return `<div onclick="${got?`chooseRacer('${t.emoji}')`:''}" title="${t.min} 分解鎖" `+
+      `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;${got?'cursor:pointer;':'opacity:.4;'}background:${on?'var(--soft)':'#fff'};">`+
+      `<div style="font-size:18px;">${t.emoji}</div><div style="font-size:11px;${got?'':'color:var(--sub)'}">${t.name}</div>`+
+      `<div style="font-size:10px;color:var(--sub)">${got?(on?"使用中":"可用"):t.min+"分"}</div></div>`;
+  }).join("");
   box.innerHTML=
     `<div class="stat-row" style="margin-top:2px;">`+
       `<div><div class="v">${points.toLocaleString()}</div><div class="k">總積分</div></div>`+
@@ -1124,8 +1164,10 @@ function renderPoints(){
     `</div>`+
     `<div class="hint" style="margin-top:8px;">目前稱號：<b>${cur.emoji} ${cur.name}</b>${next?`　·　距「${next.emoji} ${next.name}」還差 ${next.min-points} 分`:`　·　已達最高稱號！`}</div>`+
     (next?`<div class="prog" style="margin-top:6px;"><i style="width:${prog}%"></i></div>`:"")+
-    `<div style="font-weight:500;font-size:13px;margin:10px 0 6px;">名稱特效（點選已解鎖的套用）</div>`+
+    `<div style="font-weight:500;font-size:13px;margin:10px 0 6px;">名稱特效（點選已解鎖的套用，所有競賽都會顯示）</div>`+
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${gallery}</div>`+
+    `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🏇 賽道角色（解鎖後在競賽跑道變成你的專屬角色）</div>`+
+    `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${racerGallery}</div>`+
     avatarSection(points)+
     `<div class="hint tip" style="margin-top:6px;">積分＝每天的自律分(記飲食/熱量達標/蛋白達標/運動/飲水)累積 ＋ 每座競賽冠軍 100 分。</div>`;
   applyNameFx(); applyAvatar();
@@ -1952,6 +1994,8 @@ function renderAll(){ set("curName",session.username); renderDerived(); renderTa
 
 async function reload(){
   store = await api("/api/me/all");
+  // 同步伺服器存的造型選擇到本機（換裝置也一致）
+  try{ if(store.fx) localStorage.setItem("tdee_fx",store.fx); if(store.racer) localStorage.setItem("tdee_racer",store.racer); }catch(e){}
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
