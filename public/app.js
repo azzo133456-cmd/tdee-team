@@ -1019,7 +1019,8 @@ async function syncDailyStats(){
       kcal_hit: !!(t && logged && nut.k<=t.kcal),
       protein_hit: !!(t && logged && nut.p>=t.protein),
       exercised, water_hit: water>=waterGoal,
-      ex_count: exsDay.length,
+      // 運動次數：同一天「有氧」算1次、「重訓」算1次（各類別當天有做就+1），不再每個動作各記一次
+      ex_count: (exsDay.some(e=>e.kind!=="strength")?1:0) + (exsDay.some(e=>e.kind==="strength")?1:0),
       volume: exsDay.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0),
       weight: rec&&rec.weight!=null?+rec.weight:null,
       water_pct: (rec&&rec.water_ml!=null)?Math.round(water/waterGoal*100):null,  // 喝水達成率(已喝/該喝)
@@ -1176,8 +1177,12 @@ function petSVG(species,breed,stage,px){
       `<circle cx="44" cy="54" r="2.4" fill="#2b2b2b"/><circle cx="56" cy="54" r="2.4" fill="#2b2b2b"/>`+
       `<path d="M46,60 q4,3 8,0" fill="none" stroke="#2b2b2b" stroke-width="1.4" stroke-linecap="round"/></svg>`;
   }
-  const sc=[0,.74,.85,.95,1.05][stage]||1;
+  const sc=[0,.8,.9,.97,1.04][stage]||1;
   const body=P.body, body2=P.body2||P.body, inner=P.inner||"#f0c0a0";
+  // 每階段不同體型：幼體大頭小身、成體勻稱、進化體較壯（頭固定以對齊五官）
+  const bp=({1:[12,10,78],2:[16,14,78],3:[20,17,76],4:[21,18,75]})[stage]||[20,17,76];
+  const bRx=bp[0], bRy=bp[1], bCy=bp[2], pawY=bCy+bRy-2;
+  const eyeR=stage===1?5.2:4.2;   // 幼體大眼
   let ears="";
   if(P.ear==="up") ears=`<path d="M32,28 L24,8 L46,24 Z" fill="${body}"/><path d="M68,28 L76,8 L54,24 Z" fill="${body}"/><path d="M33,26 L28,13 L43,24 Z" fill="${inner}"/><path d="M67,26 L72,13 L57,24 Z" fill="${inner}"/>`;
   else if(P.ear==="bat") ears=`<ellipse cx="30" cy="20" rx="9" ry="15" fill="${body}" transform="rotate(-10 30 20)"/><ellipse cx="70" cy="20" rx="9" ry="15" fill="${body}" transform="rotate(10 70 20)"/><ellipse cx="30" cy="21" rx="4.5" ry="9" fill="${inner}" transform="rotate(-10 30 21)"/><ellipse cx="70" cy="21" rx="4.5" ry="9" fill="${inner}" transform="rotate(10 70 21)"/>`;
@@ -1185,20 +1190,23 @@ function petSVG(species,breed,stage,px){
   else ears=`<ellipse cx="26" cy="46" rx="9" ry="16" fill="${body2}"/><ellipse cx="74" cy="46" rx="9" ry="16" fill="${body2}"/>`;
   const noseCol=species==="cat"?"#c8697e":"#3a3033";
   let s=`<g transform="translate(50,54) scale(${sc}) translate(-50,-54)">`;
+  if(stage>=4) s+=`<g fill="#fdf2d0" stroke="#ecce86" stroke-width="1"><path d="M34,70 Q12,50 6,68 Q10,82 34,78 Z"/><path d="M66,70 Q88,50 94,68 Q90,82 66,78 Z"/></g>`;   // 進化體：翅膀
   s+=`<path d="M70,78 q22,-2 16,-20" fill="none" stroke="${body}" stroke-width="7" stroke-linecap="round"/>`;
   s+=ears;
-  s+=`<ellipse cx="50" cy="76" rx="20" ry="17" fill="${body}"/>`;
-  s+=`<ellipse cx="50" cy="80" rx="12" ry="11" fill="${P.belly}"/>`;
-  s+=`<ellipse cx="42" cy="90" rx="5" ry="4" fill="${P.belly}"/><ellipse cx="58" cy="90" rx="5" ry="4" fill="${P.belly}"/>`;
+  s+=`<ellipse cx="50" cy="${bCy}" rx="${bRx}" ry="${bRy}" fill="${body}"/>`;
+  s+=`<ellipse cx="50" cy="${bCy+3}" rx="${Math.max(8,bRx-7)}" ry="${Math.max(7,bRy-6)}" fill="${P.belly}"/>`;
+  s+=`<ellipse cx="43" cy="${pawY}" rx="5" ry="4" fill="${P.belly}"/><ellipse cx="57" cy="${pawY}" rx="5" ry="4" fill="${P.belly}"/>`;
+  if(stage===1) s+=`<path d="M30,76 Q50,92 70,76 Q68,92 62,95 Q50,99 38,95 Q32,92 30,76 Z" fill="#f6efe3" stroke="#e2d8c6" stroke-width="1.2"/><path d="M30,76 l5,5 6,-6 5,6 6,-6 5,6 6,-6 5,5" fill="none" stroke="#e2d8c6" stroke-width="1.2" stroke-linejoin="round"/>`;   // 幼體：剛孵化的蛋殼
   s+=`<circle cx="50" cy="46" r="23" fill="${body}"/>`;
   s+=`<clipPath id="h${uid}"><circle cx="50" cy="46" r="23"/></clipPath>`;
   s+=`<g clip-path="url(#h${uid})">${petFacial(species,P)}</g>`;
   s+=`<ellipse cx="35" cy="52" rx="3.6" ry="2.3" fill="#ff9aa0" opacity=".5"/><ellipse cx="65" cy="52" rx="3.6" ry="2.3" fill="#ff9aa0" opacity=".5"/>`;
-  s+=`<circle cx="42" cy="45" r="4.2" fill="#2b2b2b"/><circle cx="58" cy="45" r="4.2" fill="#2b2b2b"/>`;
-  s+=`<circle cx="43.4" cy="43.4" r="1.4" fill="#fff"/><circle cx="59.4" cy="43.4" r="1.4" fill="#fff"/>`;
+  s+=`<circle cx="42" cy="45" r="${eyeR}" fill="#2b2b2b"/><circle cx="58" cy="45" r="${eyeR}" fill="#2b2b2b"/>`;
+  s+=`<circle cx="${43.4-(eyeR-4.2)}" cy="${43.4-(eyeR-4.2)}" r="${eyeR*0.34}" fill="#fff"/><circle cx="${59.4-(eyeR-4.2)}" cy="${43.4-(eyeR-4.2)}" r="${eyeR*0.34}" fill="#fff"/>`;
   s+=`<ellipse cx="50" cy="52" rx="2.4" ry="1.7" fill="${noseCol}"/>`;
   s+=`<path d="M50,53.5 q-3,3.5 -6,1.5 M50,53.5 q3,3.5 6,1.5" fill="none" stroke="#5a4a4a" stroke-width="1.2" stroke-linecap="round"/>`;
   if(species==="cat") s+=`<g stroke="#999" stroke-width=".8" opacity=".55" stroke-linecap="round"><path d="M33,50 L20,48"/><path d="M33,53 L20,55"/><path d="M67,50 L80,48"/><path d="M67,53 L80,55"/></g>`;
+  if(stage>=4) s+=`<path d="M40,25 L38,11 L45,18 L50,7 L55,18 L62,11 L60,25 Z" fill="#ffd24a" stroke="#e0a92a" stroke-width="1" stroke-linejoin="round"/><circle cx="50" cy="12" r="1.7" fill="#ff6f91"/>`;   // 進化體：皇冠
   s+=`</g>`;
   let extra="";
   if(stage>=4) extra=`<g fill="#ffd24a"><path d="M16,24 l1.6,4 4,1.6 -4,1.6 -1.6,4 -1.6,-4 -4,-1.6 4,-1.6 z"/><path d="M84,30 l1.2,3 3,1.2 -3,1.2 -1.2,3 -1.2,-3 -3,-1.2 3,-1.2 z"/><path d="M80,70 l1,2.6 2.6,1 -2.6,1 -1,2.6 -1,-2.6 -2.6,-1 2.6,-1 z"/></g>`;
