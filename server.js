@@ -636,10 +636,17 @@ async function geminiParts(key, parts, temperature) {
 //  (1) 每使用者每分鐘 6 次  (2) 同一使用者兩次間隔至少 4 秒  (3) 全站每分鐘 12 次(留安全邊際)
 const aiHits = new Map();      // userId -> [timestamps]
 const aiLast = new Map();      // userId -> last ts
+const aiBusy = new Map();      // userId -> 進行中請求開始時間（in-flight 鎖，防連點/多分頁重送）
 let aiGlobal = [];             // 全站時間戳
 const AI_USER_MAX = 6, AI_USER_GAP = 4000, AI_GLOBAL_MAX = 12, AI_WIN = 60000;
+const AI_BUSY_TTL = 45000;     // 保險：卡住的鎖最久 45 秒自動失效
 function aiLimit(req, res, next) {
   const now = Date.now();
+  // 防連點：同一使用者上一個 AI 請求還沒回來，就擋掉重送
+  const busyAt = aiBusy.get(req.user.id);
+  if (busyAt && now - busyAt < AI_BUSY_TTL) {
+    return res.status(429).json({ error: "AI 正在處理你上一個請求，請稍候再操作。" });
+  }
   // 全站
   aiGlobal = aiGlobal.filter((t) => now - t < AI_WIN);
   if (aiGlobal.length >= AI_GLOBAL_MAX) {
@@ -660,6 +667,11 @@ function aiLimit(req, res, next) {
   }
   arr.push(now); aiHits.set(req.user.id, arr); aiLast.set(req.user.id, now); aiGlobal.push(now);
   if (aiHits.size > 500) { for (const [k, v] of aiHits) if (!v.some((t) => now - t < AI_WIN)) { aiHits.delete(k); aiLast.delete(k); } }
+  // 上鎖，回應結束（成功或斷線）即釋放
+  const uid = req.user.id;
+  aiBusy.set(uid, now);
+  const release = () => aiBusy.delete(uid);
+  res.on("finish", release); res.on("close", release);
   next();
 }
 

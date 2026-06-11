@@ -130,9 +130,12 @@ function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 /* ---------- API ---------- */
 // AI 端點的前端節流：避免短時間連發（與後端限流呼應，減少觸發上游限流）
 const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels"];
-let aiCalls=[], aiLastCall=0;
+let aiCalls=[], aiLastCall=0, aiInFlight=false;
+function isAiPath(path){ return AI_PATHS.some(p=>path.startsWith(p)); }
 function aiThrottleOk(path){
-  if(!AI_PATHS.some(p=>path.startsWith(p))) return true;
+  if(!isAiPath(path)) return true;
+  // 防連點：同一時間只允許一個 AI 請求在跑，未回來前重複點擊一律擋掉
+  if(aiInFlight) throw new Error("AI 正在處理中，請等上一個結果出來再操作。");
   const now=Date.now();
   if(now-aiLastCall<4000){ const w=Math.ceil((4000-(now-aiLastCall))/1000); throw new Error(`操作太快，請 ${w} 秒後再試一次。`); }
   aiCalls=aiCalls.filter(t=>now-t<60000);
@@ -141,12 +144,16 @@ function aiThrottleOk(path){
 }
 async function api(path, opts={}){
   aiThrottleOk(path);
-  const headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
-  if(session) headers["x-token"]=session.token;
-  const r = await fetch(API+path, Object.assign({}, opts, {headers}));
-  if(r.status===401){ logout(); throw new Error("登入已失效"); }
-  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||"錯誤"); }
-  return r.json();
+  const ai=isAiPath(path);
+  if(ai) aiInFlight=true;
+  try{
+    const headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
+    if(session) headers["x-token"]=session.token;
+    const r = await fetch(API+path, Object.assign({}, opts, {headers}));
+    if(r.status===401){ logout(); throw new Error("登入已失效"); }
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||"錯誤"); }
+    return r.json();
+  } finally { if(ai) aiInFlight=false; }
 }
 
 /* ---------- 登入 / 註冊 ---------- */
