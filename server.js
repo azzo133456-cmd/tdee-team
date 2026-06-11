@@ -178,6 +178,14 @@ async function initDb() {
       sub JSONB NOT NULL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS pets (
+      user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      species TEXT NOT NULL DEFAULT 'cat',
+      name TEXT,
+      equipped TEXT,
+      dex JSONB DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
   console.log("DB ready");
 }
@@ -1074,6 +1082,64 @@ app.post("/api/cosmetic", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
+/* ---------- 寵物 API（成長由 daily_stats 權威推算，不碰 AI） ---------- */
+async function trophyCount(username) {
+  const r = await pool.query("SELECT COUNT(*)::int AS n FROM group_seasons WHERE winner=$1", [username]);
+  return (r.rows[0] && r.rows[0].n) || 0;
+}
+async function computePet(userId) {
+  const [petR, statR, uR] = await Promise.all([
+    pool.query("SELECT * FROM pets WHERE user_id=$1", [userId]),
+    pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop FROM daily_stats WHERE user_id=$1", [userId]),
+    pool.query("SELECT username FROM users WHERE id=$1", [userId]),
+  ]);
+  const trophies = uR.rows.length ? await trophyCount(uR.rows[0].username) : 0;
+  return { state: petStateFromRows(petR.rows[0] || null, statR.rows, trophies), row: petR.rows[0] || null };
+}
+app.get("/api/pet", auth, async (req, res) => {
+  try {
+    const { state, row } = await computePet(req.user.id);
+    // 回寫圖鑑（達到新階段時持久化）
+    if (row && JSON.stringify(row.dex || []) !== JSON.stringify(state.dex)) {
+      await pool.query("UPDATE pets SET dex=$1 WHERE user_id=$2", [JSON.stringify(state.dex), req.user.id]);
+    }
+    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/pet/choose", auth, async (req, res) => {
+  try {
+    const species = String(req.body.species || "").trim();
+    if (!(species in PET_SPECIES)) return res.status(400).json({ error: "沒有這種寵物" });
+    const name = req.body.name === undefined ? null : String(req.body.name || "").trim().slice(0, 16) || null;
+    await pool.query(
+      `INSERT INTO pets(user_id,species,name) VALUES($1,$2,$3)
+       ON CONFLICT (user_id) DO UPDATE SET species=$2, name=COALESCE($3,pets.name)`,
+      [req.user.id, species, name]
+    );
+    const { state } = await computePet(req.user.id);
+    res.json({ pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.put("/api/pet", auth, async (req, res) => {
+  try {
+    const exists = await pool.query("SELECT 1 FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!exists.rowCount) return res.status(400).json({ error: "還沒領養寵物" });
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name || "").trim().slice(0, 16) || null;
+      await pool.query("UPDATE pets SET name=$1 WHERE user_id=$2", [name, req.user.id]);
+    }
+    if (req.body.equipped !== undefined) {
+      // 只能戴已解鎖的飾品（伺服器再驗一次）
+      const { state } = await computePet(req.user.id);
+      const want = String(req.body.equipped || "");
+      const eq = want && state.unlocked.includes(want) ? want : (want === "" ? null : null);
+      await pool.query("UPDATE pets SET equipped=$1 WHERE user_id=$2", [eq, req.user.id]);
+    }
+    const { state } = await computePet(req.user.id);
+    res.json({ pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 /* ---------- 群組競賽（不暴露彼此體重，只比分數/相對%） ---------- */
 const isoD = (d) => { const o = d.getTimezoneOffset(); return new Date(d - o * 60000).toISOString().slice(0, 10); };
 // 一律以台灣時間(UTC+8)判斷「今天」，避免伺服器 UTC 造成競賽/打卡差一天
@@ -1087,6 +1153,75 @@ const periodPoints = (period) => (period === "day" ? 15 : period === "month" ? 5
 // 前三名積分 [冠, 亞, 季]：亞=50%、季=30%（四捨五入）
 const placePoints = (period) => { const p = periodPoints(period); return [p, Math.round(p * 0.5), Math.round(p * 0.3)]; };
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return isoD(d); };
+
+/* ---------- 養寵物（純規則計算，不碰 AI；成長＝所有健康行為，持久夥伴） ---------- */
+const PET_SPECIES = {
+  cat:    { label: "貓", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
+  dog:    { label: "狗", stages: ["🥚", "🐶", "🐕", "🦮", "🐺"] },
+  dragon: { label: "龍", stages: ["🥚", "🐣", "🦎", "🐉", "🐲"] },
+  sprout: { label: "芽芽", stages: ["🌰", "🌱", "🌿", "🪴", "🌳"] },
+  chick:  { label: "小雞", stages: ["🥚", "🐤", "🐥", "🐔", "🦅"] },
+};
+const PET_STAGE_NAMES = ["蛋", "幼體", "成長期", "成體", "進化體"];
+const PET_STAGE_EXP = [0, 50, 200, 600, 1500];
+const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+// 從 daily_stats 算累積 EXP（伺服器端權威計算，防作弊）；每項行為給分，連續達標另有加成
+function petExpFromRows(rows) {
+  let exp = 0;
+  const loggedDates = rows.filter((r) => r.logged).map((r) => r.date).sort();
+  rows.forEach((r) => {
+    if (r.logged) exp += 10;
+    if (r.kcal_hit) exp += 8;
+    if (r.protein_hit) exp += 5;
+    if (r.exercised) exp += 5;
+    if (r.water_hit) exp += 4;
+    if ((r.poop || 0) > 0) exp += 3;
+  });
+  let prev = null, run = 0;
+  for (const d of loggedDates) {                          // 連續達標：越長餵得越多（每日上限 +20）
+    if (prev && addDays(prev, 1) === d) { run++; exp += Math.min(run * 2, 20); } else run = 0;
+    prev = d;
+  }
+  return { exp, lastLogged: loggedDates.length ? loggedDates[loggedDates.length - 1] : null };
+}
+const petStageIdx = (exp) => { let i = 0; for (let k = 0; k < PET_STAGE_EXP.length; k++) if (exp >= PET_STAGE_EXP[k]) i = k; return i; };
+// 把 pet 資料列 + 統計 + 獎盃數 → 完整寵物狀態（輕度衰減：掉心情＋少量EXP，但不退階）
+function petStateFromRows(petRow, rows, trophies) {
+  const species = (petRow && petRow.species) || "cat";
+  const sp = PET_SPECIES[species] || PET_SPECIES.cat;
+  const { exp: rawExp, lastLogged } = petExpFromRows(rows);
+  const today = twToday();
+  const daysSince = lastLogged ? Math.max(0, daysBetween(lastLogged, today)) : 0;
+  const stageIdx = petStageIdx(rawExp);                   // 階段由原始EXP決定→永不退階
+  const penalty = Math.max(0, daysSince - 1) * 4;         // 輕衰減：漏記第2天起每天 -4 EXP
+  const exp = Math.max(PET_STAGE_EXP[stageIdx], rawExp - penalty);  // 地板＝目前階段門檻
+  const mood = Math.max(15, Math.min(100, 100 - daysSince * 15));
+  const moodLabel = mood >= 70 ? "開心" : mood >= 40 ? "普通" : "想睡";
+  const moodFace = mood >= 70 ? "😀" : mood >= 40 ? "🙂" : "😴";
+  const nextExp = stageIdx < PET_STAGE_EXP.length - 1 ? PET_STAGE_EXP[stageIdx + 1] : null;
+  // 解鎖的裝飾品：EXP 里程碑 + 競賽獎盃
+  const unlocked = [];
+  if (rawExp >= 200) unlocked.push("🧣");
+  if (rawExp >= 600) unlocked.push("🎀");
+  if (rawExp >= 1500) unlocked.push("✨");
+  if (trophies >= 1) unlocked.push("🎩");
+  if (trophies >= 3) unlocked.push("👑");
+  if (trophies >= 5) unlocked.push("🌟");
+  let equipped = petRow && petRow.equipped;
+  if (equipped && !unlocked.includes(equipped)) equipped = null;   // 還沒解鎖的不給戴
+  // 圖鑑：本物種達到的最高階段（合併舊紀錄）
+  const dex = Array.isArray(petRow && petRow.dex) ? petRow.dex.slice() : [];
+  const di = dex.findIndex((d) => d && d.species === species);
+  if (di < 0) dex.push({ species, maxStage: stageIdx });
+  else if ((dex[di].maxStage || 0) < stageIdx) dex[di].maxStage = stageIdx;
+  return {
+    chosen: !!petRow, species, speciesLabel: sp.label, name: (petRow && petRow.name) || sp.label,
+    emoji: sp.stages[stageIdx], stageIdx, stageName: PET_STAGE_NAMES[stageIdx],
+    exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
+    equipped: equipped || "", unlocked, dex, trophies,
+  };
+}
+
 // 在 [since, until] 窗內計分
 function scoreMember(rows, metric, since, until) {
   const today = twToday();
@@ -1259,9 +1394,12 @@ app.get("/api/groups", auth, async (req, res) => {
       const rowsByUser = {};
       mem.rows.forEach((u) => { rowsByUser[u.id] = []; });
       const ids = mem.rows.map((u) => u.id);
+      const petByUid = {};
       if (ids.length) {
         const st = await pool.query("SELECT user_id,date::text,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop,body_fat FROM daily_stats WHERE user_id = ANY($1) ORDER BY date", [ids]);
         st.rows.forEach((r) => { (rowsByUser[r.user_id] = rowsByUser[r.user_id] || []).push(r); });
+        const pr = await pool.query("SELECT * FROM pets WHERE user_id = ANY($1)", [ids]);
+        pr.rows.forEach((p) => { petByUid[p.user_id] = p; });
       }
       const len = roundLen(g.period);
       const asc = g.metric === "weightpct" || g.metric === "bodyfat";   // 變化%越低(降越多)越前面
@@ -1326,6 +1464,12 @@ app.get("/api/groups", auth, async (req, res) => {
         m.racer = (pr && (pr in RACER_MINS || pr === "avatar")) ? pr : "🏁";
         if (skinByName[m.name]) m.skin = skinByName[m.name];   // 各自的賽道皮膚（給所有人看）
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
+        // 寵物（給所有人看）：只送顯示用的最小資訊，不洩漏體重/詳細數據
+        const uid = uidByName[m.name];
+        if (petByUid[uid]) {
+          const ps = petStateFromRows(petByUid[uid], rowsByUser[uid] || [], trophies[m.name] || 0);
+          m.pet = { emoji: ps.emoji, hat: ps.equipped, stage: ps.stageName, mood: ps.moodFace };
+        }
       });
       // 留言／加油（最近 20 則，最舊在前），不洩漏體重
       const msgs = await pool.query(

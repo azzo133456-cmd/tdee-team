@@ -1076,6 +1076,7 @@ function renderGroups(){
           `<span>${medal(i)}</span>`+
           (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
           `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}${m.me?'（我）':''}</span>`+
+          (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="font-size:14px;position:relative;">${m.pet.hat?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;">${m.pet.hat}</span>`:""}${m.pet.emoji}</span>`:"")+
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
           `<span style="margin-left:auto;${sk.dark?'color:#dde;':'color:var(--sub);'}">${m.detail}</span></div>`+
         `<div style="position:relative;height:18px;border-bottom:1px dashed ${dashCol};${sk.id?'margin-bottom:4px;':''}">`+
@@ -1130,6 +1131,78 @@ function renderGroups(){
   }).join("");
   // 賽馬動畫：插入後再把跑者移到目標位置，觸發過場
   requestAnimationFrame(()=>{ box.querySelectorAll(".runner").forEach(el=>{ el.style.left=(el.dataset.p||0)+"%"; }); });
+}
+
+/* ---------- 養寵物（成長＝健康習慣；不碰 AI） ---------- */
+let petData=null, petMeta=null;
+async function loadPet(){
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp}; }
+  catch(e){ petData=null; }
+  renderPet();
+}
+async function choosePet(sp){
+  try{ const r=await api("/api/pet/choose",{method:"POST",body:JSON.stringify({species:sp})}); petData=r.pet; renderPet(); }
+  catch(e){ alert(e.message); }
+}
+async function equipPet(item){
+  try{ const r=await api("/api/pet",{method:"PUT",body:JSON.stringify({equipped:item})}); petData=r.pet; renderPet(); }
+  catch(e){ alert(e.message); }
+}
+async function renamePet(){
+  const cur=petData&&petData.name||"";
+  const nv=(prompt("幫寵物取個名字（最多 16 字）：",cur)||"").trim();
+  if(nv===cur) return;
+  try{ const r=await api("/api/pet",{method:"PUT",body:JSON.stringify({name:nv})}); petData=r.pet; renderPet(); }
+  catch(e){ alert(e.message); }
+}
+function renderPet(){
+  const box=document.getElementById("petBox"); if(!box) return;
+  const pill=document.getElementById("petPill");
+  if(!petData){ box.innerHTML='<div class="hint">載入中…</div>'; return; }
+  // 還沒領養 → 選一隻
+  if(!petData.chosen){
+    if(pill) pill.textContent="";
+    const sp=(petMeta&&petMeta.species)||{};
+    const cards=Object.keys(sp).map(k=>{
+      const s=sp[k];
+      return `<div onclick="choosePet('${k}')" style="cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;flex:1 1 28%;min-width:90px;">`+
+        `<div style="font-size:30px;line-height:1.1;">${s.stages[1]}</div>`+
+        `<div style="font-size:13px;font-weight:600;margin-top:2px;">${s.label}</div>`+
+        `<div style="font-size:14px;letter-spacing:1px;margin-top:2px;color:var(--sub);">${s.stages.join("→")}</div></div>`;
+    }).join("");
+    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻夥伴吧！牠會跟著你的健康習慣一起長大（持續記錄＝餵食，跨賽季也不會不見）。</div>`+
+      `<div style="display:flex;flex-wrap:wrap;gap:8px;">${cards}</div>`;
+    return;
+  }
+  const p=petData;
+  if(pill) pill.textContent=p.stageName;
+  const next=p.nextExp;
+  const base=(petMeta&&petMeta.stageExp&&petMeta.stageExp[p.stageIdx])||0;
+  const pct=next?Math.min(100,Math.round((p.exp-base)/((next-base)||1)*100)):100;
+  const moodColor=p.mood>=70?"#3a9":p.mood>=40?"#b93":"#a66";
+  // 裝飾品列
+  const items=p.unlocked||[];
+  const itemBtns=items.length?items.map(it=>`<button class="ghost sm" style="${p.equipped===it?'background:var(--soft);border-color:var(--accent);':''}" onclick="equipPet('${p.equipped===it?'':it}')">${it}</button>`).join("")
+    :`<span class="hint">還沒有飾品～連續記錄、競賽奪牌就能解鎖帽子🎩、皇冠👑等。</span>`;
+  const dexHtml=(p.dex||[]).map(d=>{ const s=(petMeta&&petMeta.species&&petMeta.species[d.species]); if(!s)return""; return `<span title="${s.label} 最高${(petMeta.stageNames||[])[d.maxStage]||''}" style="font-size:20px;">${s.stages[d.maxStage]}</span>`; }).join("");
+  box.innerHTML=
+    `<div style="display:flex;align-items:center;gap:14px;">`+
+      `<div style="position:relative;width:74px;height:74px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
+        (p.equipped?`<span style="position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:22px;">${p.equipped}</span>`:"")+
+        `<span style="font-size:42px;">${p.emoji}</span></div>`+
+      `<div style="flex:1 1 auto;min-width:0;">`+
+        `<div style="display:flex;align-items:center;gap:6px;"><b style="font-size:16px;">${escapeHtml(p.name)}</b>`+
+          `<span class="pill">${p.stageName}</span>`+
+          `<span style="cursor:pointer;color:var(--sub);font-size:13px;" onclick="renamePet()">✎</span></div>`+
+        `<div style="font-size:13px;color:${moodColor};margin:2px 0;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
+        `<div class="prog"><i style="width:${pct}%"></i></div>`+
+        `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
+      `</div>`+
+    `</div>`+
+    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 飾品</div>`+
+    `<div class="chipbar" style="margin-top:4px;">${itemBtns}${p.equipped?`<button class="ghost sm" onclick="equipPet('')">脫下</button>`:""}</div>`+
+    (dexHtml?`<div style="margin-top:10px;font-size:13px;font-weight:600;">📖 圖鑑</div><div style="margin-top:4px;">${dexHtml}</div>`:"")+
+    `<div class="hint tip" style="margin-top:8px;">每天記錄飲食/喝水/運動/體重都會餵養牠，連續達標長更快。漏記只會讓牠想睡（不會生病或消失）。</div>`;
 }
 
 /* ---------- 積分制 + 名稱特效 ---------- */
@@ -2303,7 +2376,7 @@ let _grpSyncTimer=null;
 function scheduleGroupSync(){
   if(!(myGroups&&myGroups.length)) return;   // 沒參賽就不用打 API
   clearTimeout(_grpSyncTimer);
-  _grpSyncTimer=setTimeout(async()=>{ try{ await syncDailyStats(); await loadGroups(); }catch(e){} },2500);
+  _grpSyncTimer=setTimeout(async()=>{ try{ await syncDailyStats(); await loadGroups(); if(petData) await loadPet(); }catch(e){} },2500);
 }
 
 /* ---------- helpers ---------- */
@@ -2328,7 +2401,7 @@ async function boot(){
   renderPushUI();        // 提醒通知狀態
   maybeOnboard();        // 首次登入顯示引導
   maybeWeeklyReview();   // 背景補產生上週覆盤（有資料且尚未產生時）
-  (async()=>{ await handleJoinParam(); await syncDailyStats(); await loadGroups(); })();  // 競賽：加入連結→上傳統計→載排行
+  (async()=>{ await handleJoinParam(); await syncDailyStats(); await loadGroups(); await loadPet(); })();  // 競賽：加入連結→上傳統計→載排行→寵物
 }
 
 window.addEventListener("DOMContentLoaded", ()=>{
