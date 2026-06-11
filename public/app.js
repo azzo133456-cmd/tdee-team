@@ -63,6 +63,10 @@ function foodCat(n){
   if(/超商|7-?11|全家|關東煮|御飯糰|飯糰|三明治/.test(n)) return "store";
   return "raw";
 }
+// FDA 烹調變體（如「鯖魚(烤,150度,20分)」「雞胸(水煮)」）→ 搜尋時排到乾淨主名稱之後，減少洗版。
+// 注意：手搖甜度「(半糖)」「(全糖大杯)」不含這些字，不會被誤判。
+const VARIANT_RE=/\([^)]*(度|分|炒|爆|煮|烤|蒸|煎|炸|滷|燙|微波|乾|醃|燜|焗|川|汆|罐頭|生鮮|帶皮|去皮|帶骨)/;
+function isVariant(n){ return VARIANT_RE.test(n); }
 /* ---------- 營養密度標籤（每100g門檻） ---------- */
 function densityTags(d){
   if(!d) return "";
@@ -85,7 +89,7 @@ function portionHint(n,g){
 }
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
-  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {});
+  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_FASTFOOD || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
@@ -359,8 +363,15 @@ function foodSuggest(){
   let res=[...new Set(allFoodNames())].filter(n=>{ const nn=normSearch(n); return toks.every(t=>nn.includes(t)); });
   if(FOOD_FILTER) res=res.filter(n=>foodCat(n)===FOOD_FILTER);
   res.sort((a,b)=>{
+    // 1) 完全相符優先
+    const ea=(a.toLowerCase()===ql?0:1)-(b.toLowerCase()===ql?0:1); if(ea) return ea;
+    // 2) 開頭相符優先
     const sa=(a.toLowerCase().startsWith(ql)?0:1)-(b.toLowerCase().startsWith(ql)?0:1); if(sa) return sa;
-    const ca=(FOOD_STATS[b]?.c||0)-(FOOD_STATS[a]?.c||0); return ca;   // 常用優先
+    // 3) 烹調變體（含溫度/時間/烹法）排到後面，乾淨主名稱先出
+    const va=(isVariant(a)?1:0)-(isVariant(b)?1:0); if(va) return va;
+    // 4) 較短名稱優先（通常是主品項，變體名較長）
+    const ca=(FOOD_STATS[b]?.c||0)-(FOOD_STATS[a]?.c||0); if(ca) return ca;   // 常用優先
+    return a.length-b.length;
   });
   res=res.slice(0,50); window.__fs=res;
   if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 用「📷 掃條碼」或「✏️ 自訂食物」建立</div>'; box.style.display="block"; return; }
