@@ -89,7 +89,7 @@ function portionHint(n,g){
 }
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
-  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_FASTFOOD || {});
+  const C = Object.assign({}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_MORECHAINS || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
@@ -349,17 +349,24 @@ function drawMacroBar(barId,legId,p,f,c){
 function fillFoodList(){}  // 已改用自訂下拉，保留空函式相容
 function allFoodNames(){ return Object.keys(FOODS).concat(Object.keys(FOODS_DYN)).concat(Object.keys(FOODS_TW)); }
 // 別名/同義詞正規化：讓「五十嵐」找得到「50嵐」等
-const SEARCH_ALIAS=[["五十嵐","50嵐"],["五0嵐","50嵐"],["可可","可不可"],["coco","都可"],["cama","cama"],["7-11","超商"],["711","超商"],["小七","超商"],["7-eleven","超商"],["全家","超商"],["星巴克","starbucks 星巴克"],["路易莎","louisa 路易莎"]];
+const SEARCH_ALIAS=[["五十嵐","50嵐"],["五0嵐","50嵐"],["可可","可不可"],["coco","都可"],["cama","cama"],["7-11","超商"],["711","超商"],["小七","超商"],["7-eleven","超商"],["全家","超商"],["星巴克","starbucks 星巴克"],["路易莎","louisa 路易莎"],["美而美","早餐店"],["麥味登","早餐店"],["弘爺","早餐店"],["晨間","早餐店"],["sushi","爭鮮"],["laya","拉亞"]];
 function normSearch(s){
   s=s.toLowerCase();
   for(const [a,b] of SEARCH_ALIAS){ if(s.includes(a)) s+=" "+b; }
+  return s;
+}
+// 查詢用：把別名「替換」成對應詞（如 美而美→早餐店、五十嵐→50嵐），
+// 而非附加，否則多關鍵字 AND 比對會要求兩者都命中而查無結果。
+function aliasQuery(s){
+  s=s.toLowerCase();
+  for(const [a,b] of SEARCH_ALIAS){ if(s.includes(a)) s=s.split(a).join(" "+b+" "); }
   return s;
 }
 function foodSuggest(){
   const q=val("foodPick").trim(), box=document.getElementById("foodSuggest");
   if(!q){ box.style.display="none"; box.innerHTML=""; return; }
   const ql=q.toLowerCase();
-  const toks=normSearch(q).split(/\s+/).filter(Boolean);  // 多關鍵字：全部命中才算
+  const toks=aliasQuery(q).split(/\s+/).filter(Boolean);  // 多關鍵字：全部命中才算（別名先替換）
   let res=[...new Set(allFoodNames())].filter(n=>{ const nn=normSearch(n); return toks.every(t=>nn.includes(t)); });
   if(FOOD_FILTER) res=res.filter(n=>foodCat(n)===FOOD_FILTER);
   res.sort((a,b)=>{
