@@ -1075,7 +1075,7 @@ function renderGroups(){
         `<div style="display:flex;align-items:center;gap:5px;font-size:12px;margin-bottom:1px;${sk.id?'padding-top:4px;':''}">`+
           `<span>${medal(i)}</span>`+
           (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
-          `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}${m.me?'（我）':''}</span>`+
+          `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}</span>`+
           (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="position:relative;display:inline-flex;align-items:center;line-height:0;">${m.pet.hat?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;z-index:2;">${m.pet.hat}</span>`:""}${petGlyph(m.pet,22)}</span>`:"")+
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
           `<span style="margin-left:auto;${sk.dark?'color:#dde;':'color:var(--sub);'}">${m.detail}</span></div>`+
