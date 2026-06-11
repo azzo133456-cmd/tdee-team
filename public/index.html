@@ -236,8 +236,20 @@
         <div id="mealPhotoPreview" style="margin-top:8px;"></div>
         <div class="hint tip">可只拍照當飲食日記，按「＋加入」即可。</div>
       </div>
-      <button class="ghost" id="saveRecipeBtn" style="display:none;" onclick="saveRecipe()">💾 把目前清單存成食譜</button>
+      <div id="cartSaveBtns" style="display:none;">
+        <button class="ghost" onclick="saveRecipe()">💾 存成食譜</button>
+        <button class="ghost" onclick="savePlate()">🍽️ 存成我的餐盤（可附照片）</button>
+      </div>
       <div class="hint tip">來源：台灣FDA＋連鎖/小吃/手搖包＋AI辨識，皆為概估。</div>
+    </div>
+
+    <!-- 我的餐盤（拍照存的常吃餐點，一鍵重記） -->
+    <div class="card collapsed">
+      <h2 class="ch" data-ck="plates" onclick="toggleCard(this)">🍽️ 我的餐盤 <span class="pill" id="plateCount"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div id="plateList"><div class="empty">還沒有餐盤。組好常吃的一餐（可先拍照）後按「存成我的餐盤」，下次一鍵帶入。</div></div>
+        <div class="hint tip">點餐盤即把內容載入計算機清單，再選餐別加入。餐盤是個人專用、不會公開。</div>
+      </div>
     </div>
 
     <!-- 今日飲食（在計算機下方） -->
@@ -459,6 +471,7 @@
           <button class="ghost sm fbtn on" id="rep7" onclick="setReport(7,this)">近 7 天</button>
           <button class="ghost sm fbtn" id="rep30" onclick="setReport(30,this)">近 30 天</button>
           <button class="ghost sm" onclick="coachReport()">🤖 教練點評</button>
+          <button class="ghost sm" onclick="coachShopping()">🛒 採購清單</button>
         </div>
         <div id="reportBox"></div>
         <div id="coachReportBox" class="hint" style="overflow-wrap:anywhere; margin-top:8px;"></div>

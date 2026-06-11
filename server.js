@@ -44,6 +44,7 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS favorites JSONB DEFAULT '[]'::jsonb;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS fx TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS racer TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS skin TEXT;
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -84,6 +85,15 @@ async function initDb() {
       name TEXT NOT NULL,
       items JSONB DEFAULT '[]'::jsonb,
       kcal INT, protein REAL, fat REAL, carb REAL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS plates (
+      id SERIAL PRIMARY KEY,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      items JSONB DEFAULT '[]'::jsonb,
+      kcal INT,
+      thumb TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS shared_foods (
@@ -132,6 +142,14 @@ async function initDb() {
       winner TEXT, results JSONB DEFAULT '[]',
       settled_at TIMESTAMPTZ DEFAULT now(),
       UNIQUE(group_id, round_no)
+    );
+    ALTER TABLE group_seasons ADD COLUMN IF NOT EXISTS boss BOOLEAN DEFAULT false;
+    CREATE TABLE IF NOT EXISTS group_messages (
+      id SERIAL PRIMARY KEY,
+      group_id INT REFERENCES groups(id) ON DELETE CASCADE,
+      user_id INT REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS group_members (
       group_id INT REFERENCES groups(id) ON DELETE CASCADE,
@@ -440,6 +458,30 @@ app.delete("/api/recipe/:rid", auth, async (req, res) => {
   }
 });
 
+/* ---------- 我的餐盤（可拍照存的快速餐點，僅個人、不公開分享） ---------- */
+app.post("/api/plate", auth, async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim().slice(0, 40);
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    if (!name || !items.length) return res.status(400).json({ error: "需要餐盤名稱與內容" });
+    let thumb = String(req.body.thumb || "");
+    if (thumb && (!/^data:image\/[a-zA-Z]+;base64,/.test(thumb) || thumb.length > 60000)) thumb = ""; // 縮圖過大就不存
+    const cap = await pool.query("SELECT COUNT(*)::int n FROM plates WHERE user_id=$1", [req.user.id]);
+    if (cap.rows[0].n >= 24) return res.status(400).json({ error: "餐盤已達上限(24)，請先刪除一些" });
+    await pool.query(
+      "INSERT INTO plates(user_id,name,items,kcal,thumb) VALUES($1,$2,$3,$4,$5)",
+      [req.user.id, name, JSON.stringify(items), req.body.kcal ?? null, thumb || null]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.delete("/api/plate/:pid", auth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM plates WHERE id=$1 AND user_id=$2", [req.params.pid, req.user.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 /* ---------- 條碼查詢（Open Food Facts 代理） ---------- */
 app.get("/api/barcode", auth, async (req, res) => {
   try {
@@ -719,7 +761,7 @@ app.post("/api/coach", auth, async (req, res) => {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });
     const b = req.body || {};
-    const mode = ["daily", "report", "remain"].includes(b.mode) ? b.mode : "daily";
+    const mode = ["daily", "report", "remain", "shopping"].includes(b.mode) ? b.mode : "daily";
     const goalName = { cut: "減脂", maintain: "維持", bulk: "增肌" }[b.goal] || "維持";
     const j = (o) => JSON.stringify(o || {});
     // 減重計畫脈絡（前端 planContext）→ 轉成給 AI 的白話描述，讓建議對準進度而非泛泛營養
@@ -751,6 +793,16 @@ app.post("/api/coach", auth, async (req, res) => {
         "每項給實際份量與營養估計。只回傳 JSON，不要說明文字、不要 markdown：" +
         '{"items":[{"name":"品項(含份量)","kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克,"reason":"一句為何推薦(20字內)"}]}。' +
         "數字一律阿拉伯數字、不含單位。若剩餘熱量已很少或為負，items 可給低卡高蛋白選項並在 reason 提醒已接近上限。";
+    } else if (mode === "shopping") {
+      // 一週採購清單：依目標、平均缺口、常吃品項，產出可在台灣超市/超商買到的清單
+      prompt =
+        "你是營養師兼台灣採購助手。" + planLine +
+        "使用者每日營養目標=" + j(b.target) + "，最近平均每日攝取=" + j(b.avg) +
+        "（可看出蛋白質或其他常不足之處）。" +
+        (Array.isArray(b.prefs) && b.prefs.length ? "他常吃：" + b.prefs.slice(0, 12).join("、") + "。" : "") +
+        "請產生一份『一週採購清單』，幫他更容易達成目標（特別補足常缺的蛋白質、增加高纖蔬菜、控制精緻澱粉）。" +
+        "品項要在台灣超市/超商/量販買得到，標出大概數量，並分類。只回傳 JSON、不要說明或 markdown：" +
+        '{"groups":[{"cat":"分類(如 高蛋白/蔬菜/主食/其他)","items":[{"name":"品項","qty":"建議數量","reason":"一句用途(15字內)"}]}]}。';
     } else if (mode === "report") {
       prompt =
         "你是專屬減重教練。" + planLine +
@@ -787,6 +839,17 @@ app.post("/api/coach", auth, async (req, res) => {
       }));
       if (!items.length) return res.status(502).json({ error: "AI 沒有給出建議" });
       return res.json({ ok: true, items });
+    }
+    if (mode === "shopping") {
+      const gs = Array.isArray(parsed.groups) ? parsed.groups : [];
+      const groups = gs.filter((x) => x && Array.isArray(x.items)).slice(0, 6).map((x) => ({
+        cat: String(x.cat || "其他").slice(0, 16),
+        items: x.items.filter((it) => it && it.name).slice(0, 10).map((it) => ({
+          name: String(it.name).slice(0, 30), qty: String(it.qty || "").slice(0, 20), reason: String(it.reason || "").slice(0, 24),
+        })),
+      })).filter((x) => x.items.length);
+      if (!groups.length) return res.status(502).json({ error: "AI 沒有給出清單" });
+      return res.json({ ok: true, groups });
     }
     const actions = Array.isArray(parsed.actions) ? parsed.actions.slice(0, 4).map((s) => String(s).slice(0, 80)) : [];
     res.json({ ok: true, summary: String(parsed.summary || "").slice(0, 400), actions });
@@ -912,8 +975,10 @@ app.post("/api/cosmetic", auth, async (req, res) => {
     // fx：fx0~fx15；racer：單一表情符號或空字串（空＝預設旗子）。null=不更動該欄
     const fx = req.body.fx === undefined ? undefined : (req.body.fx === null ? null : String(req.body.fx).slice(0, 8));
     const racer = req.body.racer === undefined ? undefined : (req.body.racer === null ? null : String(req.body.racer).slice(0, 8));
+    const skin = req.body.skin === undefined ? undefined : (req.body.skin === null ? null : String(req.body.skin).slice(0, 12));
     if (fx !== undefined) await pool.query("UPDATE users SET fx=$1 WHERE id=$2", [fx || null, req.user.id]);
     if (racer !== undefined) await pool.query("UPDATE users SET racer=$1 WHERE id=$2", [racer || null, req.user.id]);
+    if (skin !== undefined) await pool.query("UPDATE users SET skin=$1 WHERE id=$2", [skin || null, req.user.id]);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
@@ -988,6 +1053,8 @@ function memberPoints(rows, trophyCount) {
   const act = rows.reduce((a, r) => a + (r.logged || 0) + (r.kcal_hit || 0) + (r.protein_hit || 0) + (r.exercised || 0) + (r.water_hit || 0), 0);
   return act + (trophyCount || 0) * 100;
 }
+// 魔王輪：以群組id+輪次決定（約每 4 輪一次），奪冠可得雙倍獎盃。前後端一致、可預測。
+function isBossRound(groupId, roundNo) { return (((groupId * 7 + roundNo * 13) % 4) === 0); }
 function genCode() {
   const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = "";
   for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
@@ -1089,9 +1156,9 @@ app.get("/api/groups", auth, async (req, res) => {
         const finalBoard = buildBoard(seasonStart, end);
         const winner = finalBoard.length && (finalBoard[0].score !== 0 || g.metric === "weightpct") ? finalBoard[0].name : null;
         await pool.query(
-          `INSERT INTO group_seasons(group_id,round_no,start_date,end_date,winner,results) VALUES($1,$2,$3,$4,$5,$6)
+          `INSERT INTO group_seasons(group_id,round_no,start_date,end_date,winner,results,boss) VALUES($1,$2,$3,$4,$5,$6,$7)
            ON CONFLICT (group_id,round_no) DO NOTHING`,
-          [g.id, roundNo, seasonStart, end, winner, JSON.stringify(finalBoard.slice(0, 10))]
+          [g.id, roundNo, seasonStart, end, winner, JSON.stringify(finalBoard.slice(0, 10)), isBossRound(g.id, roundNo)]
         );
         seasonStart = addDays(end, 1);
         roundNo += 1;
@@ -1106,10 +1173,10 @@ app.get("/api/groups", auth, async (req, res) => {
       let team = null;
       if (g.metric === "team") team = { total: board.reduce((a, m) => a + (m.score || 0), 0), goal: board.length * len * 5 };
       // 戰績：歷屆冠軍 + 獎盃統計
-      const seasons = await pool.query("SELECT round_no,start_date::text,end_date::text,winner FROM group_seasons WHERE group_id=$1 ORDER BY round_no DESC LIMIT 8", [g.id]);
+      const seasons = await pool.query("SELECT round_no,start_date::text,end_date::text,winner,boss FROM group_seasons WHERE group_id=$1 ORDER BY round_no DESC LIMIT 8", [g.id]);
       const trophies = {};
-      const allSeasons = await pool.query("SELECT winner FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
-      allSeasons.rows.forEach((s) => { trophies[s.winner] = (trophies[s.winner] || 0) + 1; });
+      const allSeasons = await pool.query("SELECT winner,boss FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
+      allSeasons.rows.forEach((s) => { trophies[s.winner] = (trophies[s.winner] || 0) + (s.boss ? 2 : 1); });   // 魔王輪奪冠＝雙倍獎盃
       const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });
       board.forEach((m) => {
         m.trophies = trophies[m.name] || 0;
@@ -1123,14 +1190,37 @@ app.get("/api/groups", auth, async (req, res) => {
         m.racer = (pr && (pr in RACER_MINS || pr === "avatar")) ? pr : "🏁";
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
       });
+      // 留言／加油（最近 20 則，最舊在前），不洩漏體重
+      const msgs = await pool.query(
+        `SELECT m.body, m.created_at, u.username FROM group_messages m JOIN users u ON u.id=m.user_id
+         WHERE m.group_id=$1 ORDER BY m.id DESC LIMIT 20`, [g.id]);
       out.push({
         id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period,
         isOwner: g.created_by === req.user.id, stakes: g.stakes || "",
         roundNo, seasonStart, seasonEnd, members: board, team,
-        history: seasons.rows.map((s) => ({ round: s.round_no, start: s.start_date, end: s.end_date, winner: s.winner })),
+        boss: isBossRound(g.id, roundNo),   // 本輪是否為魔王輪（奪冠雙倍獎盃）
+        messages: msgs.rows.reverse().map((m) => ({ name: m.username, body: m.body, me: m.username === req.user.username })),
+        history: seasons.rows.map((s) => ({ round: s.round_no, start: s.start_date, end: s.end_date, winner: s.winner, boss: s.boss })),
       });
     }
     res.json({ groups: out });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
+/* ---------- 競賽留言／加油（只存文字，不涉及體重） ---------- */
+app.post("/api/group/:id/message", auth, async (req, res) => {
+  try {
+    const gid = +req.params.id;
+    const body = String(req.body.body || "").trim().slice(0, 120);
+    if (!body) return res.status(400).json({ error: "請輸入內容" });
+    const mem = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [gid, req.user.id]);
+    if (!mem.rowCount) return res.status(403).json({ error: "你不在這個競賽中" });
+    await pool.query("INSERT INTO group_messages(group_id,user_id,body) VALUES($1,$2,$3)", [gid, req.user.id, body]);
+    // 只保留每組最新 50 則
+    await pool.query(
+      `DELETE FROM group_messages WHERE group_id=$1 AND id NOT IN
+       (SELECT id FROM group_messages WHERE group_id=$1 ORDER BY id DESC LIMIT 50)`, [gid]);
+    res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
@@ -1236,7 +1326,8 @@ app.get("/api/me/all", auth, async (req, res) => {
     const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
     const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name");
     const rvw = await pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]);
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null });
+    const plt = await pool.query("SELECT id,name,items,kcal,thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }

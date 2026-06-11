@@ -465,7 +465,7 @@ function renderFood(){
       `<span class="x" onclick="rmFood(${i})">✕</span></div>`;
   }).join("");
   const tot=foodCart.reduce((a,b)=>{const m=cartMacros(b);return {k:a.k+m.k,p:a.p+m.p,f:a.f+m.f,c:a.c+m.c};},{k:0,p:0,f:0,c:0});
-  const el=document.getElementById("foodTotal"), sb=document.getElementById("saveRecipeBtn");
+  const el=document.getElementById("foodTotal"), sb=document.getElementById("cartSaveBtns");
   if(foodCart.length){ el.style.display="block"; sb.style.display="block";
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
   }else{ el.style.display="none"; sb.style.display="none"; }
@@ -840,6 +840,29 @@ async function coachReport(){
     box.innerHTML=coachHtml(r);
   }catch(e){ box.innerHTML=`點評失敗：${e.message} <button class="ghost sm" onclick="coachReport()">🔁 再試</button>`; }
 }
+async function coachShopping(){
+  const box=document.getElementById("coachReportBox");
+  const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能產生採購清單。"; return; }
+  const since=isoLocal(new Date(new Date(todayStr())-6*86400000));
+  const intakeDays=(store.records||[]).filter(r=>r.date.slice(0,10)>=since&&r.kcal!=null);
+  const avgI=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.kcal||0))):0;
+  const avgP=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.protein||0))):0;
+  const avgF=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.fat||0))):0;
+  const avgC=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.carb||0))):0;
+  box.textContent="🛒 AI 產生一週採購清單中…約 3–6 秒";
+  try{
+    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"shopping",
+      target:{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb},
+      avg:{kcal:avgI,protein:avgP,fat:avgF,carb:avgC},
+      prefs:topFoods(12), goal:val("goal"), plan:planContext()})});
+    const groups=r.groups||[];
+    if(!groups.length){ box.innerHTML="AI 沒有給出清單，稍後再試。"; return; }
+    box.innerHTML=`<div style="font-weight:600;margin-bottom:6px;">🛒 一週採購清單（依你的目標與常吃口味）</div>`+
+      groups.map(g=>`<div style="margin:6px 0;"><div style="font-weight:600;font-size:13px;color:var(--accent);">${escapeHtml(g.cat)}</div>`+
+        g.items.map(it=>`<div style="font-size:13px;line-height:1.6;">☐ ${escapeHtml(it.name)}${it.qty?` <span style="color:var(--sub)">${escapeHtml(it.qty)}</span>`:""}${it.reason?` <span style="color:var(--sub);font-size:11px">· ${escapeHtml(it.reason)}</span>`:""}</div>`).join("")+
+      `</div>`).join("")+`<div class="hint tip" style="margin-top:6px;">清單僅供參考，依個人口味與預算自行調整。</div>`;
+  }catch(e){ box.innerHTML=`產生失敗：${e.message} <button class="ghost sm" onclick="coachShopping()">🔁 再試</button>`; }
+}
 // 把 {summary, actions[]} 轉成顯示用 HTML
 function coachHtml(r){
   let html=`<div style="color:var(--ink);">${(r.summary||"").replace(/\n/g,"<br>")}</div>`;
@@ -957,6 +980,12 @@ async function loadGroups(){
 // 記住各競賽展開/收合狀態（重新整理排行榜時保留）
 const grpClosed=new Set();
 function onGroupToggle(d){ const id=+d.dataset.gid; if(d.open) grpClosed.delete(id); else grpClosed.add(id); }
+function escapeHtml(s){ return String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+async function sendGroupMsg(gid){
+  const el=document.getElementById("gmsg-"+gid); const body=(el&&el.value||"").trim(); if(!body) return;
+  try{ await api("/api/group/"+gid+"/message",{method:"POST",body:JSON.stringify({body})}); if(el) el.value=""; grpClosed.delete(gid); await loadGroups(); }
+  catch(e){ alert(e.message); }
+}
 function daysBetween(a,b){ return Math.round((new Date(b+"T00:00:00")-new Date(a+"T00:00:00"))/86400000); }
 function renderGroups(){
   const box=document.getElementById("groupList"); if(!box) return;
@@ -992,7 +1021,9 @@ function renderGroups(){
           `<span class="runner" data-p="${p}" style="position:absolute;left:0%;top:-1px;transition:left 1.1s cubic-bezier(.2,.8,.2,1);font-size:16px;">${runnerInner}</span></div>`+
       `</div>`;
     }).join("");
-    const raceBox=`<div style="margin:8px 0;">${race}</div>`;
+    const sk=skinById(store&&store.skin);
+    const skStyle=sk.id?`background:${sk.css};border-radius:10px;padding:8px 10px;${sk.dark?"color:#eef;":""}`:"";
+    const raceBox=`<div style="margin:8px 0;${skStyle}">${race}</div>`;
     // 團隊模式沒有賽道，用精簡清單
     const teamList=g.members.map((m,i)=>
       `<div class="rec-line"${m.me?' style="font-weight:700;color:var(--accent)"':""}><span>• ${m.avatar?`<img class="avatar sm" src="${m.avatar}">`:""}<span class="namefx ${m.fx||"fx0"}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>${m.me?"（我）":""}${m.trophies?` 🏆×${m.trophies}`:""}</span><span>${m.detail}</span></div>`).join("");
@@ -1008,7 +1039,16 @@ function renderGroups(){
     const cd=left==null?"":left<0?"結算中…":left===0?`${endTxt}今天結算！`:`${endTxt}距結算還有 ${left} 天`;
     const hist=(g.history||[]).filter(h=>h.winner);
     const histHtml=hist.length?`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">🏆 歷屆冠軍（${hist.length}）</summary>`+
-      hist.map(h=>`<div class="hint" style="margin-top:2px;">第 ${h.round} 輪（${h.start.slice(5)}~${h.end.slice(5)}）：<b>${h.winner}</b></div>`).join("")+`</details>`:"";
+      hist.map(h=>`<div class="hint" style="margin-top:2px;">第 ${h.round} 輪（${h.start.slice(5)}~${h.end.slice(5)}）：<b>${h.winner}</b>${h.boss?" 🔥魔王(雙倍)":""}</div>`).join("")+`</details>`:"";
+    // 魔王輪橫幅
+    const bossBanner=g.boss?`<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,#fde2d0,#f7c9b0);color:#9a4a2a;font-size:12.5px;font-weight:600;">🔥 本輪是「魔王輪」！奪冠可得 <b>雙倍獎盃</b>（等同 200 分），把握機會衝一波！</div>`:"";
+    // 留言／加油
+    const msgs=g.messages||[];
+    const msgList=msgs.length?msgs.slice(-6).map(m=>`<div style="font-size:12px;margin:2px 0;"><b style="color:${m.me?'var(--accent)':'var(--ink)'}">${m.name}</b>：${escapeHtml(m.body)}</div>`).join(""):`<div class="hint">還沒有留言，先喊一聲幫大家加油吧！</div>`;
+    const msgsHtml=`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">💬 留言加油（${msgs.length}）</summary>`+
+      `<div style="margin-top:4px;max-height:140px;overflow-y:auto;">${msgList}</div>`+
+      `<div class="row" style="margin-top:6px;"><div style="flex:1 1 auto;"><input id="gmsg-${g.id}" maxlength="120" placeholder="說句加油/嗆聲（不會洩漏體重）" autocomplete="off"></div>`+
+      `<div style="flex:0 0 auto;align-self:flex-end;"><button class="ghost sm" onclick="sendGroupMsg(${g.id})">送出</button></div></div></details>`;
     const myIdx=g.members.findIndex(m=>m.me); const myRank=myIdx>=0?`第 ${myIdx+1}/${g.members.length}`:"";
     const open=(grpClosed.has(g.id))?"":" open";
     return `<details${open} data-gid="${g.id}" ontoggle="onGroupToggle(this)" style="border:1px solid var(--line);border-radius:10px;padding:2px 12px;margin-bottom:10px;">`+
@@ -1017,8 +1057,10 @@ function renderGroups(){
         `<span class="pill" style="background:var(--soft);color:var(--accent)">第 ${g.roundNo} 輪</span>`+
         (myRank?`<span class="pill" style="margin-left:auto;">${myRank}</span>`:"")+`</summary>`+
       `<div class="hint" style="margin-bottom:4px;">${cd}${g.stakes?`　·　🎁 ${g.stakes}`:""}</div>`+
+      bossBanner+
       (isTeam?teamBar+teamList:raceBox)+
       histHtml+
+      msgsHtml+
       `<div class="chipbar" style="margin-top:8px;">`+
         `<button class="ghost sm" onclick="loadGroups()">🔄 更新</button>`+
         `<button class="ghost sm" onclick="copyInvite('${g.code}')">🔗 邀請連結</button>`+
@@ -1073,6 +1115,21 @@ const RACER_TIERS=[
   {min:6500, emoji:"🐉", name:"飛龍"},
   {min:8000, emoji:"🚀", name:"火箭"},
 ];
+// 賽道皮膚（積分解鎖）：套用在競賽賽道背景，只影響自己的畫面
+const SKIN_TIERS=[
+  {id:"",      min:0,    name:"預設",   css:"transparent"},
+  {id:"grass", min:100,  name:"草原",   css:"linear-gradient(180deg,#eef7e8,#dceccf)"},
+  {id:"sky",   min:300,  name:"晴空",   css:"linear-gradient(180deg,#e8f3fb,#d3e8f7)"},
+  {id:"sunset",min:600,  name:"黃昏",   css:"linear-gradient(180deg,#fdeede,#f7d9c4)"},
+  {id:"sea",   min:1000, name:"海邊",   css:"linear-gradient(180deg,#e2f5f3,#c6e8ea)"},
+  {id:"night", min:1600, name:"夜跑",   css:"linear-gradient(180deg,#3a3d57,#262a44)", dark:true},
+  {id:"neon",  min:2600, name:"霓虹",   css:"linear-gradient(180deg,#2b1840,#3a1c52)", dark:true},
+  {id:"galaxy",min:4000, name:"星河",   css:"linear-gradient(180deg,#1c2347,#3a2a5c)", dark:true},
+];
+function skinById(id){ return SKIN_TIERS.find(s=>s.id===(id||""))||SKIN_TIERS[0]; }
+function chooseSkin(id){ try{ localStorage.setItem("tdee_skin",id); }catch(e){} store.skin=id||null; renderPoints();
+  api("/api/cosmetic",{method:"POST",body:JSON.stringify({skin:id||""})}).then(()=>loadGroups()).catch(()=>{});
+}
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
 function computePoints(){
   const t=goalTargets();
@@ -1206,6 +1263,16 @@ function renderPoints(){
       `<div style="font-size:18px;">${inner}</div><div style="font-size:11px;${okAv?'':'color:var(--sub)'}">我的頭像</div>`+
       `<div style="font-size:10px;color:var(--sub)">${okAv?(on?"使用中":"可用"):(store.avatar?AV_MIN+"分":"需頭像")}</div></div>`;
   }
+  // 賽道皮膚畫廊
+  let pickS=""; try{ pickS=localStorage.getItem("tdee_skin")||(store.skin||""); }catch(e){ pickS=store.skin||""; }
+  const skinGallery=SKIN_TIERS.map(t=>{
+    const got=points>=t.min, on=pickS===t.id;
+    return `<div onclick="${got?`chooseSkin('${t.id}')`:''}" title="${t.min} 分解鎖" `+
+      `style="flex:0 0 auto;text-align:center;padding:5px;border:2px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;${got?'cursor:pointer;':'opacity:.4;'}">`+
+      `<div style="width:54px;height:24px;border-radius:6px;background:${t.css==='transparent'?'#f0f0f0':t.css};"></div>`+
+      `<div style="font-size:11px;${got?'':'color:var(--sub)'}">${t.name}</div>`+
+      `<div style="font-size:10px;color:var(--sub)">${got?(on?"使用中":"可用"):t.min+"分"}</div></div>`;
+  }).join("");
   box.innerHTML=
     `<div class="stat-row" style="margin-top:2px;">`+
       `<div><div class="v">${points.toLocaleString()}</div><div class="k">總積分</div></div>`+
@@ -1218,6 +1285,8 @@ function renderPoints(){
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${gallery}</div>`+
     `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🏇 賽道角色（解鎖後在競賽跑道變成你的專屬角色）</div>`+
     `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${racerGallery}</div>`+
+    `<div style="font-weight:500;font-size:13px;margin:12px 0 6px;">🎨 賽道皮膚（競賽跑道背景，只改自己的畫面）</div>`+
+    `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;">${skinGallery}</div>`+
     avatarSection(points)+
     `<div class="hint tip" style="margin-top:6px;line-height:1.7;">📋 <b>積分怎麼算</b>（每天最多 +5）：<br>`+
       `・有記飲食 +1　・熱量達標(吃在目標內) +1<br>`+
@@ -1545,6 +1614,59 @@ function applyRecipe(id){
 async function delRecipe(id){
   if(!confirm("刪除這份食譜？")) return;
   await api("/api/recipe/"+id,{method:"DELETE"}); await reload();
+}
+
+/* ---------- 我的餐盤（拍照存的快速餐點） ---------- */
+// 把目前的餐點照片縮成小縮圖（控制存量）
+function plateThumb(){
+  return new Promise((res)=>{
+    if(!mealPhoto){ res(""); return; }
+    const img=new Image(); img.onload=()=>{ const s=90, cv=document.createElement("canvas"); cv.width=s; cv.height=s;
+      const ctx=cv.getContext("2d"), m=Math.min(img.width,img.height), sx=(img.width-m)/2, sy=(img.height-m)/2;
+      ctx.drawImage(img,sx,sy,m,m,0,0,s,s); res(cv.toDataURL("image/jpeg",0.6)); };
+    img.onerror=()=>res(""); img.src=mealPhoto;
+  });
+}
+async function savePlate(){
+  if(!foodCart.length){ alert("清單是空的，先加入食物"); return; }
+  const name=prompt("餐盤名稱（例如：早餐燕麦蛋）"); if(!name||!name.trim()) return;
+  const t=cartTotal(); const thumb=await plateThumb();
+  try{
+    await api("/api/plate",{method:"POST",body:JSON.stringify({name:name.trim(),items:foodCart,kcal:Math.round(t.k),thumb})});
+    await reload();
+    alert("已存成餐盤「"+name.trim()+"」"+(thumb?"（含照片）":"")+"，下次可一鍵帶入。");
+  }catch(e){ alert(e.message); }
+}
+function renderPlates(){
+  const list=store.plates||[];
+  set("plateCount", list.length?list.length+" 個":"");
+  const box=document.getElementById("plateList"); if(!box) return;
+  if(!list.length){ box.innerHTML='<div class="empty">還沒有餐盤。組好常吃的一餐（可先拍照）後按「存成我的餐盤」，下次一鍵帶入。</div>'; return; }
+  box.innerHTML=`<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">`+list.map(p=>{
+    const items=(p.items||[]).map(it=>it.n).slice(0,4).join("、");
+    const img=p.thumb?`<img src="${p.thumb}" style="width:84px;height:84px;border-radius:10px;object-fit:cover;">`
+      :`<div style="width:84px;height:84px;border-radius:10px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:30px;">🍽️</div>`;
+    return `<div style="flex:0 0 auto;width:84px;text-align:center;position:relative;">`+
+      `<div onclick="applyPlate(${p.id})" style="cursor:pointer;">${img}`+
+      `<div style="font-size:11px;font-weight:600;margin-top:2px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(p.name)}</div>`+
+      `<div style="font-size:10px;color:var(--sub)">${p.kcal||0} kcal</div></div>`+
+      `<span class="x" style="position:absolute;top:-4px;right:-2px;background:#fff;border-radius:50%;" onclick="delPlate(${p.id})">✕</span>`+
+      `<div class="hint" style="font-size:9px;white-space:normal;">${escapeHtml(items)}</div></div>`;
+  }).join("")+`</div>`;
+}
+function applyPlate(id){
+  const p=(store.plates||[]).find(x=>x.id===id); if(!p) return;
+  foodCart=(p.items||[]).map(it=>{
+    const g=it.g||100; let base=it.base;
+    if(!base) base=(it.k!=null)?[it.k/g*100,(it.p||0)/g*100,(it.f||0)/g*100,(it.c||0)/g*100]:(foodData(it.n)||[0,0,0,0]);
+    return {n:it.n, g, base:base.map(Number)};
+  });
+  renderFood();
+  document.getElementById("foodTotal").scrollIntoView({behavior:"smooth"});
+}
+async function delPlate(id){
+  if(!confirm("刪除這個餐盤？")) return;
+  try{ await api("/api/plate/"+id,{method:"DELETE"}); await reload(); }catch(e){ alert(e.message); }
 }
 
 /* ---------- 運動 ---------- */
@@ -2020,10 +2142,31 @@ function drawChart(){
     {label:"趨勢",data:trend,borderColor:"#7c9070",borderDash:[5,4],pointRadius:0,fill:false,yAxisID:"y"}
   ];
   if(hasBf) datasets.push({label:"體脂%",data:bf,borderColor:"#9b7cb6",borderWidth:2,pointRadius:3,fill:false,tension:.3,spanGaps:true,yAxisID:"y1"});
+  // 預測線：用實測 TDEE 反推的每日斜率，從目前體重延伸到目標體重（虛線）
+  let projLabels=[];
+  const target=+val("targetWeight");
+  const R=calcReal(store.records, store.exercises);
+  const slopeDay=R.slopeWk!=null?R.slopeWk/7:(den?sl:null);   // 優先實測週斜率，否則用回歸斜率
+  const cur=data[data.length-1];
+  const towardTarget=target&&slopeDay&&((target<cur&&slopeDay<0)||(target>cur&&slopeDay>0));
+  if(towardTarget&&Math.abs(target-cur)>0.1){
+    const dir=target<cur?-1:1, lastT=new Date(recs[recs.length-1].date).getTime();
+    const proj=data.map(()=>null); proj[proj.length-1]=cur;   // 從最後一個實測點接上
+    for(let d=7;d<=210;d+=7){
+      const w=cur+slopeDay*d, reached=dir<0?w<=target:w>=target;
+      const fd=new Date(lastT+d*86400000);
+      projLabels.push(("0"+(fd.getMonth()+1)).slice(-2)+"/"+("0"+fd.getDate()).slice(-2));
+      proj.push(reached?+target.toFixed(2):+w.toFixed(2));
+      if(reached) break;
+    }
+    datasets.forEach(ds=>{ while(ds.data.length<data.length+projLabels.length) ds.data.push(null); }); // 對齊長度
+    datasets.push({label:"預測",data:proj,borderColor:"#d08bb0",borderDash:[3,3],borderWidth:2,pointRadius:0,fill:false,tension:.1,yAxisID:"y",spanGaps:true});
+  }
+  const allLabels=labels.concat(projLabels);
   const scales={y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}};
   if(hasBf) scales.y1={position:"right",grid:{drawOnChartArea:false},ticks:{font:{size:11},callback:v=>v+"%"}};
   if(chart)chart.destroy();
-  chart=new Chart(cv,{type:"line",data:{labels,datasets},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales}});
+  chart=new Chart(cv,{type:"line",data:{labels:allLabels,datasets},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales}});
 }
 function renderEta(){
   const target=+val("targetWeight");
@@ -2046,7 +2189,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderPlates(); renderFavs(); renderShared(); renderDay(); }
 
 async function reload(){
   store = await api("/api/me/all");
@@ -2058,6 +2201,9 @@ async function reload(){
     else if(lfx){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({fx:lfx})}).catch(()=>{}); }
     if(store.racer){ localStorage.setItem("tdee_racer",store.racer); }
     else if(lrc){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({racer:lrc})}).catch(()=>{}); }
+    const lsk=localStorage.getItem("tdee_skin");
+    if(store.skin){ localStorage.setItem("tdee_skin",store.skin); }
+    else if(lsk){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({skin:lsk})}).catch(()=>{}); }
   }catch(e){}
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
