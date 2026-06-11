@@ -252,7 +252,8 @@ app.post("/api/login", async (req, res) => {
 /* ---------- 個人資料 ---------- */
 app.put("/api/profile", auth, async (req, res) => {
   try {
-    await pool.query("UPDATE users SET profile=$1 WHERE id=$2", [req.body || {}, req.user.id]);
+    // 合併而非整包覆寫，保留 profile.push 等不在表單欄位裡的設定（否則改基本資料會清掉推播偏好）
+    await pool.query("UPDATE users SET profile = COALESCE(profile,'{}'::jsonb) || $1::jsonb WHERE id=$2", [JSON.stringify(req.body || {}), req.user.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });

@@ -2159,7 +2159,8 @@ function drawChart(){
       proj.push(reached?+target.toFixed(2):+w.toFixed(2));
       if(reached) break;
     }
-    datasets.forEach(ds=>{ while(ds.data.length<data.length+projLabels.length) ds.data.push(null); }); // 對齊長度
+    const fullLen=data.length+projLabels.length;   // 先固定目標長度，避免對 data 本身 push 時長度一直變動造成無窮迴圈
+    datasets.forEach(ds=>{ while(ds.data.length<fullLen) ds.data.push(null); }); // 對齊長度
     datasets.push({label:"預測",data:proj,borderColor:"#d08bb0",borderDash:[3,3],borderWidth:2,pointRadius:0,fill:false,tension:.1,yAxisID:"y",spanGaps:true});
   }
   const allLabels=labels.concat(projLabels);
