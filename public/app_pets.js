@@ -1,6 +1,7 @@
 // 寵物系統（從 app.js 拆出；classic script，與 app.js 共用全域。需在 app.js 之前載入）
 /* ---------- 養寵物（成長＝健康習慣；不碰 AI） ---------- */
 let petData=null, petMeta=null;
+const GACHA_PET_KEYS=["phoenix","ghost","star"];   // 稀有寵物（需扭蛋抽到才在選單出現）
 // 貓/狗品種：自訂可愛 SVG（配色/耳型/花紋差異），其他物種維持 emoji
 const PET_BREEDS={
   cat:{
@@ -103,9 +104,58 @@ function petGlyph(pet,size){
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
 async function loadPet(){
-  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp}; }
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,gacha:r.gacha}; }
   catch(e){ petData=null; }
   renderPet();
+}
+// 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
+function petDailyTasks(){
+  const td=(typeof todayStr==="function")?todayStr():new Date().toISOString().slice(0,10);
+  const recT=((typeof store!=="undefined"&&store.records)||[]).find(r=>r.date.slice(0,10)===td)||{};
+  const exT=((typeof store!=="undefined"&&store.exercises)||[]).some(e=>e.date.slice(0,10)===td);
+  const nutK=(typeof dayNutrition==="function")?(dayNutrition(td).k||0):0;
+  const w=((typeof store!=="undefined"&&store.profile&&+store.profile.weight))||60;
+  const goal=Math.round(w*45/50)*50;
+  const water=(typeof waterFor==="function")?waterFor(td):(+recT.water_ml||0);
+  return [
+    {ok:nutK>0, name:"記錄飲食", coin:5},
+    {ok:water>=goal, name:"喝滿水", coin:2},
+    {ok:exT, name:"運動", coin:3},
+    {ok:(+recT.poop||0)>0, name:"嗯嗯", coin:1},
+    {ok:recT.weight!=null, name:"量體重", coin:0},
+  ];
+}
+// 每日簽到（連續天數越多獎勵越大）
+async function petCheckin(){
+  try{ const r=await api("/api/pet/checkin",{method:"POST",body:JSON.stringify({})}); petData=r.pet; renderPet();
+    petToast(`${r.big?"🎉 第7天大獎！":"✅ 簽到成功"} 連續 ${r.streak} 天，獲得 🦴${r.reward}`); }
+  catch(e){ alert(e.message); }
+}
+// 扭蛋（單抽/十連）
+async function petGacha(count){
+  const cost=count===10?(petMeta&&petMeta.gacha&&petMeta.gacha.tenCost):(petMeta&&petMeta.gacha&&petMeta.gacha.cost);
+  if(!confirm(`花 🦴${cost} 抽 ${count} 發？`)) return;
+  try{
+    const r=await api("/api/pet/gacha",{method:"POST",body:JSON.stringify({count})}); petData=r.pet;
+    showGachaResults(r.results); renderPet();
+  }catch(e){ alert(e.message); }
+}
+function showGachaResults(results){
+  const box=document.getElementById("petBox"); if(!box) return;
+  const cell=(x)=>{
+    const big=x.rare?'box-shadow:0 0 0 2px #ffd24a;':'';
+    let glyph=x.label, sub="";
+    if(x.type==="coin"){ glyph="🦴"; sub="+"+x.amount; }
+    else if(x.type==="dup"){ sub="重複 +🦴"+x.amount; }
+    else if(x.type==="pet"){ sub="新寵物！"; }
+    else sub="飾品";
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;flex:0 0 auto;width:62px;${big}">`+
+      `<div style="font-size:24px;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;
+  };
+  box.innerHTML=`<div style="text-align:center;font-size:15px;font-weight:600;margin-bottom:8px;">🥚 扭蛋結果</div>`+
+    `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">${results.map(cell).join("")}</div>`+
+    (results.some(x=>x.type==="pet")?`<div class="hint" style="text-align:center;margin-top:8px;">抽到稀有寵物！到「換寵物」就能領養 🎉</div>`:"")+
+    `<div class="chipbar" style="margin-top:12px;justify-content:center;"><button class="ghost sm" onclick="renderPet()">關閉</button></div>`;
 }
 async function choosePet(sp,breed){
   try{ const r=await api("/api/pet/choose",{method:"POST",body:JSON.stringify({species:sp,breed:breed||null})}); petData=r.pet; renderPet(); }
@@ -162,6 +212,19 @@ function renderPet(){
   }).join("");
   const isArt=!!petArtUrl(p.species,p.breed,p.stageIdx);
   const avSize=isArt?96:64, avBox=isArt?108:74;
+  // 📅 今日任務 + 簽到
+  const tasks=petDailyTasks(), doneN=tasks.filter(t=>t.ok).length;
+  const tasksHtml=tasks.map(t=>`<span style="display:inline-flex;align-items:center;gap:3px;font-size:12.5px;margin:0 8px 4px 0;${t.ok?'':'opacity:.5;'}">${t.ok?'✅':'⬜'}${t.name}${t.coin?`<span style="color:#a5701a;">+${t.coin}🦴</span>`:''}</span>`).join("");
+  const checkinBtn=p.canCheckin
+    ? `<button class="sm" style="width:auto;padding:6px 14px;" onclick="petCheckin()">🎁 每日簽到（已連 ${p.checkinStreak} 天）</button>`
+    : `<span class="hint">✅ 今天已簽到 · 連續 ${p.checkinStreak} 天</span>`;
+  // 🥚 扭蛋
+  const gc=(petMeta&&petMeta.gacha)||{cost:60,tenCost:540};
+  const gachaBlock=`<div style="margin-top:10px;font-size:13px;font-weight:600;">🥚 扭蛋 <span class="hint" style="font-weight:400;">（飾品／稀有寵物／骨頭幣）</span></div>`+
+    `<div class="chipbar" style="margin-top:4px;">`+
+    `<button class="ghost sm" ${p.coins>=gc.cost?'':'disabled'} style="${p.coins>=gc.cost?'':'opacity:.45;'}" onclick="petGacha(1)">單抽 🦴${gc.cost}</button>`+
+    `<button class="ghost sm" ${p.coins>=gc.tenCost?'':'disabled'} style="${p.coins>=gc.tenCost?'':'opacity:.45;'}" onclick="petGacha(10)">十連 🦴${gc.tenCost}</button>`+
+    `</div>`;
   box.innerHTML=
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:${avBox}px;height:${avBox}px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
@@ -178,12 +241,16 @@ function renderPet(){
         `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
       `</div>`+
     `</div>`+
+    `<div style="margin-top:10px;font-size:13px;font-weight:600;">📅 今日任務 <span class="hint" style="font-weight:400;">（${doneN}/${tasks.length}・達標自動入幣）</span></div>`+
+    `<div style="margin-top:4px;">${tasksHtml}</div>`+
+    `<div style="margin-top:6px;">${checkinBtn}</div>`+
     (coll.length>1?`<div style="margin-top:10px;font-size:13px;font-weight:600;">🐾 我的寵物 <span class="hint" style="font-weight:400;">（各養各的 EXP，點一下換出戰）</span></div>`+
       `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${collHtml}</div>`:"")+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 我的飾品</div>`+
     `<div class="chipbar" style="margin-top:4px;">${itemBtns}${p.equipped?`<button class="ghost sm" onclick="equipPet('')">脫下</button>`:""}</div>`+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🦴 骨頭幣商店 <span class="hint" style="font-weight:400;">（記錄/達標賺幣，不影響競賽積分）</span></div>`+
     `<div class="chipbar" style="margin-top:4px;">${shopHtml}</div>`+
+    gachaBlock+
     (dexHtml?`<div style="margin-top:10px;font-size:13px;font-weight:600;">📖 圖鑑</div><div style="margin-top:4px;">${dexHtml}</div>`:"")+
     `<div class="hint tip" style="margin-top:8px;">記錄飲食/喝水/運動/體重會餵養<b>目前出戰</b>的這隻，連續達標長更快。換寵物時其他隻的 EXP 會凍結保留，可以同時收集養很多種！漏記只會讓牠想睡（不會生病或消失）。</div>`;
   // 進化動畫：偵測到階段提升就慶祝一下
@@ -217,11 +284,17 @@ function petChooserHtml(cur){
     return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`,cur===species&&petData&&petData.breed===b);
   }).join("");
   const sp=(petMeta&&petMeta.species)||{};
-  const others=Object.keys(sp).filter(k=>!PET_BREEDS[k]).map(k=>
+  const unlockedGacha=(petData&&petData.gachaPets)||[];
+  // 稀有寵物：沒抽到不顯示
+  const visible=(k)=>!PET_BREEDS[k] && (!GACHA_PET_KEYS.includes(k) || unlockedGacha.includes(k));
+  const others=Object.keys(sp).filter(k=>visible(k)&&!GACHA_PET_KEYS.includes(k)).map(k=>
+    card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k)).join("");
+  const rares=Object.keys(sp).filter(k=>GACHA_PET_KEYS.includes(k)&&unlockedGacha.includes(k)).map(k=>
     card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k)).join("");
   return `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+
     `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🐶 狗</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("dog")}</div>`+
-    `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`;
+    `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`+
+    (rares?`<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🌟 稀有（扭蛋）</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${rares}</div>`:"");
 }
 // 整個換成別的物種（進度/飾品/幣/圖鑑都保留）
 function switchPet(){

@@ -191,6 +191,10 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS breed TEXT;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS flock JSONB DEFAULT '{}'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS credited_through DATE;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS coins_bonus INT DEFAULT 0;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_checkin DATE;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS checkin_streak INT DEFAULT 0;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS gacha_pets JSONB DEFAULT '[]'::jsonb;
     -- 索引：加速常用查詢（資料變多時明顯有感）
     CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_exercises_user_date ON exercises(user_id, date);
@@ -1148,7 +1152,55 @@ app.get("/api/pet", auth, async (req, res) => {
     if (row && JSON.stringify(row.dex || []) !== JSON.stringify(state.dex)) {
       await pool.query("UPDATE pets SET dex=$1 WHERE user_id=$2", [JSON.stringify(state.dex), req.user.id]);
     }
-    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP });
+    const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND,
+      pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
+    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, gacha });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
+app.post("/api/pet/checkin", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT last_checkin, checkin_streak FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來簽到" });
+    const today = twToday();
+    const last = r.rows[0].last_checkin ? (r.rows[0].last_checkin instanceof Date ? isoD(r.rows[0].last_checkin) : String(r.rows[0].last_checkin).slice(0, 10)) : null;
+    if (last === today) return res.status(400).json({ error: "今天已經簽到過囉，明天再來～" });
+    const yesterday = addDays(today, -1);
+    const streak = last === yesterday ? (r.rows[0].checkin_streak || 0) + 1 : 1;   // 斷了重新計
+    const day = ((streak - 1) % 7) + 1;                                            // 7 天一循環
+    const reward = day >= 7 ? 60 : 8 + day * 2;                                    // 第7天大獎 60，其餘 10~20
+    await pool.query("UPDATE pets SET last_checkin=$1, checkin_streak=$2, coins_bonus=COALESCE(coins_bonus,0)+$3 WHERE user_id=$4",
+      [today, streak, reward, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ reward, streak, day, big: day >= 7, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
+app.post("/api/pet/gacha", auth, async (req, res) => {
+  try {
+    const count = req.body.count === 10 ? 10 : 1;
+    const cost = count === 10 ? GACHA_TEN_COST : GACHA_COST;
+    const { state, row } = await computePet(req.user.id);
+    if (!row) return res.status(400).json({ error: "先領養一隻寵物再來抽" });
+    if (state.coins < cost) return res.status(400).json({ error: `骨頭幣不夠（需要 ${cost}，你有 ${state.coins}）` });
+    let owned = state.owned.slice(), gachaPets = state.gachaPets.slice(), bonus = 0;
+    const results = [];
+    const haveAcc = new Set([...state.unlocked, ...owned]);
+    for (let i = 0; i < count; i++) {
+      const g = gachaRoll();
+      if (g.type === "coin") { bonus += g.amount; results.push({ type: "coin", label: g.label, amount: g.amount, rare: false }); }
+      else if (g.type === "acc") {
+        if (haveAcc.has(g.it)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: g.it, amount: GACHA_DUP_REFUND, rare: !!g.rare }); }
+        else { owned.push(g.it); haveAcc.add(g.it); results.push({ type: "acc", label: g.it, rare: !!g.rare }); }
+      } else { // pet
+        if (gachaPets.includes(g.key)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: (PET_SPECIES[g.key] || {}).label || g.key, amount: GACHA_DUP_REFUND, rare: true }); }
+        else { gachaPets.push(g.key); results.push({ type: "pet", key: g.key, label: (PET_SPECIES[g.key] || {}).label || g.key, rare: true }); }
+      }
+    }
+    await pool.query("UPDATE pets SET owned=$1, gacha_pets=$2, coins_spent=COALESCE(coins_spent,0)+$3, coins_bonus=COALESCE(coins_bonus,0)+$4 WHERE user_id=$5",
+      [JSON.stringify(owned), JSON.stringify(gachaPets), cost, bonus, req.user.id]);
+    const { state: ns } = await computePet(req.user.id);
+    res.json({ results, pet: ns });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 app.post("/api/pet/buy", auth, async (req, res) => {
@@ -1179,6 +1231,11 @@ app.post("/api/pet/choose", auth, async (req, res) => {
       pool.query("SELECT * FROM pets WHERE user_id=$1", [req.user.id]),
       pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop FROM daily_stats WHERE user_id=$1", [req.user.id]),
     ]);
+    // 稀有寵物：要先扭蛋抽到解鎖才能領養
+    if (GACHA_PET_KEYS.has(species)) {
+      const unlocked = Array.isArray(petR.rows[0] && petR.rows[0].gacha_pets) ? petR.rows[0].gacha_pets : [];
+      if (!unlocked.includes(species)) return res.status(403).json({ error: "這是稀有寵物，要從扭蛋抽到才能領養喔！" });
+    }
     let flock = {};
     if (petR.rows[0]) {
       // 先把現任出戰寵物的成長結算存好，再換隻（換寵物不損失任何一隻的進度）
@@ -1255,7 +1312,31 @@ const PET_SPECIES = {
   bubu:     { label: "布布", stages: ["🥚", "🐾", "🐾", "🐾", "🐾"] },
   jelly:    { label: "水母", stages: ["🥚", "🌊", "🪼", "🪼", "🪼"] },
   money:    { label: "MONEY", stages: ["🥚", "🪙", "💰", "💵", "🤑"] },
+  // 稀有寵物：只能從扭蛋抽到才解鎖領養（不出現在一般選單）
+  phoenix:  { label: "鳳凰", stages: ["🥚", "🐣", "🔥", "🦅", "🦅"] },
+  ghost:    { label: "幽靈", stages: ["🥚", "👻", "👻", "👻", "👻"] },
+  star:     { label: "星靈", stages: ["🥚", "✨", "🌟", "⭐", "💫"] },
 };
+// 稀有寵物代號（扭蛋限定，一般選單隱藏、需抽到解鎖）
+const GACHA_PET_KEYS = new Set(["phoenix", "ghost", "star"]);
+// 扭蛋池（伺服器端權威隨機，防作弊）：type=coin 給幣 / acc 飾品 / pet 稀有寵物。w=權重
+const GACHA_POOL = [
+  { type: "coin", amount: 10, w: 26, label: "🦴×10" },
+  { type: "coin", amount: 30, w: 12, label: "🦴×30" },
+  { type: "acc", it: "🍓", w: 11 }, { type: "acc", it: "🌹", w: 11 },
+  { type: "acc", it: "🦋", w: 9 }, { type: "acc", it: "🎃", w: 6 },
+  { type: "acc", it: "⚡", w: 5 }, { type: "acc", it: "🌈", w: 3, rare: true },
+  { type: "pet", key: "ghost", w: 4, rare: true },
+  { type: "pet", key: "phoenix", w: 3, rare: true },
+  { type: "pet", key: "star", w: 2, rare: true },
+];
+const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品/寵物退幣
+function gachaRoll() {
+  const tot = GACHA_POOL.reduce((a, g) => a + g.w, 0);
+  let r = Math.random() * tot;
+  for (const g of GACHA_POOL) { r -= g.w; if (r <= 0) return g; }
+  return GACHA_POOL[0];
+}
 // 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
 const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream", "silvertabby"], dog: ["shiba", "frenchie", "golden", "collie", "dachshund"] };
 const PET_STAGE_NAMES = ["蛋", "幼體", "成長期", "成體", "進化體"];
@@ -1334,10 +1415,11 @@ function petStateFromRows(petRow, rows, trophies) {
   if (trophies >= 1) unlocked.push("🎩");
   if (trophies >= 3) unlocked.push("👑");
   if (trophies >= 5) unlocked.push("🌟");
-  // 🦴 骨頭幣：賺到的總額 − 已花費 ＝ 餘額；商店買到的飾品收進 owned
+  // 🦴 骨頭幣：行為賺的 + 簽到/扭蛋紅利 − 已花費 ＝ 餘額；商店買到的飾品收進 owned
   const earnedCoins = petCoinsFromRows(rows, trophies);
+  const bonus = (petRow && petRow.coins_bonus) || 0;
   const spent = (petRow && petRow.coins_spent) || 0;
-  const coins = Math.max(0, earnedCoins - spent);
+  const coins = Math.max(0, earnedCoins + bonus - spent);
   const owned = Array.isArray(petRow && petRow.owned) ? petRow.owned.slice() : [];
   const equippable = unlocked.concat(owned.filter((o) => !unlocked.includes(o)));  // 免費解鎖 ∪ 已購買
   let equipped = petRow && petRow.equipped;
@@ -1359,6 +1441,9 @@ function petStateFromRows(petRow, rows, trophies) {
     emoji: sp.stages[stageIdx], stageIdx, stageName: PET_STAGE_NAMES[stageIdx],
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
     equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies, collection,
+    gachaPets: Array.isArray(petRow && petRow.gacha_pets) ? petRow.gacha_pets : [],
+    checkinStreak: (petRow && petRow.checkin_streak) || 0,
+    canCheckin: !petRow || (petRow.last_checkin == null) || ((petRow.last_checkin instanceof Date ? isoD(petRow.last_checkin) : String(petRow.last_checkin).slice(0,10)) !== twToday()),
   };
 }
 
