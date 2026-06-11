@@ -1230,21 +1230,7 @@ function renderPet(){
   // 還沒領養 → 選一隻
   if(!petData.chosen){
     if(pill) pill.textContent="";
-    const card=(inner,label,onclick)=>`<div onclick="${onclick}" style="cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;">`+
-      `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${inner}</div>`+
-      `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${label}</div></div>`;
-    const breedCards=(species)=>Object.keys(PET_BREEDS[species]).map(b=>{
-      const P=PET_BREEDS[species][b];
-      return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`);
-    }).join("");
-    // 其他 emoji 物種（自動列出所有非貓/狗物種）
-    const sp=(petMeta&&petMeta.species)||{};
-    const others=Object.keys(sp).filter(k=>!PET_BREEDS[k]).map(k=>
-      card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`)).join("");
-    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻夥伴吧！牠會跟著你的健康習慣一起長大（持續記錄＝餵食，跨賽季也不會不見）。</div>`+
-      `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+
-      `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🐶 狗</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("dog")}</div>`+
-      `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`;
+    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻夥伴吧！牠會跟著你的健康習慣一起長大（持續記錄＝餵食，跨賽季也不會不見）。</div>`+petChooserHtml();
     return;
   }
   const p=petData;
@@ -1275,6 +1261,7 @@ function renderPet(){
           `<span class="pill">${p.stageName}</span>`+
           `<span style="cursor:pointer;color:var(--sub);font-size:13px;" onclick="renamePet()">✎</span>`+
           (PET_BREEDS[p.species]?`<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="changePetBreed()">換品種</span>`:"")+
+          `<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="switchPet()">換寵物</span>`+
           `<span class="pill" style="margin-left:auto;background:#fff4e0;color:#a5701a;">🦴 ${p.coins}</span></div>`+
         `<div style="font-size:13px;color:${moodColor};margin:2px 0;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
         `<div class="prog"><i style="width:${pct}%"></i></div>`+
@@ -1307,6 +1294,29 @@ function petToast(msg){
   if(!t){ t=document.createElement("div"); t.id="petToast"; document.body.appendChild(t); }
   t.textContent=msg; t.className="show";
   clearTimeout(t._tm); t._tm=setTimeout(()=>{ t.className=""; },3600);
+}
+// 選寵物的卡片牆（領養 / 換寵物共用）；cur=目前物種(可選，會標示)
+function petChooserHtml(cur){
+  const card=(inner,label,onclick,on)=>`<div onclick="${onclick}" style="cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}">`+
+    `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${inner}</div>`+
+    `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${label}</div></div>`;
+  const breedCards=(species)=>Object.keys(PET_BREEDS[species]).map(b=>{
+    const P=PET_BREEDS[species][b];
+    return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`,cur===species&&petData&&petData.breed===b);
+  }).join("");
+  const sp=(petMeta&&petMeta.species)||{};
+  const others=Object.keys(sp).filter(k=>!PET_BREEDS[k]).map(k=>
+    card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k)).join("");
+  return `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+
+    `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🐶 狗</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("dog")}</div>`+
+    `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`;
+}
+// 整個換成別的物種（進度/飾品/幣/圖鑑都保留）
+function switchPet(){
+  const box=document.getElementById("petBox"); if(!box||!petData) return;
+  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換一隻夥伴吧！<b>EXP、骨頭幣、飾品、圖鑑都會保留</b>，養過的型態也會留在圖鑑。</div>`+
+    petChooserHtml(petData.species)+
+    `<div class="chipbar" style="margin-top:10px;"><button class="ghost sm" onclick="renderPet()">取消</button></div>`;
 }
 function changePetBreed(){
   const box=document.getElementById("petBox"); if(!box||!petData) return;
