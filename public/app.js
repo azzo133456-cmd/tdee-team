@@ -1155,27 +1155,19 @@ const PET_BREEDS={
 };
 function petBreedOf(species,breed){ const m=PET_BREEDS[species]; if(!m) return null; return m[breed]||m[Object.keys(m)[0]]; }
 
-/* ===== 寵物敘事系統（每物種主題故事線＋專屬技能；插圖由使用者提供，放 public/pets/） ===== */
-// 故事鍵：優先 "species:breed"，再 "species"。levels[0..4] 對應 蛋→幼體→成長期→成體→進化體。
+/* ===== 寵物階段名（每物種可有主題名；插圖由使用者提供，放 public/pets/） ===== */
+// levels[0..4] 對應 蛋→幼體→成長期→成體→進化體。只留階段名＋星級，主打好看的插圖。
 const PET_LORE={
-  "cat:silvertabby":{
-    theme:"被窩睡眠",
-    levels:[
-      {name:"蛋中幼患", stars:1, desc:"睡夢中的貓蛋，正在被窩裡養精蓄銳。"},
-      {name:"被窩幼患", stars:1, desc:"剛出生的小奶貓，最喜歡柔軟的地方。"},
-      {name:"枕頭霸主", stars:2, desc:"發現枕頭的舒適，從此霸佔一切軟墊。"},
-      {name:"被窩領主", stars:3, desc:"被窩就是本王的城堡，凡人休想打擾本喵的睡眠。"},
-      {name:"棉被神獸", stars:5, desc:"統治所有枕頭與棉被的睡眠之神，釋放睡意，讓萬物沉入夢鄉。"},
-    ],
-    skill:{name:"睡眠領域", emoji:"🌙", desc:"召喚一片舒適的睡眠領域，使周圍的敵人陷入睡眠狀態，持續恢復我方能量。"},
-    traits:["額頭 M 字紋","銀灰虎斑紋","正常立耳","慵懶眼神","最愛：枕頭＆棉被"],
-  },
+  "cat:silvertabby":{ levels:[
+    {name:"蛋中幼患", stars:1},{name:"被窩幼患", stars:1},{name:"枕頭霸主", stars:2},
+    {name:"被窩領主", stars:3},{name:"棉被神獸", stars:5},
+  ]},
 };
 function petLore(species,breed){ return PET_LORE[species+":"+breed]||PET_LORE[species]||null; }
 // 哪些 species:breed 有「使用者提供的插圖」。圖檔放 public/pets/<key>/<stage>.png（stage 0~4，缺哪張就回退 SVG）。
 // 例：銀虎斑貓 → public/pets/cat_silvertabby/1.png ... 4.png（0.png 為蛋，可不放）
 const PET_ART_KEYS=new Set([
-  // "cat:silvertabby",   // ← 你把圖放進 public/pets/cat_silvertabby/ 後，取消這行註解即生效
+  "cat:silvertabby",   // public/pets/cat_silvertabby/0~4.png
 ]);
 function petArtUrl(species,breed,stage){
   const key=species+":"+breed;
@@ -1314,14 +1306,6 @@ function renderPet(){
   const stars=lv?'⭐'.repeat(lv.stars):'⭐'.repeat(p.stageIdx||1);
   const isArt=!!petArtUrl(p.species,p.breed,p.stageIdx);
   const avSize=isArt?96:64, avBox=isArt?108:74;
-  const loreBlock=lore?
-    (lv?`<div style="margin-top:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--soft);">`+
-      `<div style="font-size:13px;line-height:1.5;">${lv.desc}</div></div>`:"")+
-    (lore.skill?`<div style="margin-top:8px;font-size:13px;font-weight:600;">${lore.skill.emoji||"✨"} 專屬技能：${lore.skill.name}</div>`+
-      `<div class="hint" style="margin-top:2px;">${lore.skill.desc}</div>`:"")+
-    (lore.traits&&lore.traits.length?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">🐾 特徵細節</summary>`+
-      `<div class="hint" style="margin-top:3px;">${lore.traits.map(t=>"・"+t).join("　")}</div></details>`:"")
-    :"";
   box.innerHTML=
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:${avBox}px;height:${avBox}px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
@@ -1341,7 +1325,6 @@ function renderPet(){
         `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
       `</div>`+
     `</div>`+
-    loreBlock+
     (coll.length>1?`<div style="margin-top:10px;font-size:13px;font-weight:600;">🐾 我的寵物 <span class="hint" style="font-weight:400;">（各養各的 EXP，點一下換出戰）</span></div>`+
       `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${collHtml}</div>`:"")+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 我的飾品</div>`+
