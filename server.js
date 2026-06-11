@@ -188,6 +188,7 @@ async function initDb() {
     );
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS coins_spent INT DEFAULT 0;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS owned JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS breed TEXT;
   `);
   console.log("DB ready");
 }
@@ -1128,11 +1129,14 @@ app.post("/api/pet/choose", auth, async (req, res) => {
   try {
     const species = String(req.body.species || "").trim();
     if (!(species in PET_SPECIES)) return res.status(400).json({ error: "沒有這種寵物" });
+    let breed = req.body.breed === undefined || req.body.breed === null ? null : String(req.body.breed).trim();
+    if (PET_BREED_IDS[species]) { if (!PET_BREED_IDS[species].includes(breed)) breed = PET_BREED_IDS[species][0]; }
+    else breed = null;   // 非貓/狗物種沒有品種
     const name = req.body.name === undefined ? null : String(req.body.name || "").trim().slice(0, 16) || null;
     await pool.query(
-      `INSERT INTO pets(user_id,species,name) VALUES($1,$2,$3)
-       ON CONFLICT (user_id) DO UPDATE SET species=$2, name=COALESCE($3,pets.name)`,
-      [req.user.id, species, name]
+      `INSERT INTO pets(user_id,species,breed,name) VALUES($1,$2,$3,$4)
+       ON CONFLICT (user_id) DO UPDATE SET species=$2, breed=$3, name=COALESCE($4,pets.name)`,
+      [req.user.id, species, breed, name]
     );
     const { state } = await computePet(req.user.id);
     res.json({ pet: state });
@@ -1180,6 +1184,8 @@ const PET_SPECIES = {
   sprout: { label: "芽芽", stages: ["🌰", "🌱", "🌿", "🪴", "🌳"] },
   chick:  { label: "小雞", stages: ["🥚", "🐤", "🐥", "🐔", "🦅"] },
 };
+// 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
+const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream"], dog: ["shiba", "frenchie", "golden", "collie"] };
 const PET_STAGE_NAMES = ["蛋", "幼體", "成長期", "成體", "進化體"];
 const PET_STAGE_EXP = [0, 50, 200, 600, 1500];
 const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
@@ -1264,7 +1270,7 @@ function petStateFromRows(petRow, rows, trophies) {
   if (di < 0) dex.push({ species, maxStage: stageIdx });
   else if ((dex[di].maxStage || 0) < stageIdx) dex[di].maxStage = stageIdx;
   return {
-    chosen: !!petRow, species, speciesLabel: sp.label, name: (petRow && petRow.name) || sp.label,
+    chosen: !!petRow, species, breed: (petRow && petRow.breed) || null, speciesLabel: sp.label, name: (petRow && petRow.name) || sp.label,
     emoji: sp.stages[stageIdx], stageIdx, stageName: PET_STAGE_NAMES[stageIdx],
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
     equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies,
@@ -1517,7 +1523,7 @@ app.get("/api/groups", auth, async (req, res) => {
         const uid = uidByName[m.name];
         if (petByUid[uid]) {
           const ps = petStateFromRows(petByUid[uid], rowsByUser[uid] || [], trophies[m.name] || 0);
-          m.pet = { emoji: ps.emoji, hat: ps.equipped, stage: ps.stageName, mood: ps.moodFace };
+          m.pet = { species: ps.species, breed: ps.breed, stageIdx: ps.stageIdx, emoji: ps.emoji, hat: ps.equipped, stage: ps.stageName, mood: ps.moodFace };
         }
       });
       // 留言／加油（最近 20 則，最舊在前），不洩漏體重

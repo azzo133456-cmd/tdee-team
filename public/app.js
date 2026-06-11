@@ -1076,7 +1076,7 @@ function renderGroups(){
           `<span>${medal(i)}</span>`+
           (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
           `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}${m.me?'（我）':''}</span>`+
-          (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="font-size:14px;position:relative;">${m.pet.hat?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;">${m.pet.hat}</span>`:""}${m.pet.emoji}</span>`:"")+
+          (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="position:relative;display:inline-flex;align-items:center;line-height:0;">${m.pet.hat?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;z-index:2;">${m.pet.hat}</span>`:""}${petGlyph(m.pet,22)}</span>`:"")+
           (m.trophies?`<span>🏆×${m.trophies}</span>`:"")+
           `<span style="margin-left:auto;${sk.dark?'color:#dde;':'color:var(--sub);'}">${m.detail}</span></div>`+
         `<div style="position:relative;height:18px;border-bottom:1px dashed ${dashCol};${sk.id?'margin-bottom:4px;':''}">`+
@@ -1135,13 +1135,81 @@ function renderGroups(){
 
 /* ---------- 養寵物（成長＝健康習慣；不碰 AI） ---------- */
 let petData=null, petMeta=null;
+// 貓/狗品種：自訂可愛 SVG（配色/耳型/花紋差異），其他物種維持 emoji
+const PET_BREEDS={
+  cat:{
+    orange:{label:"橘貓", body:"#f4a64c", body2:"#e89636", belly:"#fde9cc", inner:"#f6c79b", ear:"up", eye:"#3aa563", markings:"tabby", stripe:"#d97c24"},
+    tuxedo:{label:"賓士貓", body:"#34343c", body2:"#24242b", belly:"#ffffff", inner:"#cba6a6", ear:"up", eye:"#8ad06a", markings:"tuxedo"},
+    calico:{label:"三花貓", body:"#fbf6ef", body2:"#ece3d6", belly:"#ffffff", inner:"#f3c9a0", ear:"up", eye:"#5bb6c9", markings:"calico", patchA:"#e89636", patchB:"#3a3a40"},
+    cream:{label:"奶油金", body:"#f7d489", body2:"#eec76a", belly:"#fdf3d6", inner:"#f7dca7", ear:"up", eye:"#49a6d8", markings:"solid"},
+  },
+  dog:{
+    shiba:{label:"柴犬", body:"#e7a05a", body2:"#d98c40", belly:"#fbf3e6", inner:"#f3c79a", ear:"up", eye:"#5a3a2a", markings:"shiba", white:"#fbf3e6"},
+    frenchie:{label:"法鬥", body:"#bcb3a6", body2:"#a89e90", belly:"#efe9df", inner:"#d8b0b0", ear:"bat", eye:"#3a3a3a", markings:"frenchie", white:"#efe9df"},
+    golden:{label:"黃金獵犬", body:"#f0c47a", body2:"#e3b066", belly:"#f8e6c2", inner:"#e8c79a", ear:"flop", eye:"#5a3a2a", markings:"solid"},
+    collie:{label:"那那狗", body:"#34343c", body2:"#24242b", belly:"#ffffff", inner:"#cba6a6", ear:"flop", eye:"#7a5a3a", markings:"collie", white:"#ffffff"},
+  },
+};
+function petBreedOf(species,breed){ const m=PET_BREEDS[species]; if(!m) return null; return m[breed]||m[Object.keys(m)[0]]; }
+function petFacial(species,P){
+  const m=P.markings;
+  if(m==="tabby") return `<ellipse cx="50" cy="56" rx="13" ry="9" fill="${P.belly}"/>`+
+    `<g stroke="${P.stripe}" stroke-width="2" stroke-linecap="round"><path d="M44,30 L43,38"/><path d="M50,28 L50,37"/><path d="M56,30 L57,38"/></g>`;
+  if(m==="tuxedo") return `<ellipse cx="50" cy="58" rx="14" ry="12" fill="#fff"/>`;
+  if(m==="calico") return `<ellipse cx="34" cy="36" rx="14" ry="14" fill="${P.patchA}"/><ellipse cx="68" cy="34" rx="12" ry="12" fill="${P.patchB}"/><ellipse cx="50" cy="57" rx="12" ry="9" fill="#fff"/>`;
+  if(m==="shiba") return `<ellipse cx="50" cy="56" rx="15" ry="11" fill="${P.white}"/><ellipse cx="33" cy="50" rx="7" ry="8" fill="${P.white}"/><ellipse cx="67" cy="50" rx="7" ry="8" fill="${P.white}"/><ellipse cx="40" cy="36" rx="2.4" ry="2" fill="#e8c79a"/><ellipse cx="60" cy="36" rx="2.4" ry="2" fill="#e8c79a"/>`;
+  if(m==="frenchie") return `<ellipse cx="50" cy="56" rx="13" ry="10" fill="${P.white}"/><ellipse cx="50" cy="40" rx="4" ry="12" fill="${P.white}"/>`;
+  if(m==="collie") return `<ellipse cx="50" cy="44" rx="6" ry="20" fill="${P.white}"/><ellipse cx="50" cy="58" rx="12" ry="9" fill="${P.white}"/>`;
+  return `<ellipse cx="50" cy="55" rx="11" ry="8" fill="${P.body2}" opacity=".45"/>`;   // solid：淺色口鼻
+}
+// 產生寵物 SVG；species 不是貓/狗回 null（呼叫端 fallback emoji）
+function petSVG(species,breed,stage,px){
+  const P=petBreedOf(species,breed); if(!P) return null;
+  const size=px||100, uid=(species+(breed||"")+stage+"_"+Math.floor(Math.random()*1e5));
+  if(stage===0){
+    return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">`+
+      `<ellipse cx="50" cy="56" rx="27" ry="33" fill="#f4ede1" stroke="#e6dccb" stroke-width="1.5"/>`+
+      `<circle cx="42" cy="46" r="3.2" fill="${P.body}" opacity=".5"/><circle cx="58" cy="58" r="4" fill="${P.body}" opacity=".45"/><circle cx="50" cy="40" r="2.6" fill="${P.body2}" opacity=".5"/>`+
+      `<ellipse cx="41" cy="62" rx="3.5" ry="2.2" fill="#ffb0b6" opacity=".5"/><ellipse cx="59" cy="62" rx="3.5" ry="2.2" fill="#ffb0b6" opacity=".5"/>`+
+      `<circle cx="44" cy="54" r="2.4" fill="#2b2b2b"/><circle cx="56" cy="54" r="2.4" fill="#2b2b2b"/>`+
+      `<path d="M46,60 q4,3 8,0" fill="none" stroke="#2b2b2b" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  }
+  const sc=[0,.74,.85,.95,1.05][stage]||1;
+  const body=P.body, body2=P.body2||P.body, inner=P.inner||"#f0c0a0";
+  let ears="";
+  if(P.ear==="up") ears=`<path d="M32,28 L24,8 L46,24 Z" fill="${body}"/><path d="M68,28 L76,8 L54,24 Z" fill="${body}"/><path d="M33,26 L28,13 L43,24 Z" fill="${inner}"/><path d="M67,26 L72,13 L57,24 Z" fill="${inner}"/>`;
+  else if(P.ear==="bat") ears=`<ellipse cx="30" cy="20" rx="9" ry="15" fill="${body}" transform="rotate(-10 30 20)"/><ellipse cx="70" cy="20" rx="9" ry="15" fill="${body}" transform="rotate(10 70 20)"/><ellipse cx="30" cy="21" rx="4.5" ry="9" fill="${inner}" transform="rotate(-10 30 21)"/><ellipse cx="70" cy="21" rx="4.5" ry="9" fill="${inner}" transform="rotate(10 70 21)"/>`;
+  else ears=`<ellipse cx="26" cy="46" rx="9" ry="16" fill="${body2}"/><ellipse cx="74" cy="46" rx="9" ry="16" fill="${body2}"/>`;
+  const noseCol=species==="cat"?"#c8697e":"#3a3033";
+  let s=`<g transform="translate(50,54) scale(${sc}) translate(-50,-54)">`;
+  s+=`<path d="M70,78 q22,-2 16,-20" fill="none" stroke="${body}" stroke-width="7" stroke-linecap="round"/>`;
+  s+=ears;
+  s+=`<ellipse cx="50" cy="76" rx="20" ry="17" fill="${body}"/>`;
+  s+=`<ellipse cx="50" cy="80" rx="12" ry="11" fill="${P.belly}"/>`;
+  s+=`<ellipse cx="42" cy="90" rx="5" ry="4" fill="${P.belly}"/><ellipse cx="58" cy="90" rx="5" ry="4" fill="${P.belly}"/>`;
+  s+=`<circle cx="50" cy="46" r="23" fill="${body}"/>`;
+  s+=`<clipPath id="h${uid}"><circle cx="50" cy="46" r="23"/></clipPath>`;
+  s+=`<g clip-path="url(#h${uid})">${petFacial(species,P)}</g>`;
+  s+=`<ellipse cx="35" cy="52" rx="3.6" ry="2.3" fill="#ff9aa0" opacity=".5"/><ellipse cx="65" cy="52" rx="3.6" ry="2.3" fill="#ff9aa0" opacity=".5"/>`;
+  s+=`<circle cx="42" cy="45" r="4.2" fill="#2b2b2b"/><circle cx="58" cy="45" r="4.2" fill="#2b2b2b"/>`;
+  s+=`<circle cx="43.4" cy="43.4" r="1.4" fill="#fff"/><circle cx="59.4" cy="43.4" r="1.4" fill="#fff"/>`;
+  s+=`<ellipse cx="50" cy="52" rx="2.4" ry="1.7" fill="${noseCol}"/>`;
+  s+=`<path d="M50,53.5 q-3,3.5 -6,1.5 M50,53.5 q3,3.5 6,1.5" fill="none" stroke="#5a4a4a" stroke-width="1.2" stroke-linecap="round"/>`;
+  if(species==="cat") s+=`<g stroke="#999" stroke-width=".8" opacity=".55" stroke-linecap="round"><path d="M33,50 L20,48"/><path d="M33,53 L20,55"/><path d="M67,50 L80,48"/><path d="M67,53 L80,55"/></g>`;
+  s+=`</g>`;
+  let extra="";
+  if(stage>=4) extra=`<g fill="#ffd24a"><path d="M16,24 l1.6,4 4,1.6 -4,1.6 -1.6,4 -1.6,-4 -4,-1.6 4,-1.6 z"/><path d="M84,30 l1.2,3 3,1.2 -3,1.2 -1.2,3 -1.2,-3 -3,-1.2 3,-1.2 z"/><path d="M80,70 l1,2.6 2.6,1 -2.6,1 -1,2.6 -1,-2.6 -2.6,-1 2.6,-1 z"/></g>`;
+  return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">${s}${extra}</svg>`;
+}
+// 取寵物圖示：貓/狗回 SVG，其餘回 emoji
+function petGlyph(pet,size){ if(!pet) return ""; const svg=petSVG(pet.species,pet.breed,pet.stageIdx,size); return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`; }
 async function loadPet(){
   try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp}; }
   catch(e){ petData=null; }
   renderPet();
 }
-async function choosePet(sp){
-  try{ const r=await api("/api/pet/choose",{method:"POST",body:JSON.stringify({species:sp})}); petData=r.pet; renderPet(); }
+async function choosePet(sp,breed){
+  try{ const r=await api("/api/pet/choose",{method:"POST",body:JSON.stringify({species:sp,breed:breed||null})}); petData=r.pet; renderPet(); }
   catch(e){ alert(e.message); }
 }
 async function equipPet(item){
@@ -1162,16 +1230,21 @@ function renderPet(){
   // 還沒領養 → 選一隻
   if(!petData.chosen){
     if(pill) pill.textContent="";
-    const sp=(petMeta&&petMeta.species)||{};
-    const cards=Object.keys(sp).map(k=>{
-      const s=sp[k];
-      return `<div onclick="choosePet('${k}')" style="cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;flex:1 1 28%;min-width:90px;">`+
-        `<div style="font-size:30px;line-height:1.1;">${s.stages[1]}</div>`+
-        `<div style="font-size:13px;font-weight:600;margin-top:2px;">${s.label}</div>`+
-        `<div style="font-size:14px;letter-spacing:1px;margin-top:2px;color:var(--sub);">${s.stages.join("→")}</div></div>`;
+    const card=(inner,label,onclick)=>`<div onclick="${onclick}" style="cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;">`+
+      `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${inner}</div>`+
+      `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${label}</div></div>`;
+    const breedCards=(species)=>Object.keys(PET_BREEDS[species]).map(b=>{
+      const P=PET_BREEDS[species][b];
+      return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`);
     }).join("");
+    // 其他 emoji 物種
+    const sp=(petMeta&&petMeta.species)||{};
+    const others=["dragon","sprout","chick"].filter(k=>sp[k]).map(k=>
+      card(`<span style="font-size:34px;">${sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`)).join("");
     box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻夥伴吧！牠會跟著你的健康習慣一起長大（持續記錄＝餵食，跨賽季也不會不見）。</div>`+
-      `<div style="display:flex;flex-wrap:wrap;gap:8px;">${cards}</div>`;
+      `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+
+      `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🐶 狗</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("dog")}</div>`+
+      `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`;
     return;
   }
   const p=petData;
@@ -1196,11 +1269,12 @@ function renderPet(){
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:74px;height:74px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+
         (p.equipped?`<span style="position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:22px;z-index:2;">${p.equipped}</span>`:"")+
-        `<span id="petEmoji" style="font-size:42px;display:inline-block;">${p.emoji}</span></div>`+
+        `<span id="petEmoji" style="display:inline-flex;align-items:center;justify-content:center;line-height:0;">${petGlyph(p,64)}</span></div>`+
       `<div style="flex:1 1 auto;min-width:0;">`+
         `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-size:16px;">${escapeHtml(p.name)}</b>`+
           `<span class="pill">${p.stageName}</span>`+
           `<span style="cursor:pointer;color:var(--sub);font-size:13px;" onclick="renamePet()">✎</span>`+
+          (PET_BREEDS[p.species]?`<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="changePetBreed()">換品種</span>`:"")+
           `<span class="pill" style="margin-left:auto;background:#fff4e0;color:#a5701a;">🦴 ${p.coins}</span></div>`+
         `<div style="font-size:13px;color:${moodColor};margin:2px 0;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
         `<div class="prog"><i style="width:${pct}%"></i></div>`+
@@ -1233,6 +1307,19 @@ function petToast(msg){
   if(!t){ t=document.createElement("div"); t.id="petToast"; document.body.appendChild(t); }
   t.textContent=msg; t.className="show";
   clearTimeout(t._tm); t._tm=setTimeout(()=>{ t.className=""; },3600);
+}
+function changePetBreed(){
+  const box=document.getElementById("petBox"); if(!box||!petData) return;
+  const sp=petData.species; if(!PET_BREEDS[sp]) return;
+  const cards=Object.keys(PET_BREEDS[sp]).map(b=>{
+    const P=PET_BREEDS[sp][b], on=petData.breed===b;
+    return `<div onclick="choosePet('${sp}','${b}')" style="cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}">`+
+      `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${petSVG(sp,b,3,52)}</div>`+
+      `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${P.label}</div></div>`;
+  }).join("");
+  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換個品種（進度、飾品、骨頭幣都會保留）：</div>`+
+    `<div style="display:flex;flex-wrap:wrap;gap:8px;">${cards}</div>`+
+    `<div class="chipbar" style="margin-top:10px;"><button class="ghost sm" onclick="renderPet()">取消</button></div>`;
 }
 async function buyPet(item,price){
   if(!confirm(`用 🦴 ${price} 骨頭幣購買 ${item}？`)) return;
