@@ -1171,7 +1171,7 @@ app.get("/api/pet", auth, async (req, res) => {
     }
     const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND,
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
-    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, gacha });
+    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
@@ -1234,6 +1234,25 @@ app.post("/api/pet/buy", auth, async (req, res) => {
       [JSON.stringify(owned), price, req.user.id]);
     const { state: ns } = await computePet(req.user.id);
     res.json({ pet: ns });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 餵食：花幣幫出戰寵物加 EXP（記在 flock[species].fed，永久保留、不被結算覆蓋）
+app.post("/api/pet/feed", auth, async (req, res) => {
+  try {
+    const item = String(req.body.item || "");
+    const f = PET_FEED_MAP[item];
+    if (!f) return res.status(400).json({ error: "沒有這個餵食道具" });
+    const { state, row } = await computePet(req.user.id);
+    if (!row) return res.status(400).json({ error: "還沒領養寵物" });
+    if (state.coins < f.price) return res.status(400).json({ error: `骨頭幣不夠（需要 ${f.price}，你有 ${state.coins}）` });
+    const species = row.species;
+    const flock = (row.flock && typeof row.flock === "object") ? row.flock : {};
+    if (!flock[species]) flock[species] = { breed: row.breed || null, exp: 0, name: row.name || null };
+    flock[species].fed = (flock[species].fed || 0) + f.exp;
+    await pool.query("UPDATE pets SET flock=$1, coins_spent=COALESCE(coins_spent,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(flock), f.price, req.user.id]);
+    const { state: ns } = await computePet(req.user.id);
+    res.json({ pet: ns, gainedExp: f.exp });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 app.post("/api/pet/choose", auth, async (req, res) => {
@@ -1406,6 +1425,13 @@ const PET_SHOP = [
   { it: "💎", name: "鑽石飾", price: 300 },
 ];
 const PET_SHOP_PRICE = Object.fromEntries(PET_SHOP.map((s) => [s.it, s.price]));
+// 餵食道具：花骨頭幣直接幫「出戰寵物」加 EXP（所有寵物都適用，含插圖寵物）。約 2 幣=1EXP，定位為補充非捷徑。
+const PET_FEED = [
+  { it: "🐟", name: "小魚乾", price: 30, exp: 15 },
+  { it: "🥫", name: "罐罐", price: 80, exp: 45 },
+  { it: "🍖", name: "豪華大餐", price: 200, exp: 130 },
+];
+const PET_FEED_MAP = Object.fromEntries(PET_FEED.map((s) => [s.it, s]));
 // 把 pet 資料列 + 統計 + 獎盃數 → 完整寵物狀態（輕度衰減：掉心情＋少量EXP，但不退階）
 function petStateFromRows(petRow, rows, trophies) {
   const species = (petRow && petRow.species) || "cat";
@@ -1419,7 +1445,7 @@ function petStateFromRows(petRow, rows, trophies) {
   const today = twToday();
   // 出戰寵物：銀行(到昨天) + 今天即時成長 → 今天記了馬上反映
   const liveToday = () => { const yest = addDays(today, -1); return Math.max(0, petExpFromRows(rows.filter((r) => r.date <= today)).exp - petExpFromRows(rows.filter((r) => r.date <= yest)).exp); };
-  const rawExp = fp ? ((fp.exp || 0) + liveToday()) : stat.exp;
+  const rawExp = fp ? ((fp.exp || 0) + (fp.fed || 0) + liveToday()) : stat.exp;   // 銀行+餵食+今日即時
   const daysSince = lastLogged ? Math.max(0, daysBetween(lastLogged, today)) : 0;
   const stageIdx = petStageIdx(rawExp);                   // 階段由原始EXP決定→永不退階
   const penalty = Math.max(0, daysSince - 1) * 4;         // 輕衰減：漏記第2天起每天 -4 EXP

@@ -104,7 +104,7 @@ function petGlyph(pet,size){
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
 async function loadPet(){
-  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,gacha:r.gacha}; }
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha}; }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
 }
@@ -224,6 +224,12 @@ function renderPet(){
     const afford=p.coins>=s.price;
     return `<button class="ghost sm" ${afford?"":"disabled"} style="${afford?"":"opacity:.45;"}" title="${s.name}" onclick="buyPet('${s.it}',${s.price})">${s.it} 🦴${s.price}</button>`;
   }).join("")||`<span class="hint">商店飾品都收集完了，太強了！🎉</span>`;
+  // 🍖 餵食：花幣直接加 EXP（所有寵物適用）
+  const feed=(petMeta&&petMeta.feed)||[];
+  const feedHtml=feed.map(s=>{
+    const afford=p.coins>=s.price;
+    return `<button class="ghost sm" ${afford?"":"disabled"} style="${afford?"":"opacity:.45;"}" title="${s.name} +${s.exp}EXP" onclick="feedPet('${s.it}',${s.price},${s.exp})">${s.it} +${s.exp}exp 🦴${s.price}</button>`;
+  }).join("");
   const dexHtml=(p.dex||[]).map(d=>{ const s=(petMeta&&petMeta.species&&petMeta.species[d.species]); if(!s)return""; return `<span title="${s.label} 最高${(petMeta.stageNames||[])[d.maxStage]||''}" style="font-size:20px;">${s.stages[d.maxStage]}</span>`; }).join("");
   // 我的寵物收藏（每隻各自 EXP；點一下就換成出戰）
   const coll=p.collection||[];
@@ -264,7 +270,9 @@ function renderPet(){
       `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${collHtml}</div>`:"")+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 我的飾品</div>`+
     `<div class="chipbar" style="margin-top:4px;">${itemBtns}${p.equipped?`<button class="ghost sm" onclick="equipPet('')">脫下</button>`:""}</div>`+
-    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🦴 骨頭幣商店 <span class="hint" style="font-weight:400;">（記錄/達標賺幣，不影響競賽積分）</span></div>`+
+    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🍖 餵食 <span class="hint" style="font-weight:400;">（花幣幫牠加 EXP，插圖寵物也適用）</span></div>`+
+    `<div class="chipbar" style="margin-top:4px;">${feedHtml}</div>`+
+    `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎩 飾品商店 <span class="hint" style="font-weight:400;">（${isArt?"插圖寵物暫不顯示帽子":"記錄/達標賺幣"}）</span></div>`+
     `<div class="chipbar" style="margin-top:4px;">${shopHtml}</div>`+
     gachaBlock+
     (dexHtml?`<div style="margin-top:10px;font-size:13px;font-weight:600;">📖 圖鑑</div><div style="margin-top:4px;">${dexHtml}</div>`:"")+
@@ -335,5 +343,11 @@ function changePetBreed(){
 async function buyPet(item,price){
   if(!confirm(`用 🦴 ${price} 骨頭幣購買 ${item}？`)) return;
   try{ const r=await api("/api/pet/buy",{method:"POST",body:JSON.stringify({item})}); petData=r.pet; renderPet(); petToast(`已購買 ${item}！到「我的飾品」就能幫牠戴上。`); }
+  catch(e){ alert(e.message); }
+}
+async function feedPet(item,price,exp){
+  if(!confirm(`用 🦴 ${price} 餵 ${item}？寵物 +${exp} EXP`)) return;
+  try{ const r=await api("/api/pet/feed",{method:"POST",body:JSON.stringify({item})}); petData=r.pet; renderPet();
+    petToast(`${item} 吃光光！EXP +${r.gainedExp} 😋`); }
   catch(e){ alert(e.message); }
 }
