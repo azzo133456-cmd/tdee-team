@@ -1118,26 +1118,30 @@ async function creditActivePet(userId, petRow, rows) {
   const flock = (petRow.flock && typeof petRow.flock === "object") ? Object.assign({}, petRow.flock) : {};
   if (!flock[species]) flock[species] = { breed: petRow.breed || null, exp: 0, name: petRow.name || null };
   const today = twToday();
+  const yest = addDays(today, -1);
   const credited = petRow.credited_through
     ? (petRow.credited_through instanceof Date ? isoD(petRow.credited_through) : String(petRow.credited_through).slice(0, 10))
     : null;
-  const fullNow = petExpFromRows(rows).exp;
-  if (credited === null) {
-    // 首次分流（含舊資料遷移）：把全部歷史 EXP 灌給目前出戰的這隻，既有玩家不歸零
-    flock[species].exp = Math.max(flock[species].exp || 0, fullNow);
-  } else if (today > credited) {
-    const fullPrev = petExpFromRows(rows.filter((r) => r.date <= credited)).exp;
-    flock[species].exp = (flock[species].exp || 0) + Math.max(0, fullNow - fullPrev);
+  const fullTo = (d) => petExpFromRows(rows.filter((r) => r.date <= d)).exp;
+  // 只「入帳」已完成的日子（到昨天）；今天的成長在 petStateFromRows 即時加上，記了馬上看得到
+  let newCredited = credited;
+  if (credited === null || credited >= today) {
+    // 首次分流／從舊模型遷移：銀行重設為「到昨天」的全量（今天改走即時計算）
+    flock[species].exp = fullTo(yest);
+    newCredited = yest;
+  } else if (yest > credited) {
+    flock[species].exp = (flock[species].exp || 0) + Math.max(0, fullTo(yest) - fullTo(credited));
+    newCredited = yest;
   }
   petRow.flock = flock;
-  petRow.credited_through = today;
-  await pool.query("UPDATE pets SET flock=$1, credited_through=$2 WHERE user_id=$3", [JSON.stringify(flock), today, userId]);
+  petRow.credited_through = newCredited;
+  await pool.query("UPDATE pets SET flock=$1, credited_through=$2 WHERE user_id=$3", [JSON.stringify(flock), newCredited, userId]);
   return petRow;
 }
 async function computePet(userId) {
   const [petR, statR, uR] = await Promise.all([
     pool.query("SELECT * FROM pets WHERE user_id=$1", [userId]),
-    pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop FROM daily_stats WHERE user_id=$1", [userId]),
+    pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop,weight FROM daily_stats WHERE user_id=$1", [userId]),
     pool.query("SELECT username FROM users WHERE id=$1", [userId]),
   ]);
   const trophies = uR.rows.length ? await trophyCount(uR.rows[0].username) : 0;
@@ -1229,7 +1233,7 @@ app.post("/api/pet/choose", auth, async (req, res) => {
     const name = req.body.name === undefined ? null : String(req.body.name || "").trim().slice(0, 16) || null;
     const [petR, statR] = await Promise.all([
       pool.query("SELECT * FROM pets WHERE user_id=$1", [req.user.id]),
-      pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop FROM daily_stats WHERE user_id=$1", [req.user.id]),
+      pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop,weight FROM daily_stats WHERE user_id=$1", [req.user.id]),
     ]);
     // 稀有寵物：要先扭蛋抽到解鎖才能領養
     if (GACHA_PET_KEYS.has(species)) {
@@ -1352,6 +1356,7 @@ function petExpFromRows(rows) {
     if (r.protein_hit) exp += 5;
     if (r.exercised) exp += 5;
     if (r.water_hit) exp += 4;
+    if (r.weight != null) exp += 6;       // 記錄體重也餵養（TDEE 追蹤的核心好習慣）
     if ((r.poop || 0) > 0) exp += 3;
   });
   let prev = null, run = 0;
@@ -1371,6 +1376,7 @@ function petCoinsFromRows(rows, trophies) {
     if (r.exercised) c += 3;
     if (r.water_hit) c += 2;
     if (r.protein_hit) c += 2;
+    if (r.weight != null) c += 2;       // 記錄體重也給幣
     if ((r.poop || 0) > 0) c += 1;
   });
   return c + (trophies || 0) * 50;     // 每座獎盃 +50 幣
@@ -1397,8 +1403,10 @@ function petStateFromRows(petRow, rows, trophies) {
   // 舊資料（還沒分流，flock 沒這隻）→ 回退用全量計算，確保既有玩家寵物不歸零。
   const flock = (petRow && petRow.flock) || {};
   const fp = flock[species] || null;
-  const rawExp = fp ? (fp.exp || 0) : stat.exp;
   const today = twToday();
+  // 出戰寵物：銀行(到昨天) + 今天即時成長 → 今天記了馬上反映
+  const liveToday = () => { const yest = addDays(today, -1); return Math.max(0, petExpFromRows(rows.filter((r) => r.date <= today)).exp - petExpFromRows(rows.filter((r) => r.date <= yest)).exp); };
+  const rawExp = fp ? ((fp.exp || 0) + liveToday()) : stat.exp;
   const daysSince = lastLogged ? Math.max(0, daysBetween(lastLogged, today)) : 0;
   const stageIdx = petStageIdx(rawExp);                   // 階段由原始EXP決定→永不退階
   const penalty = Math.max(0, daysSince - 1) * 4;         // 輕衰減：漏記第2天起每天 -4 EXP

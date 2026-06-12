@@ -122,7 +122,7 @@ function petDailyTasks(){
     {ok:water>=goal, name:"喝滿水", coin:2},
     {ok:exT, name:"運動", coin:3},
     {ok:(+recT.poop||0)>0, name:"嗯嗯", coin:1},
-    {ok:recT.weight!=null, name:"量體重", coin:0},
+    {ok:recT.weight!=null, name:"量體重", coin:2},
   ];
 }
 // 每日簽到（連續天數越多獎勵越大）
