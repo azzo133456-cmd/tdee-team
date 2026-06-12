@@ -1208,15 +1208,22 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
     let owned = state.owned.slice(), gachaPets = state.gachaPets.slice(), bonus = 0;
     const results = [];
     const haveAcc = new Set([...state.unlocked, ...owned]);
+    const unlocked = petUnlockedSet(row);   // 已解鎖寵物（含養過/起手）；抽中時即時更新
     for (let i = 0; i < count; i++) {
       const g = gachaRoll();
       if (g.type === "coin") { bonus += g.amount; results.push({ type: "coin", label: g.label, amount: g.amount, rare: false }); }
       else if (g.type === "acc") {
         if (haveAcc.has(g.it)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: g.it, amount: GACHA_DUP_REFUND, rare: !!g.rare }); }
         else { owned.push(g.it); haveAcc.add(g.it); results.push({ type: "acc", label: g.it, rare: !!g.rare }); }
-      } else { // pet
-        if (gachaPets.includes(g.key)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: (PET_SPECIES[g.key] || {}).label || g.key, amount: GACHA_DUP_REFUND, rare: true }); }
-        else { gachaPets.push(g.key); results.push({ type: "pet", key: g.key, label: (PET_SPECIES[g.key] || {}).label || g.key, rare: true }); }
+      } else { // pet：抽一隻「還沒解鎖」的；全解鎖了就退幣
+        const locked = PET_ROSTER.filter((k) => !unlocked.has(k));
+        if (!locked.length) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: "🐾", amount: GACHA_DUP_REFUND, rare: true }); }
+        else {
+          const k = locked[Math.floor(Math.random() * locked.length)];
+          unlocked.add(k); if (!gachaPets.includes(k)) gachaPets.push(k);
+          const pf = petFromKey(k);
+          results.push({ type: "pet", key: k, species: pf.species, breed: pf.breed, label: (PET_SPECIES[pf.species] || {}).label || k, rare: true });
+        }
       }
     }
     await pool.query("UPDATE pets SET owned=$1, gacha_pets=$2, coins_spent=COALESCE(coins_spent,0)+$3, coins_bonus=COALESCE(coins_bonus,0)+$4 WHERE user_id=$5",
@@ -1285,10 +1292,12 @@ app.post("/api/pet/choose", auth, async (req, res) => {
       pool.query("SELECT * FROM pets WHERE user_id=$1", [req.user.id]),
       pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop,weight FROM daily_stats WHERE user_id=$1", [req.user.id]),
     ]);
-    // 稀有寵物：要先扭蛋抽到解鎖才能領養
-    if (GACHA_PET_KEYS.has(species)) {
-      const unlocked = Array.isArray(petR.rows[0] && petR.rows[0].gacha_pets) ? petR.rows[0].gacha_pets : [];
-      if (!unlocked.includes(species)) return res.status(403).json({ error: "這是稀有寵物，要從扭蛋抽到才能領養喔！" });
+    const key = petUnlockKey(species, breed);
+    const firstAdopt = !petR.rows[0];
+    // 起手 1 隻免費；之後要換的那隻必須「已解鎖」（養過或扭蛋抽到）
+    if (!firstAdopt) {
+      const unlocked = petUnlockedSet(petR.rows[0]);
+      if (!unlocked.has(key)) return res.status(403).json({ error: "這隻還沒解鎖，去扭蛋抽抽看才能領養喔！" });
     }
     let flock = {};
     if (petR.rows[0]) {
@@ -1298,10 +1307,13 @@ app.post("/api/pet/choose", auth, async (req, res) => {
     }
     if (!flock[species]) flock[species] = { breed, exp: 0, name: name || null };
     else { flock[species].breed = breed; if (name) flock[species].name = name; }
+    // 把這隻記入已解鎖清單（起手隻也算解鎖）
+    let gp = Array.isArray(petR.rows[0] && petR.rows[0].gacha_pets) ? petR.rows[0].gacha_pets.slice() : [];
+    if (!gp.includes(key)) gp.push(key);
     await pool.query(
-      `INSERT INTO pets(user_id,species,breed,name,flock,credited_through) VALUES($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (user_id) DO UPDATE SET species=$2, breed=$3, name=COALESCE($4,pets.name), flock=$5`,
-      [req.user.id, species, breed, name, JSON.stringify(flock), twToday()]
+      `INSERT INTO pets(user_id,species,breed,name,flock,credited_through,gacha_pets) VALUES($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (user_id) DO UPDATE SET species=$2, breed=$3, name=COALESCE($4,pets.name), flock=$5, gacha_pets=$7`,
+      [req.user.id, species, breed, name, JSON.stringify(flock), twToday(), JSON.stringify(gp)]
     );
     const { state } = await computePet(req.user.id);
     res.json({ pet: state });
@@ -1371,18 +1383,14 @@ const PET_SPECIES = {
   ghost:    { label: "幽靈", stages: ["🥚", "👻", "👻", "👻", "👻"] },
   star:     { label: "星靈", stages: ["🥚", "✨", "🌟", "⭐", "💫"] },
 };
-// 稀有寵物代號（扭蛋限定，一般選單隱藏、需抽到解鎖）
-const GACHA_PET_KEYS = new Set(["phoenix", "ghost", "star"]);
-// 扭蛋池（伺服器端權威隨機，防作弊）：type=coin 給幣 / acc 飾品 / pet 稀有寵物。w=權重
+// 扭蛋池（伺服器端權威隨機，防作弊）：type=coin 給幣 / acc 飾品 / pet 隨機未解鎖寵物。w=權重
 const GACHA_POOL = [
-  { type: "coin", amount: 10, w: 26, label: "🦴×10" },
-  { type: "coin", amount: 30, w: 12, label: "🦴×30" },
-  { type: "acc", it: "🍓", w: 11 }, { type: "acc", it: "🌹", w: 11 },
-  { type: "acc", it: "🦋", w: 9 }, { type: "acc", it: "🎃", w: 6 },
-  { type: "acc", it: "⚡", w: 5 }, { type: "acc", it: "🌈", w: 3, rare: true },
-  { type: "pet", key: "ghost", w: 4, rare: true },
-  { type: "pet", key: "phoenix", w: 3, rare: true },
-  { type: "pet", key: "star", w: 2, rare: true },
+  { type: "coin", amount: 10, w: 22, label: "🦴×10" },
+  { type: "coin", amount: 30, w: 10, label: "🦴×30" },
+  { type: "acc", it: "🍓", w: 9 }, { type: "acc", it: "🌹", w: 9 },
+  { type: "acc", it: "🦋", w: 7 }, { type: "acc", it: "🎃", w: 5 },
+  { type: "acc", it: "⚡", w: 4 }, { type: "acc", it: "🌈", w: 3, rare: true },
+  { type: "pet", w: 21 },   // 抽到「隨機一隻還沒解鎖的寵物」
 ];
 const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品/寵物退幣
 function gachaRoll() {
@@ -1393,6 +1401,18 @@ function gachaRoll() {
 }
 // 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
 const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream", "silvertabby"], dog: ["shiba", "frenchie", "golden", "collie", "dachshund"] };
+// 寵物解鎖：起手 1 隻免費，其餘全部要扭蛋抽到。解鎖鍵：貓狗用 "species:breed"，其他用 "species"。
+const petUnlockKey = (species, breed) => (PET_BREED_IDS[species] && breed) ? species + ":" + breed : species;
+const petFromKey = (key) => { const i = key.indexOf(":"); return i < 0 ? { species: key, breed: null } : { species: key.slice(0, i), breed: key.slice(i + 1) }; };
+const PET_ROSTER = (() => { const a = []; for (const sp in PET_SPECIES) { if (PET_BREED_IDS[sp]) for (const b of PET_BREED_IDS[sp]) a.push(sp + ":" + b); else a.push(sp); } return a; })();
+// 已解鎖的寵物集合＝gacha_pets ∪ 養過的(flock) ∪ 目前出戰（自動把既有玩家擁有的都算解鎖）
+function petUnlockedSet(row) {
+  const s = new Set(Array.isArray(row && row.gacha_pets) ? row.gacha_pets : []);
+  const flock = (row && row.flock) || {};
+  for (const sp in flock) s.add(petUnlockKey(sp, flock[sp] && flock[sp].breed));
+  if (row && row.species) s.add(petUnlockKey(row.species, row.breed));
+  return s;
+}
 const PET_STAGE_NAMES = ["蛋", "幼體", "成長期", "成體", "進化體"];
 const PET_STAGE_EXP = [0, 100, 400, 1200, 3000];   // 進化門檻(放慢約2倍)：蛋/幼體/成長期/成體/進化體
 const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
@@ -1507,6 +1527,7 @@ function petStateFromRows(petRow, rows, trophies) {
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
     equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies, collection,
     gachaPets: Array.isArray(petRow && petRow.gacha_pets) ? petRow.gacha_pets : [],
+    unlockedPets: [...petUnlockedSet(petRow)],   // 已解鎖可選的寵物（鍵：species 或 species:breed）
     allClearClaimed: !!(petRow && petRow.last_allclear && ((petRow.last_allclear instanceof Date ? isoD(petRow.last_allclear) : String(petRow.last_allclear).slice(0,10)) === twToday())),
     shields: (petRow && petRow.streak_shields) || 0,
     checkinStreak: (petRow && petRow.checkin_streak) || 0,

@@ -1,7 +1,6 @@
 // 寵物系統（從 app.js 拆出；classic script，與 app.js 共用全域。需在 app.js 之前載入）
 /* ---------- 養寵物（成長＝健康習慣；不碰 AI） ---------- */
 let petData=null, petMeta=null;
-const GACHA_PET_KEYS=["phoenix","ghost","star"];   // 稀有寵物（需扭蛋抽到才在選單出現）
 // 貓/狗品種：自訂可愛 SVG（配色/耳型/花紋差異），其他物種維持 emoji
 const PET_BREEDS={
   cat:{
@@ -182,17 +181,17 @@ function showGachaResults(results){
   const box=document.getElementById("petBox"); if(!box) return;
   const cell=(x)=>{
     const big=x.rare?'box-shadow:0 0 0 2px #ffd24a;':'';
-    let glyph=x.label, sub="";
-    if(x.type==="coin"){ glyph="🦴"; sub="+"+x.amount; }
+    let glyph=`<span style="font-size:24px;">${x.label}</span>`, sub="";
+    if(x.type==="coin"){ glyph=`<span style="font-size:24px;">🦴</span>`; sub="+"+x.amount; }
     else if(x.type==="dup"){ sub="重複 +🦴"+x.amount; }
-    else if(x.type==="pet"){ sub="新寵物！"; }
+    else if(x.type==="pet"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub="新寵物🎉 "+x.label; }
     else sub="飾品";
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;flex:0 0 auto;width:62px;${big}">`+
-      `<div style="font-size:24px;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;
+      `<div style="height:30px;display:flex;align-items:center;justify-content:center;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;
   };
   box.innerHTML=`<div style="text-align:center;font-size:15px;font-weight:600;margin-bottom:8px;">🥚 扭蛋結果</div>`+
     `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">${results.map(cell).join("")}</div>`+
-    (results.some(x=>x.type==="pet")?`<div class="hint" style="text-align:center;margin-top:8px;">抽到稀有寵物！到「換寵物」就能領養 🎉</div>`:"")+
+    (results.some(x=>x.type==="pet")?`<div class="hint" style="text-align:center;margin-top:8px;">解鎖新寵物！到「換寵物」就能領養出戰 🎉</div>`:"")+
     `<div class="chipbar" style="margin-top:12px;justify-content:center;"><button class="ghost sm" onclick="renderPet()">關閉</button></div>`;
 }
 async function choosePet(sp,breed){
@@ -217,7 +216,7 @@ function renderPet(){
   // 還沒領養 → 選一隻
   if(!petData.chosen){
     if(pill) pill.textContent="";
-    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻夥伴吧！牠會跟著你的健康習慣一起長大（持續記錄＝餵食，跨賽季也不會不見）。</div>`+petChooserHtml();
+    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻當<b>起手夥伴</b>（免費）！之後想要別隻，要到<b>扭蛋</b>抽到才能解鎖。牠會跟著你的健康習慣一起長大。</div>`+petChooserHtml(null,false);
     return;
   }
   const p=petData;
@@ -271,7 +270,6 @@ function renderPet(){
       `<div style="flex:1 1 auto;min-width:0;">`+
         `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><b style="font-size:16px;">${escapeHtml(p.name)}</b>`+
           `<span style="cursor:pointer;color:var(--sub);font-size:13px;" onclick="renamePet()">✎</span>`+
-          (PET_BREEDS[p.species]?`<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="changePetBreed()">換品種</span>`:"")+
           `<span style="cursor:pointer;color:var(--sub);font-size:12px;" onclick="switchPet()">換寵物</span>`+
           `<span class="pill" style="margin-left:auto;background:#fff4e0;color:#a5701a;">🦴 ${p.coins}</span></div>`+
         `<div style="font-size:13px;color:${moodColor};margin:3px 0 2px;">${p.moodFace} 心情 ${p.moodLabel}`+(p.daysSince>1?`（${p.daysSince} 天沒記錄了，回來餵餵牠吧）`:"")+`</div>`+
@@ -311,46 +309,33 @@ function petToast(msg){
   t.textContent=msg; t.className="show";
   clearTimeout(t._tm); t._tm=setTimeout(()=>{ t.className=""; },3600);
 }
-// 選寵物的卡片牆（領養 / 換寵物共用）；cur=目前物種(可選，會標示)
-function petChooserHtml(cur){
-  const card=(inner,label,onclick,on)=>`<div onclick="${onclick}" style="cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}">`+
+// 選寵物的卡片牆。cur=目前物種(標示)；lock=true 時未解鎖的會上鎖(要扭蛋)，false 時全部可選(起手免費)
+function petChooserHtml(cur, lock){
+  const unlocked=new Set((petData&&petData.unlockedPets)||[]);
+  const ukey=(sp,b)=>(PET_BREEDS[sp]&&b)?sp+":"+b:sp;
+  const card=(inner,label,onclick,on,locked)=>`<div onclick="${locked?`petToast('🔒 還沒解鎖，去扭蛋抽抽看！')`:onclick}" style="cursor:pointer;position:relative;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}${locked?'opacity:.45;':''}">`+
+    (locked?`<div style="position:absolute;top:3px;right:5px;font-size:13px;">🔒</div>`:"")+
     `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${inner}</div>`+
     `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${label}</div></div>`;
   const breedCards=(species)=>Object.keys(PET_BREEDS[species]).map(b=>{
-    const P=PET_BREEDS[species][b];
-    return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`,cur===species&&petData&&petData.breed===b);
+    const P=PET_BREEDS[species][b], locked=lock&&!unlocked.has(ukey(species,b));
+    return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`,cur===species&&petData&&petData.breed===b,locked);
   }).join("");
   const sp=(petMeta&&petMeta.species)||{};
-  const unlockedGacha=(petData&&petData.gachaPets)||[];
-  // 稀有寵物：沒抽到不顯示
-  const visible=(k)=>!PET_BREEDS[k] && (!GACHA_PET_KEYS.includes(k) || unlockedGacha.includes(k));
-  const others=Object.keys(sp).filter(k=>visible(k)&&!GACHA_PET_KEYS.includes(k)).map(k=>
-    card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k)).join("");
-  const rares=Object.keys(sp).filter(k=>GACHA_PET_KEYS.includes(k)&&unlockedGacha.includes(k)).map(k=>
-    card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k)).join("");
+  const others=Object.keys(sp).filter(k=>!PET_BREEDS[k]).map(k=>{
+    const locked=lock&&!unlocked.has(k);
+    return card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k,locked);
+  }).join("");
   return `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+
     `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🐶 狗</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("dog")}</div>`+
-    `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`+
-    (rares?`<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">🌟 稀有（扭蛋）</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${rares}</div>`:"");
+    `<div style="font-size:13px;font-weight:600;margin:10px 0 4px;">✨ 其他</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${others}</div>`;
 }
-// 整個換成別的物種（進度/飾品/幣/圖鑑都保留）
+// 換出戰寵物（只能換成「已解鎖」的；其餘上鎖要扭蛋）
 function switchPet(){
   const box=document.getElementById("petBox"); if(!box||!petData) return;
-  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換一隻出戰吧！<b>每隻各自累積 EXP</b>，目前這隻會凍結保留、新的接著養（骨頭幣與飾品共用）。可以同時收集很多種！</div>`+
-    petChooserHtml(petData.species)+
-    `<div class="chipbar" style="margin-top:10px;"><button class="ghost sm" onclick="renderPet()">取消</button></div>`;
-}
-function changePetBreed(){
-  const box=document.getElementById("petBox"); if(!box||!petData) return;
-  const sp=petData.species; if(!PET_BREEDS[sp]) return;
-  const cards=Object.keys(PET_BREEDS[sp]).map(b=>{
-    const P=PET_BREEDS[sp][b], on=petData.breed===b;
-    return `<div onclick="choosePet('${sp}','${b}')" style="cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}">`+
-      `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${petSVG(sp,b,3,52)}</div>`+
-      `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${P.label}</div></div>`;
-  }).join("");
-  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換個品種（進度、飾品、骨頭幣都會保留）：</div>`+
-    `<div style="display:flex;flex-wrap:wrap;gap:8px;">${cards}</div>`+
+  const n=(petData.unlockedPets||[]).length;
+  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">換一隻出戰吧！只能換成<b>已解鎖</b>的寵物（共 ${n} 隻），🔒 的要到<b>扭蛋</b>抽到才能領養。每隻各自累積 EXP、不會損失。</div>`+
+    petChooserHtml(petData.species, true)+
     `<div class="chipbar" style="margin-top:10px;"><button class="ghost sm" onclick="renderPet()">取消</button></div>`;
 }
 async function buyPet(item,price){
