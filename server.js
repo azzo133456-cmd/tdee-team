@@ -1856,10 +1856,10 @@ app.get("/api/groups", auth, async (req, res) => {
           m.pet = { species: ps.species, breed: ps.breed, stageIdx: ps.stageIdx, emoji: ps.emoji, hat: ps.equipped, stage: ps.stageName, mood: ps.moodFace };
         }
       });
-      // 留言／加油（最近 20 則，最舊在前），不洩漏體重
+      // 留言／加油（最近 200 則，最舊在前），不洩漏體重
       const msgs = await pool.query(
         `SELECT m.body, m.created_at, u.username FROM group_messages m JOIN users u ON u.id=m.user_id
-         WHERE m.group_id=$1 ORDER BY m.id DESC LIMIT 20`, [g.id]);
+         WHERE m.group_id=$1 ORDER BY m.id DESC LIMIT 200`, [g.id]);
       out.push({
         id: g.id, name: g.name, code: g.code, metric: g.metric, period: g.period,
         isOwner: g.created_by === req.user.id, stakes: g.stakes || "",

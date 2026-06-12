@@ -1142,7 +1142,7 @@ function renderGroups(){
     const bossBanner=g.boss?`<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,#fde2d0,#f7c9b0);color:#9a4a2a;font-size:12.5px;font-weight:600;">🔥 本輪是「魔王輪」！奪冠積分 <b>雙倍（${winPer*2} 分）</b>，把握機會衝一波！</div>`:"";
     // 留言／加油
     const msgs=g.messages||[];
-    const msgList=msgs.length?msgs.slice(-6).map(m=>`<div style="font-size:12px;margin:2px 0;"><b style="color:${m.me?'var(--accent)':'var(--ink)'}">${m.name}</b>：${escapeHtml(m.body)}</div>`).join(""):`<div class="hint">還沒有留言，先喊一聲幫大家加油吧！</div>`;
+    const msgList=msgs.length?msgs.map(m=>`<div style="font-size:12px;margin:2px 0;"><b style="color:${m.me?'var(--accent)':'var(--ink)'}">${m.name}</b>：${escapeHtml(m.body)}</div>`).join(""):`<div class="hint">還沒有留言，先喊一聲幫大家加油吧！</div>`;
     const msgsHtml=`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--sub);">💬 留言加油（${msgs.length}）</summary>`+
       `<div style="margin-top:4px;max-height:140px;overflow-y:auto;">${msgList}</div>`+
       `<div class="row" style="margin-top:6px;"><div style="flex:1 1 auto;"><input id="gmsg-${g.id}" maxlength="120" placeholder="說句加油/嗆聲（不會洩漏體重）" autocomplete="off"></div>`+
