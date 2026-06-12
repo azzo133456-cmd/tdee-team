@@ -790,8 +790,10 @@ async function analyzePhoto(){
     const mealNote=applyMealGuess(r.meal);
     if(h){
       h.innerHTML=`已列出 <b>${items.length}</b> 道、共約 <b>${Math.round(tot)} kcal</b>。${mealNote}`
-        +`<div style="margin-top:8px;font-size:13px;">整體份量（一次調整全部）：`
-        +[["½",0.5],["原始",1],["1.5",1.5],["2人份",2],["3人份",3]].map(([lbl,f])=>`<button class="ghost sm" style="padding:5px 9px;" onclick="scaleAiPortions(${f})">${lbl}</button>`).join(" ")+`</div>`
+        +`<div style="margin-top:8px;font-size:13px;">我吃的量（一次調整全部）：`
+        +[["½",0.5],["原始",1],["1.5×",1.5],["×2",2]].map(([lbl,f])=>`<button class="ghost sm" style="padding:5px 9px;" onclick="scaleAiPortions(${f})">${lbl}</button>`).join(" ")+`</div>`
+        +`<div style="margin-top:6px;font-size:13px;">合菜分食（整盤是幾人份 → 算我 1 份）：`
+        +[["2人份",1/2],["3人份",1/3],["4人份",1/4],["5人份",1/5]].map(([lbl,f])=>`<button class="ghost sm" style="padding:5px 9px;" onclick="scaleAiPortions(${f})">${lbl}</button>`).join(" ")+`</div>`
         +`<div class="hint" style="margin-top:4px;">或在下方清單逐筆改克數。確認後選餐別「＋加入」。</div>`
         +`<div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
         +`<input id="aiFixInput" placeholder="辨識不對？例：這是滷肉飯不是燴飯／雞肉約300g" style="flex:1 1 200px;padding:6px 8px;font-size:13px">`
