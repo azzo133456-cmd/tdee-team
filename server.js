@@ -1582,8 +1582,8 @@ function scoreMember(rows, metric, since, until) {
     const pre = all.filter((r) => r.date < since);
     const current = inWin.length ? inWin[inWin.length - 1] : (all.length ? all[all.length - 1] : null);
     const baseline = pre.length ? pre[pre.length - 1] : (inWin.length ? inWin[0] : null);
-    if (!current || !baseline) return { score: 0, detail: "尚無體重", sortAsc: true };
-    if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true };
+    if (!current || !baseline) return { score: 0, detail: "尚無體重", sortAsc: true, noData: true };
+    if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true, noData: true };
     const pct = +(((+current.weight - +baseline.weight) / +baseline.weight) * 100).toFixed(1);
     return { score: pct, detail: (pct > 0 ? "+" : "") + pct + "%", sortAsc: true };
   }
@@ -1594,8 +1594,8 @@ function scoreMember(rows, metric, since, until) {
     const pre = all.filter((r) => r.date < since);
     const current = inWin.length ? inWin[inWin.length - 1] : (all.length ? all[all.length - 1] : null);
     const baseline = pre.length ? pre[pre.length - 1] : (inWin.length ? inWin[0] : null);
-    if (!current || !baseline) return { score: 0, detail: "尚無體脂", sortAsc: true };
-    if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true };
+    if (!current || !baseline) return { score: 0, detail: "尚無體脂", sortAsc: true, noData: true };
+    if (current.date === baseline.date) return { score: 0, detail: "待下次量測", sortAsc: true, noData: true };
     const d = +(+current.body_fat - +baseline.body_fat).toFixed(1);
     return { score: d, detail: (d > 0 ? "+" : "") + d + "%", sortAsc: true };
   }
@@ -1756,8 +1756,12 @@ app.get("/api/groups", auth, async (req, res) => {
       const len = roundLen(g.period);
       const asc = g.metric === "weightpct" || g.metric === "bodyfat";   // 變化%越低(降越多)越前面
       const buildBoard = (since, until) => {
-        const b = mem.rows.map((u) => { const r = scoreMember(rowsByUser[u.id], g.metric, since, until); return { name: u.username, me: u.id === req.user.id, score: r.score, detail: r.detail }; });
-        b.sort((a, b2) => asc ? a.score - b2.score : b2.score - a.score);
+        const b = mem.rows.map((u) => { const r = scoreMember(rowsByUser[u.id], g.metric, since, until); return { name: u.username, me: u.id === req.user.id, score: r.score, detail: r.detail, noData: !!r.noData }; });
+        // 沒資料(尚無體重/體脂、待下次量測)一律沉到最底，不佔有效名次
+        b.sort((a, b2) => (a.noData !== b2.noData) ? (a.noData ? 1 : -1) : (asc ? a.score - b2.score : b2.score - a.score));
+        // 名次：同分同名次（標準競賽排名 1,2,2,4…）；沒資料者共用末位名次
+        let rank = 0, prevKey = null;
+        b.forEach((m, i) => { const key = m.noData ? "—" : m.score; if (i === 0 || key !== prevKey) { rank = i + 1; prevKey = key; } m.rank = m.noData ? null : rank; });
         return b;
       };
       // === 賽季結算：把已結束的輪次寫入 group_seasons，並把 season_start 推進到含今天的輪 ===
@@ -1768,7 +1772,7 @@ app.get("/api/groups", auth, async (req, res) => {
         const end = addDays(seasonStart, len - 1);
         if (today <= end) break;                      // 本輪還沒結束
         const finalBoard = buildBoard(seasonStart, end);
-        const winner = finalBoard.length && (finalBoard[0].score !== 0 || g.metric === "weightpct") ? finalBoard[0].name : null;
+        const winner = finalBoard.length && !finalBoard[0].noData && (finalBoard[0].score !== 0 || g.metric === "weightpct") ? finalBoard[0].name : null;
         await pool.query(
           `INSERT INTO group_seasons(group_id,round_no,start_date,end_date,winner,results,boss) VALUES($1,$2,$3,$4,$5,$6,$7)
            ON CONFLICT (group_id,round_no) DO NOTHING`,

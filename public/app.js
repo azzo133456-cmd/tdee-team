@@ -1082,18 +1082,19 @@ function renderGroups(){
   const box=document.getElementById("groupList"); if(!box) return;
   const pill=document.getElementById("groupCount"); if(pill) pill.textContent=myGroups.length?myGroups.length+" 組":"";
   if(!myGroups.length){ box.innerHTML='<div class="empty">還沒加入競賽。建立一個或用邀請碼加入，揪朋友一起比！</div>'; return; }
-  const medal=(i)=>["🥇","🥈","🥉"][i]||(i+1)+".";
+  // 名次徽章：用後端算好的 rank（同分同名次）；null=沒資料顯示「–」
+  const medal=(r)=>r==null?"–":(["🥇","🥈","🥉"][r-1]||r+".");
   const today=todayStr();
   box.innerHTML=myGroups.map(g=>{
     const isTeam=g.metric==="team", asc=g.metric==="weightpct"||g.metric==="bodyfat";
     // 賽馬跑道：依分數相對名次定位（領先=最右）
-    const scores=g.members.map(m=>m.score);
-    const best=asc?Math.min(...scores):Math.max(...scores);
-    const worst=asc?Math.max(...scores):Math.min(...scores);
+    const scores=g.members.filter(m=>!m.noData).map(m=>m.score);
+    const best=scores.length?(asc?Math.min(...scores):Math.max(...scores)):0;
+    const worst=scores.length?(asc?Math.max(...scores):Math.min(...scores)):0;
     const range=Math.abs(best-worst)||1;
     // 賽馬跑道：每人一條，上排顯示名次/名字(特效)/分數，下排是自己的角色往🏁前進
     const race=g.members.map((m,i)=>{
-      const p=Math.round(Math.abs(m.score-worst)/range*86);   // 0~86%
+      const p=m.noData?0:Math.round(Math.abs(m.score-worst)/range*86);   // 0~86%（沒資料者停在起點）
       const racer=m.racer||"🏁";
       // 角色：頭像圖（avatar）或表情符號
       const runnerInner=(racer==="avatar"&&m.avatar)
@@ -1107,7 +1108,7 @@ function renderGroups(){
       const dashCol=sk.dark?"rgba(255,255,255,.35)":"var(--line)";
       return `<div style="margin:7px 0;${laneBg}">`+
         `<div style="display:flex;align-items:center;gap:5px;font-size:12px;margin-bottom:1px;${sk.id?'padding-top:4px;':''}">`+
-          `<span>${medal(i)}</span>`+
+          `<span>${medal(m.rank)}</span>`+
           (m.avatar?`<img class="avatar sm" src="${m.avatar}">`:"")+
           `<span style="${m.me?'font-weight:700;'+(sk.dark?'color:#fff;':'color:var(--accent);'):''}">${nm}</span>`+
           (m.pet?`<span title="${m.pet.stage}寵物 ${m.pet.mood||''}" style="position:relative;display:inline-flex;align-items:center;line-height:0;">${(m.pet.hat&&!petArtUrl(m.pet.species,m.pet.breed,m.pet.stageIdx))?`<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-size:10px;z-index:2;">${m.pet.hat}</span>`:""}${petGlyph(m.pet,22)}</span>`:"")+
@@ -2104,7 +2105,7 @@ function renderDashboard(){
   // 競賽名次摘要
   if((myGroups||[]).length){
     const parts=myGroups.slice(0,3).map(g=>{
-      const idx=g.members.findIndex(m=>m.me); const rank=idx>=0?idx+1:"-";
+      const me=g.members.find(m=>m.me); const rank=me?(me.rank==null?"-":me.rank):"-";
       return `${g.name}：第 ${rank}/${g.members.length}`;
     });
     html+=`<div class="hint" style="margin-top:8px;">🏆 ${parts.join("　·　")}</div>`;
