@@ -1419,7 +1419,7 @@ const GACHA_POOL = [
   { type: "acc", it: "⚡", w: 4 }, { type: "acc", it: "🌈", w: 3, rare: true },
   { type: "pet", w: 21 },   // 抽到「隨機一隻還沒解鎖的寵物」
 ];
-const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品/寵物退幣
+const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品退幣（寵物重複不退、僅顯示已擁有）
 function gachaRoll() {
   const tot = GACHA_POOL.reduce((a, g) => a + g.w, 0);
   let r = Math.random() * tot;
@@ -1552,7 +1552,10 @@ function petStateFromRows(petRow, rows, trophies) {
   const name = (fp && fp.name) || (petRow && petRow.name) || sp.label;
   // 我的寵物收藏（每隻各自的 EXP/階段），給「同時養很多種」的清單用
   const collection = Object.keys(flock).map((k) => {
-    const f = flock[k] || {}, e = f.exp || 0, si = petStageIdx(e), s2 = PET_SPECIES[k] || sp;
+    const f = flock[k] || {};
+    // 與主畫面一致：每隻都含餵食(fed)，出戰中那隻再加今日即時成長，避免清單顯示比主畫面低階
+    const e = (f.exp || 0) + (f.fed || 0) + (k === species ? liveToday() : 0);
+    const si = petStageIdx(e), s2 = PET_SPECIES[k] || sp;
     return { species: k, breed: f.breed || null, name: f.name || s2.label, exp: e, stageIdx: si, emoji: s2.stages[si], active: k === species };
   }).sort((a, b) => b.exp - a.exp);
   return {
