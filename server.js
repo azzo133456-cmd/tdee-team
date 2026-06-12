@@ -435,6 +435,16 @@ app.post("/api/meal", auth, async (req, res) => {
   }
 });
 
+// 按需批次取餐點照片（只在使用者真的查看某天時載入，避免開啟時把整段歷史大圖一次撈回）
+app.post("/api/meal/photos", auth, async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body.ids) ? req.body.ids : [])
+      .map((n) => parseInt(n, 10)).filter(Number.isFinite).slice(0, 60);
+    if (!ids.length) return res.json({ photos: [] });
+    const r = await pool.query("SELECT id,photo FROM meals WHERE user_id=$1 AND id = ANY($2) AND photo IS NOT NULL", [req.user.id, ids]);
+    res.json({ photos: r.rows });
+  } catch (e) { res.status(500).json({ error: "伺服器錯誤" }); }
+});
 app.delete("/api/meal/:mid/photo", auth, async (req, res) => {
   try {
     const r = await pool.query("SELECT name FROM meals WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);
@@ -1971,7 +1981,8 @@ app.get("/api/me/all", auth, async (req, res) => {
       pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]),
       pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]),
       pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
-      pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]),
+      // 不撈 photo（base64 大圖）；只回 has_photo 旗標，照片改由 /api/meal/photos 按需載入，大幅加快開啟
+      pool.query("SELECT id,user_id,date,meal,name,kcal,protein,fat,carb,created_at,(photo IS NOT NULL) AS has_photo FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]),
       pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name"),
       pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]),
       pool.query("SELECT id,name,items,kcal,thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),

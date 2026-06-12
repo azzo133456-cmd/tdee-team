@@ -1578,8 +1578,22 @@ async function saveMealEdit(id,gNow){
 }
 async function delMeal(id){ await api("/api/meal/"+id,{method:"DELETE"}); await reload(); }
 async function delMealPhoto(id){ if(!confirm("移除這張照片？")) return; await api("/api/meal/"+id+"/photo",{method:"DELETE"}); await reload(); }
-function viewPhoto(id){
-  const m=(store.meals||[]).find(x=>String(x.id)===String(id)); if(!m||!m.photo) return;
+// 按需載入餐點照片：開 App 時不撈大圖，看到某天才抓那天的照片，抓到後存回 store.meals 並重繪
+let _photoLoading=new Set();
+async function ensureMealPhotos(ids,date){
+  const need=ids.filter(id=>!_photoLoading.has(id)); if(!need.length) return;
+  need.forEach(id=>_photoLoading.add(id));
+  try{
+    const r=await api("/api/meal/photos",{method:"POST",body:JSON.stringify({ids:need})});
+    (r.photos||[]).forEach(p=>{ const m=(store.meals||[]).find(x=>String(x.id)===String(p.id)); if(m) m.photo=p.photo; });
+    renderMeals(date);
+  }catch(e){}
+  finally{ need.forEach(id=>_photoLoading.delete(id)); }
+}
+async function viewPhoto(id){
+  const m=(store.meals||[]).find(x=>String(x.id)===String(id)); if(!m) return;
+  if(!m.photo&&m.has_photo){ try{ const r=await api("/api/meal/photos",{method:"POST",body:JSON.stringify({ids:[m.id]})}); if(r.photos&&r.photos[0]) m.photo=r.photos[0].photo; }catch(e){} }
+  if(!m.photo) return;
   const ov=document.createElement("div");
   ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px";
   ov.onclick=()=>ov.remove();
@@ -1591,11 +1605,19 @@ function renderMeals(date){
   const box=document.getElementById("mealGroups");
   const list=(store.meals||[]).filter(m=>m.date.slice(0,10)===date);
   if(!list.length){ box.innerHTML='<div class="empty">今天還沒記錄飲食</div>'; return; }
+  // 這天有照片但還沒載入的 → 背景按需抓，抓到後會重繪
+  const missing=list.filter(m=>m.has_photo&&!m.photo).map(m=>m.id);
+  if(missing.length) ensureMealPhotos(missing,date);
   let html="";
   for(const mt of MEAL_ORDER){
     const g=list.filter(m=>m.meal===mt); if(!g.length) continue;
     const sub=g.reduce((a,b)=>a+(+b.kcal||0),0);
-    const photos=g.filter(m=>m.photo).map(m=>`<div style="position:relative;display:inline-block;margin:6px 6px 0 0"><img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer"><span onclick="delMealPhoto(${m.id})" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;line-height:18px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:50%;color:#b5564e;font-size:12px;cursor:pointer">✕</span></div>`).join("");
+    const photos=g.filter(m=>m.photo||m.has_photo).map(m=>{
+      const cell=m.photo
+        ?`<img src="${m.photo}" onclick="viewPhoto('${m.id}')" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer">`
+        :`<div style="width:64px;height:64px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:18px">⏳</div>`;
+      return `<div style="position:relative;display:inline-block;margin:6px 6px 0 0">${cell}<span onclick="delMealPhoto(${m.id})" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;line-height:18px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:50%;color:#b5564e;font-size:12px;cursor:pointer">✕</span></div>`;
+    }).join("");
     const subP=g.reduce((a,b)=>a+(+b.protein||0),0), subF=g.reduce((a,b)=>a+(+b.fat||0),0), subC=g.reduce((a,b)=>a+(+b.carb||0),0);
     html+=`<div class="mealgrp"><div class="mh"><span>${mt}</span><span>${sub} kcal <span style="color:var(--sub);font-weight:400;font-size:11px">P${Math.round(subP)}·F${Math.round(subF)}·C${Math.round(subC)}</span></span></div>`+
       g.map(mealRowHtml).join("")+
