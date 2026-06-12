@@ -2059,6 +2059,7 @@ function renderTable(){
 }
 // 今日摘要儀表板（概覽頁最上方）
 function renderDashboard(){
+  if(typeof renderDailyTasks==="function") renderDailyTasks();   // 概覽的今日任務卡（即時反映打勾）
   const box=document.getElementById("dashBox"); if(!box) return;
   const d=todayStr(), t=goalTargets(), nut=dayNutrition(d), burn=burnByDate(d);
   const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);

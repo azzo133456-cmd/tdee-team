@@ -106,7 +106,7 @@ function petGlyph(pet,size){
 async function loadPet(){
   try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,gacha:r.gacha}; }
   catch(e){ petData=null; }
-  renderPet();
+  renderPet(); renderDailyTasks();
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
 function petDailyTasks(){
@@ -125,9 +125,28 @@ function petDailyTasks(){
     {ok:recT.weight!=null, name:"量體重", coin:2},
   ];
 }
+// 概覽頁的「今日任務」卡（連結寵物成長＋競賽自律分）
+function renderDailyTasks(){
+  const box=document.getElementById("taskBox"); if(!box) return;
+  const tasks=petDailyTasks(), doneN=tasks.filter(t=>t.ok).length;
+  const pill=document.getElementById("taskPill"); if(pill) pill.textContent=doneN+"/"+tasks.length;
+  const rows=tasks.map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);${t.ok?'':'opacity:.6;'}">`+
+    `<span style="font-size:16px;">${t.ok?'✅':'⬜'}</span>`+
+    `<span style="flex:1;font-size:14px;">${t.name}</span>`+
+    `<span style="font-size:12px;color:#a5701a;">+${t.coin}🦴</span></div>`).join("");
+  const hasPet=petData&&petData.chosen;
+  const checkin=hasPet
+    ? (petData.canCheckin
+        ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`
+        : `<div class="hint" style="margin-top:10px;text-align:center;">✅ 今天已簽到 · 連續 ${petData.checkinStreak} 天</div>`)
+    : `<div class="hint" style="margin-top:10px;">到「紀錄 → 🐣 我的寵物」領養一隻，完成任務就能賺 🦴 骨頭幣＋每日簽到拿獎勵。</div>`;
+  box.innerHTML=
+    `<div class="hint" style="margin-bottom:8px;">完成今日任務 → <b>養大寵物</b> 🐾 ＋ 累積 <b>競賽自律分</b> 🏆</div>`+
+    rows+checkin;
+}
 // 每日簽到（連續天數越多獎勵越大）
 async function petCheckin(){
-  try{ const r=await api("/api/pet/checkin",{method:"POST",body:JSON.stringify({})}); petData=r.pet; renderPet();
+  try{ const r=await api("/api/pet/checkin",{method:"POST",body:JSON.stringify({})}); petData=r.pet; renderPet(); renderDailyTasks();
     petToast(`${r.big?"🎉 第7天大獎！":"✅ 簽到成功"} 連續 ${r.streak} 天，獲得 🦴${r.reward}`); }
   catch(e){ alert(e.message); }
 }
@@ -212,12 +231,6 @@ function renderPet(){
   }).join("");
   const isArt=!!petArtUrl(p.species,p.breed,p.stageIdx);
   const avSize=isArt?96:64, avBox=isArt?108:74;
-  // 📅 今日任務 + 簽到
-  const tasks=petDailyTasks(), doneN=tasks.filter(t=>t.ok).length;
-  const tasksHtml=tasks.map(t=>`<span style="display:inline-flex;align-items:center;gap:3px;font-size:12.5px;margin:0 8px 4px 0;${t.ok?'':'opacity:.5;'}">${t.ok?'✅':'⬜'}${t.name}${t.coin?`<span style="color:#a5701a;">+${t.coin}🦴</span>`:''}</span>`).join("");
-  const checkinBtn=p.canCheckin
-    ? `<button class="sm" style="width:auto;padding:6px 14px;" onclick="petCheckin()">🎁 每日簽到（已連 ${p.checkinStreak} 天）</button>`
-    : `<span class="hint">✅ 今天已簽到 · 連續 ${p.checkinStreak} 天</span>`;
   // 🥚 扭蛋
   const gc=(petMeta&&petMeta.gacha)||{cost:60,tenCost:540};
   const gachaBlock=`<div style="margin-top:10px;font-size:13px;font-weight:600;">🥚 扭蛋 <span class="hint" style="font-weight:400;">（飾品／稀有寵物／骨頭幣）</span></div>`+
@@ -241,9 +254,6 @@ function renderPet(){
         `<div class="hint">EXP ${p.exp}${next?` / ${next}（再 ${Math.max(0,next-p.exp)} 進化）`:"（已滿級 🌟）"}${p.trophies?`　·　🏆×${p.trophies}`:""}</div>`+
       `</div>`+
     `</div>`+
-    `<div style="margin-top:10px;font-size:13px;font-weight:600;">📅 今日任務 <span class="hint" style="font-weight:400;">（${doneN}/${tasks.length}・達標自動入幣）</span></div>`+
-    `<div style="margin-top:4px;">${tasksHtml}</div>`+
-    `<div style="margin-top:6px;">${checkinBtn}</div>`+
     (coll.length>1?`<div style="margin-top:10px;font-size:13px;font-weight:600;">🐾 我的寵物 <span class="hint" style="font-weight:400;">（各養各的 EXP，點一下換出戰）</span></div>`+
       `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">${collHtml}</div>`:"")+
     `<div style="margin-top:10px;font-size:13px;font-weight:600;">🎀 我的飾品</div>`+
