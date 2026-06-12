@@ -90,7 +90,7 @@ function portionHint(n,g){
 // 載入台灣連鎖餐點包：每份值換算成每100g，並記下一份的克數
 (function(){
   // 注意：FOODS_XLSX 放最前面＝優先序最低，遇到既有(已校正)品項由後面的包覆蓋，只新增沒有的品項。
-  const C = Object.assign({}, window.FOODS_XLSX || {}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_MORECHAINS || {});
+  const C = Object.assign({}, window.FOODS_XLSX || {}, window.FOODS_CHAIN || {}, window.FOODS_DRINKS || {}, window.FOODS_BREAKFAST || {}, window.FOODS_CONVENIENCE || {}, window.FOODS_STREET || {}, window.FOODS_PROTEIN || {}, window.FOODS_PIZZA || {}, window.FOODS_BREAD || {}, window.FOODS_MORECHAINS || {}, window.FOODS_HOTPOT_SUSHI || {});
   for(const n in C){
     const [k,p,f,c,g] = C[n]; const G=g||100, fac=100/G;
     FOODS_DYN[n]=[Math.round(k*fac*10)/10, Math.round(p*fac*10)/10, Math.round(f*fac*10)/10, Math.round(c*fac*10)/10];
