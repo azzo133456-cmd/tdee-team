@@ -1219,10 +1219,14 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
         const locked = PET_ROSTER.filter((k) => !unlocked.has(k));
         if (!locked.length) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: "🐾", amount: GACHA_DUP_REFUND, rare: true }); }
         else {
-          const k = locked[Math.floor(Math.random() * locked.length)];
+          // 依稀有度權重抽（插圖寵物最難）
+          const tot = locked.reduce((a, c) => a + petPullWeight(c), 0);
+          let rr = Math.random() * tot, k = locked[0];
+          for (const cand of locked) { rr -= petPullWeight(cand); if (rr <= 0) { k = cand; break; } }
+          const illus = (PET_RARITY[k] || 12) <= 1;
           unlocked.add(k); if (!gachaPets.includes(k)) gachaPets.push(k);
           const pf = petFromKey(k);
-          results.push({ type: "pet", key: k, species: pf.species, breed: pf.breed, label: (PET_SPECIES[pf.species] || {}).label || k, rare: true });
+          results.push({ type: "pet", key: k, species: pf.species, breed: pf.breed, label: (PET_SPECIES[pf.species] || {}).label || k, rare: true, illus });
         }
       }
     }
@@ -1405,6 +1409,12 @@ const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream", "silvertabb
 const petUnlockKey = (species, breed) => (PET_BREED_IDS[species] && breed) ? species + ":" + breed : species;
 const petFromKey = (key) => { const i = key.indexOf(":"); return i < 0 ? { species: key, breed: null } : { species: key.slice(0, i), breed: key.slice(i + 1) }; };
 const PET_ROSTER = (() => { const a = []; for (const sp in PET_SPECIES) { if (PET_BREED_IDS[sp]) for (const b of PET_BREED_IDS[sp]) a.push(sp + ":" + b); else a.push(sp); } return a; })();
+// 抽到的稀有度（權重越低越難抽）：專屬插圖最稀有，特殊 emoji 次之，其餘為一般。
+const PET_RARITY = {
+  "cat:silvertabby": 1, "bubu": 1, "jelly": 1, "money": 1,   // 專屬插圖 → 最難抽
+  "phoenix": 3, "ghost": 3, "star": 3,                        // 特殊 emoji → 較難
+};
+const petPullWeight = (key) => PET_RARITY[key] || 12;          // 一般寵物權重 12
 // 已解鎖的寵物集合＝gacha_pets ∪ 養過的(flock) ∪ 目前出戰（自動把既有玩家擁有的都算解鎖）
 function petUnlockedSet(row) {
   const s = new Set(Array.isArray(row && row.gacha_pets) ? row.gacha_pets : []);
