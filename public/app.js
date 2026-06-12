@@ -180,7 +180,7 @@ async function doAuth(){
     boot();
   }catch(e){ set("auErr", e.message); }
 }
-function logout(){ localStorage.removeItem(SKEY); session=null; location.reload(); }
+function logout(){ try{ localStorage.removeItem(storeCacheKey()); }catch(e){} localStorage.removeItem(SKEY); session=null; location.reload(); }
 async function changeName(){
   const cur=session&&session.username||"";
   const nv=(prompt("輸入新的暱稱（最多 20 字）：",cur)||"").trim();
@@ -2375,8 +2375,9 @@ async function reload(){
     else if(lsk){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({skin:lsk})}).catch(()=>{}); }
   }catch(e){}
   applyStoreData(data);
-  // 存一份到本機，下次開啟先用它「秒畫」再背景更新（大圖已不在 payload 內，體積可控）
-  try{ localStorage.setItem(storeCacheKey(), JSON.stringify(data)); }catch(e){}
+  // 存一份到本機，下次開啟先用它「秒畫」再背景更新。
+  //   不含 sharedFoods（全站共享庫、會無限成長）→ 控制體積、避免配額爆掉；秒畫不需要它，reload 回來就補上。
+  try{ const slim = Object.assign({}, data, { sharedFoods: [] }); localStorage.setItem(storeCacheKey(), JSON.stringify(slim)); }catch(e){}
   scheduleGroupSync();   // 資料更新後，背景自動同步並刷新競賽排行（免手動按更新）
 }
 // 防抖：資料變動 2.5 秒後，把最新統計上傳並重抓排行榜
