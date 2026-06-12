@@ -1966,13 +1966,16 @@ app.delete("/api/sharedfood", auth, async (req, res) => {
 /* ---------- 取得自己的所有資料 ---------- */
 app.get("/api/me/all", auth, async (req, res) => {
   try {
-    const recs = await pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]);
-    const exs = await pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]);
-    const rcp = await pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
-    const mls = await pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]);
-    const shf = await pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name");
-    const rvw = await pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]);
-    const plt = await pool.query("SELECT id,name,items,kcal,thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]);
+    // 並行查詢（原本 7 條依序 await，改成同時送出，縮短首次載入時間）
+    const [recs, exs, rcp, mls, shf, rvw, plt] = await Promise.all([
+      pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]),
+      pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]),
+      pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
+      pool.query("SELECT * FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]),
+      pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name"),
+      pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]),
+      pool.query("SELECT id,name,items,kcal,thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
+    ]);
     res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });

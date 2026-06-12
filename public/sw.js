@@ -1,5 +1,5 @@
 // 離線快取：同源 app 檔案用「網路優先」（連得上網就拿最新，免清快取），離線才用快取
-const CACHE = "tdee-v118";
+const CACHE = "tdee-v119";
 const SHELL = [
   "./",
   "./index.html",
@@ -63,16 +63,21 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(fetch(e.request).catch(() => new Response(JSON.stringify({ error: "離線中" }), { status: 503, headers: { "Content-Type": "application/json" } })));
     return;
   }
-  // 同源檔案（html/css/js…）：網路優先，成功就更新快取；失敗（離線）才回快取
+  // 同源檔案（html/css/js…）：快取優先 + 背景更新（stale-while-revalidate）
+  //   有快取就「立刻」回應 → 開啟瞬間完成，不必等伺服器（避免冷啟動卡好幾秒）；
+  //   同時背景抓最新存回快取，下次開就是新版。版本由 CACHE 常數控管，部署時 bump 即更新。
   if (url.origin === location.origin) {
     e.respondWith(
-      fetch(e.request).then((res) => {
-        if (res && res.status === 200) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => caches.match(e.request))
+      caches.match(e.request).then((cached) => {
+        const fetching = fetch(e.request).then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(e.request, copy));
+          }
+          return res;
+        }).catch(() => cached);
+        return cached || fetching;   // 有快取就秒回，沒有才等網路
+      })
     );
     return;
   }
