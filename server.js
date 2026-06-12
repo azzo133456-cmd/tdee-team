@@ -1382,6 +1382,9 @@ const PET_SPECIES = {
   bubu:     { label: "布布", stages: ["🥚", "🐾", "🐾", "🐾", "🐾"] },
   jelly:    { label: "水母", stages: ["🥚", "🌊", "🪼", "🪼", "🪼"] },
   money:    { label: "MONEY", stages: ["🥚", "🪙", "💰", "💵", "🤑"] },
+  hana2:    { label: "花花2", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
+  hana3:    { label: "花花3", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
+  choco:    { label: "巧克力", stages: ["🥚", "🐶", "🐕", "🦮", "🐕"] },
   // 稀有寵物：只能從扭蛋抽到才解鎖領養（不出現在一般選單）
   phoenix:  { label: "鳳凰", stages: ["🥚", "🐣", "🔥", "🦅", "🦅"] },
   ghost:    { label: "幽靈", stages: ["🥚", "👻", "👻", "👻", "👻"] },
@@ -1411,7 +1414,7 @@ const petFromKey = (key) => { const i = key.indexOf(":"); return i < 0 ? { speci
 const PET_ROSTER = (() => { const a = []; for (const sp in PET_SPECIES) { if (PET_BREED_IDS[sp]) for (const b of PET_BREED_IDS[sp]) a.push(sp + ":" + b); else a.push(sp); } return a; })();
 // 抽到的稀有度（權重越低越難抽）：專屬插圖最稀有，特殊 emoji 次之，其餘為一般。
 const PET_RARITY = {
-  "cat:silvertabby": 1, "bubu": 1, "jelly": 1, "money": 1,   // 專屬插圖 → 最難抽
+  "cat:silvertabby": 1, "bubu": 1, "jelly": 1, "money": 1, "hana2": 1, "hana3": 1, "choco": 1,   // 專屬插圖 → 最難抽
   "phoenix": 3, "ghost": 3, "star": 3,                        // 特殊 emoji → 較難
 };
 const petPullWeight = (key) => PET_RARITY[key] || 12;          // 一般寵物權重 12

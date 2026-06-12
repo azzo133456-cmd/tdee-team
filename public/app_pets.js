@@ -28,6 +28,9 @@ const PET_ART_KEYS=new Set([
   "bubu",              // public/pets/bubu/
   "jelly",             // public/pets/jelly/
   "money",             // public/pets/money/
+  "hana2",             // public/pets/hana2/
+  "hana3",             // public/pets/hana3/
+  "choco",             // public/pets/choco/
 ]);
 function petArtUrl(species,breed,stage){
   if(breed && PET_ART_KEYS.has(species+":"+breed)) return "pets/"+species+"_"+breed+"/"+stage+".png";
