@@ -1394,7 +1394,7 @@ function gachaRoll() {
 // 貓/狗品種（造型由前端 SVG 繪製，後端只存字串並驗證合法）
 const PET_BREED_IDS = { cat: ["orange", "tuxedo", "calico", "cream", "silvertabby"], dog: ["shiba", "frenchie", "golden", "collie", "dachshund"] };
 const PET_STAGE_NAMES = ["蛋", "幼體", "成長期", "成體", "進化體"];
-const PET_STAGE_EXP = [0, 50, 200, 600, 1500];
+const PET_STAGE_EXP = [0, 100, 400, 1200, 3000];   // 進化門檻(放慢約2倍)：蛋/幼體/成長期/成體/進化體
 const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
 // 從 daily_stats 算累積 EXP（伺服器端權威計算，防作弊）；每項行為給分，連續達標另有加成
 function petExpFromRows(rows) {
@@ -1474,9 +1474,9 @@ function petStateFromRows(petRow, rows, trophies) {
   const nextExp = stageIdx < PET_STAGE_EXP.length - 1 ? PET_STAGE_EXP[stageIdx + 1] : null;
   // 解鎖的裝飾品：EXP 里程碑 + 競賽獎盃
   const unlocked = [];
-  if (rawExp >= 200) unlocked.push("🧣");
-  if (rawExp >= 600) unlocked.push("🎀");
-  if (rawExp >= 1500) unlocked.push("✨");
+  if (rawExp >= 400) unlocked.push("🧣");
+  if (rawExp >= 1200) unlocked.push("🎀");
+  if (rawExp >= 3000) unlocked.push("✨");
   if (trophies >= 1) unlocked.push("🎩");
   if (trophies >= 3) unlocked.push("👑");
   if (trophies >= 5) unlocked.push("🌟");
