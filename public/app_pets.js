@@ -106,7 +106,7 @@ function petGlyph(pet,size){
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
 async function loadPet(){
-  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost};
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,rareKeys:r.rareKeys||[],stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost};
     if(Array.isArray(r.artKeys)) r.artKeys.forEach(k=>PET_ART_KEYS.add(k));   // 伺服器回傳的插圖清單（含自訂寵物）自動啟用，前端免手改 }
   }
   catch(e){ petData=null; }
@@ -222,7 +222,7 @@ function renderPet(){
   // 還沒領養 → 選一隻
   if(!petData.chosen){
     if(pill) pill.textContent="";
-    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻當<b>起手夥伴</b>（免費）！之後想要別隻，要到<b>扭蛋</b>抽到才能解鎖。牠會跟著你的健康習慣一起長大。</div>`+petChooserHtml(null,false);
+    box.innerHTML=`<div class="hint" style="margin-bottom:8px;">挑一隻<b>基本款</b>當<b>起手夥伴</b>（免費）！插圖／特殊寵物要到<b>扭蛋</b>抽到才能領養。牠會跟著你的健康習慣一起長大。</div>`+petChooserHtml(null,false,true);
     return;
   }
   const p=petData;
@@ -315,21 +315,25 @@ function petToast(msg){
   t.textContent=msg; t.className="show";
   clearTimeout(t._tm); t._tm=setTimeout(()=>{ t.className=""; },3600);
 }
-// 選寵物的卡片牆。cur=目前物種(標示)；lock=true 時未解鎖的會上鎖(要扭蛋)，false 時全部可選(起手免費)
-function petChooserHtml(cur, lock){
+// 選寵物的卡片牆。cur=目前物種(標示)；lock=true 時未解鎖的會上鎖(要扭蛋)；
+//   starterOnly=true 時(起手領養)只開放「基本款」，插圖/特殊寵物上鎖(要扭蛋)
+function petChooserHtml(cur, lock, starterOnly){
   const unlocked=new Set((petData&&petData.unlockedPets)||[]);
+  const rare=new Set((petMeta&&petMeta.rareKeys)||[]);   // 非基本款(插圖/特殊)：起手不可選
   const ukey=(sp,b)=>(PET_BREEDS[sp]&&b)?sp+":"+b:sp;
-  const card=(inner,label,onclick,on,locked)=>`<div onclick="${locked?`petToast('🔒 還沒解鎖，去扭蛋抽抽看！')`:onclick}" style="cursor:pointer;position:relative;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}${locked?'opacity:.45;':''}">`+
+  const isLocked=(key)=>(lock&&!unlocked.has(key))||(starterOnly&&rare.has(key));
+  const lockMsg=starterOnly?'🔒 起手只能選基本寵物，這隻要扭蛋抽到才能用！':'🔒 還沒解鎖，去扭蛋抽抽看！';
+  const card=(inner,label,onclick,on,locked)=>`<div onclick="${locked?`petToast('${lockMsg}')`:onclick}" style="cursor:pointer;position:relative;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px;padding:8px 6px;text-align:center;flex:1 1 28%;min-width:84px;${on?'background:var(--soft);':''}${locked?'opacity:.45;':''}">`+
     (locked?`<div style="position:absolute;top:3px;right:5px;font-size:13px;">🔒</div>`:"")+
     `<div style="height:56px;display:flex;align-items:center;justify-content:center;">${inner}</div>`+
     `<div style="font-size:12.5px;font-weight:600;margin-top:2px;">${label}</div></div>`;
   const breedCards=(species)=>Object.keys(PET_BREEDS[species]).map(b=>{
-    const P=PET_BREEDS[species][b], locked=lock&&!unlocked.has(ukey(species,b));
+    const P=PET_BREEDS[species][b], locked=isLocked(ukey(species,b));
     return card(petSVG(species,b,3,52),P.label,`choosePet('${species}','${b}')`,cur===species&&petData&&petData.breed===b,locked);
   }).join("");
   const sp=(petMeta&&petMeta.species)||{};
   const others=Object.keys(sp).filter(k=>!PET_BREEDS[k]).map(k=>{
-    const locked=lock&&!unlocked.has(k);
+    const locked=isLocked(k);
     return card(`<span style="font-size:34px;">${sp[k].stages[2]||sp[k].stages[1]}</span>`,sp[k].label,`choosePet('${k}')`,cur===k,locked);
   }).join("");
   return `<div style="font-size:13px;font-weight:600;margin:4px 0;">🐱 貓</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${breedCards("cat")}</div>`+

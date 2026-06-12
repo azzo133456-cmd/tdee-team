@@ -1173,7 +1173,7 @@ app.get("/api/pet", auth, async (req, res) => {
     }
     const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND,
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
-    res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
+    res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
@@ -1300,8 +1300,10 @@ app.post("/api/pet/choose", auth, async (req, res) => {
     ]);
     const key = petUnlockKey(species, breed);
     const firstAdopt = !petR.rows[0];
-    // 起手 1 隻免費；之後要換的那隻必須「已解鎖」（養過或扭蛋抽到）
-    if (!firstAdopt) {
+    // 起手 1 隻免費，但只能選「基本款」（沒有稀有度標記者）；插圖/特殊寵物一律要扭蛋抽
+    if (firstAdopt) {
+      if (PET_RARITY[key] !== undefined) return res.status(403).json({ error: "起手只能選基本寵物，插圖/特殊寵物要用扭蛋抽到才能領養喔！" });
+    } else {
       const unlocked = petUnlockedSet(petR.rows[0]);
       if (!unlocked.has(key)) return res.status(403).json({ error: "這隻還沒解鎖，去扭蛋抽抽看才能領養喔！" });
     }
