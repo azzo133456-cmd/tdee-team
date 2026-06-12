@@ -104,7 +104,7 @@ function petGlyph(pet,size){
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
 async function loadPet(){
-  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha}; }
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost}; }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
 }
@@ -141,10 +141,17 @@ function renderDailyTasks(){
     : allDone
       ? `<div class="hint" style="margin-top:8px;text-align:center;">🎉 全部完成！+15🦴 獎勵即將入帳…</div>`
       : `<div class="hint" style="margin-top:8px;text-align:center;">全部完成可得 <b>+15🦴</b> 全清獎勵</div>`;
+  const sCost=(petMeta&&petMeta.shieldCost)||120;
+  const shieldRow=hasPet
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;">`+
+      `<span>🧊 連續保護卡 ×${petData.shields||0}</span>`+
+      `<span class="hint" style="flex:1;">漏記一天簽到自動接住連續</span>`+
+      `<button class="ghost sm" ${petData.coins>=sCost?'':'disabled'} style="${petData.coins>=sCost?'':'opacity:.45;'}" onclick="buyShield()">買 🦴${sCost}</button></div>`
+    : "";
   const checkin=hasPet
     ? (petData.canCheckin
-        ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`
-        : `<div class="hint" style="margin-top:10px;text-align:center;">✅ 今天已簽到 · 連續 ${petData.checkinStreak} 天</div>`)
+        ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`+shieldRow
+        : `<div class="hint" style="margin-top:10px;text-align:center;">✅ 今天已簽到 · 連續 ${petData.checkinStreak} 天</div>`+shieldRow)
     : `<div class="hint" style="margin-top:10px;">到「紀錄 → 🐣 我的寵物」領養一隻，完成任務就能賺 🦴 骨頭幣＋每日簽到拿獎勵。</div>`;
   box.innerHTML=
     `<div class="hint" style="margin-bottom:8px;">完成今日任務 → <b>養大寵物</b> 🐾 ＋ 累積 <b>競賽自律分</b> 🏆</div>`+
@@ -153,7 +160,13 @@ function renderDailyTasks(){
 // 每日簽到（連續天數越多獎勵越大）
 async function petCheckin(){
   try{ const r=await api("/api/pet/checkin",{method:"POST",body:JSON.stringify({})}); petData=r.pet; renderPet(); renderDailyTasks();
-    petToast(`${r.big?"🎉 第7天大獎！":"✅ 簽到成功"} 連續 ${r.streak} 天，獲得 🦴${r.reward}`); }
+    petToast(`${r.big?"🎉 第7天大獎！":"✅ 簽到成功"} 連續 ${r.streak} 天，獲得 🦴${r.reward}${r.usedShield?"（🧊 用掉 1 張保護卡接住連續）":""}`); }
+  catch(e){ alert(e.message); }
+}
+async function buyShield(){
+  const cost=(petMeta&&petMeta.shieldCost)||120;
+  if(!confirm(`花 🦴${cost} 買 1 張連續保護卡？漏記一天簽到時自動使用，連續不中斷。`)) return;
+  try{ const r=await api("/api/pet/shield",{method:"POST",body:JSON.stringify({})}); petData=r.pet; renderDailyTasks(); petToast("🧊 連續保護卡 +1"); }
   catch(e){ alert(e.message); }
 }
 // 扭蛋（單抽/十連）

@@ -196,6 +196,7 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS checkin_streak INT DEFAULT 0;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS gacha_pets JSONB DEFAULT '[]'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_allclear DATE;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS streak_shields INT DEFAULT 0;
     -- 索引：加速常用查詢（資料變多時明顯有感）
     CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_exercises_user_date ON exercises(user_id, date);
@@ -1171,25 +1172,29 @@ app.get("/api/pet", auth, async (req, res) => {
     }
     const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND,
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
-    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha });
+    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
 app.post("/api/pet/checkin", auth, async (req, res) => {
   try {
-    const r = await pool.query("SELECT last_checkin, checkin_streak FROM pets WHERE user_id=$1", [req.user.id]);
+    const r = await pool.query("SELECT last_checkin, checkin_streak, streak_shields FROM pets WHERE user_id=$1", [req.user.id]);
     if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來簽到" });
     const today = twToday();
     const last = r.rows[0].last_checkin ? (r.rows[0].last_checkin instanceof Date ? isoD(r.rows[0].last_checkin) : String(r.rows[0].last_checkin).slice(0, 10)) : null;
     if (last === today) return res.status(400).json({ error: "今天已經簽到過囉，明天再來～" });
     const yesterday = addDays(today, -1);
-    const streak = last === yesterday ? (r.rows[0].checkin_streak || 0) + 1 : 1;   // 斷了重新計
+    let shields = r.rows[0].streak_shields || 0, usedShield = false;
+    let streak;
+    if (last === yesterday || last === null) streak = (r.rows[0].checkin_streak || 0) + 1;   // 連著或第一次
+    else if (shields > 0) { streak = (r.rows[0].checkin_streak || 0) + 1; shields -= 1; usedShield = true; } // 漏記但有保護卡→不中斷
+    else streak = 1;                                                                          // 斷了重新計
     const day = ((streak - 1) % 7) + 1;                                            // 7 天一循環
     const reward = day >= 7 ? 60 : 8 + day * 2;                                    // 第7天大獎 60，其餘 10~20
-    await pool.query("UPDATE pets SET last_checkin=$1, checkin_streak=$2, coins_bonus=COALESCE(coins_bonus,0)+$3 WHERE user_id=$4",
-      [today, streak, reward, req.user.id]);
+    await pool.query("UPDATE pets SET last_checkin=$1, checkin_streak=$2, coins_bonus=COALESCE(coins_bonus,0)+$3, streak_shields=$4 WHERE user_id=$5",
+      [today, streak, reward, shields, req.user.id]);
     const { state } = await computePet(req.user.id);
-    res.json({ reward, streak, day, big: day >= 7, pet: state });
+    res.json({ reward, streak, day, big: day >= 7, usedShield, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
@@ -1253,6 +1258,19 @@ app.post("/api/pet/feed", auth, async (req, res) => {
       [JSON.stringify(flock), f.price, req.user.id]);
     const { state: ns } = await computePet(req.user.id);
     res.json({ pet: ns, gainedExp: f.exp });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 買連續保護卡：漏記一天簽到時自動消耗 1 張、連續不中斷
+const SHIELD_COST = 120;
+app.post("/api/pet/shield", auth, async (req, res) => {
+  try {
+    const { state, row } = await computePet(req.user.id);
+    if (!row) return res.status(400).json({ error: "還沒領養寵物" });
+    if ((row.streak_shields || 0) >= 5) return res.status(400).json({ error: "保護卡最多存 5 張" });
+    if (state.coins < SHIELD_COST) return res.status(400).json({ error: `骨頭幣不夠（需要 ${SHIELD_COST}，你有 ${state.coins}）` });
+    await pool.query("UPDATE pets SET streak_shields=COALESCE(streak_shields,0)+1, coins_spent=COALESCE(coins_spent,0)+$1 WHERE user_id=$2", [SHIELD_COST, req.user.id]);
+    const { state: ns } = await computePet(req.user.id);
+    res.json({ pet: ns });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 app.post("/api/pet/choose", auth, async (req, res) => {
@@ -1490,6 +1508,7 @@ function petStateFromRows(petRow, rows, trophies) {
     equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies, collection,
     gachaPets: Array.isArray(petRow && petRow.gacha_pets) ? petRow.gacha_pets : [],
     allClearClaimed: !!(petRow && petRow.last_allclear && ((petRow.last_allclear instanceof Date ? isoD(petRow.last_allclear) : String(petRow.last_allclear).slice(0,10)) === twToday())),
+    shields: (petRow && petRow.streak_shields) || 0,
     checkinStreak: (petRow && petRow.checkin_streak) || 0,
     canCheckin: !petRow || (petRow.last_checkin == null) || ((petRow.last_checkin instanceof Date ? isoD(petRow.last_checkin) : String(petRow.last_checkin).slice(0,10)) !== twToday()),
   };
