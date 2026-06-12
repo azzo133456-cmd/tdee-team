@@ -135,6 +135,12 @@ function renderDailyTasks(){
     `<span style="flex:1;font-size:14px;">${t.name}</span>`+
     `<span style="font-size:12px;color:#a5701a;">+${t.coin}🦴</span></div>`).join("");
   const hasPet=petData&&petData.chosen;
+  const allDone=doneN>=tasks.length;
+  const bonus=(hasPet&&petData.allClearClaimed)
+    ? `<div style="margin-top:8px;padding:6px 10px;border-radius:8px;background:#fff4e0;color:#a5701a;font-size:13px;font-weight:600;text-align:center;">🎉 今日任務全清！已獲得 +15🦴</div>`
+    : allDone
+      ? `<div class="hint" style="margin-top:8px;text-align:center;">🎉 全部完成！+15🦴 獎勵即將入帳…</div>`
+      : `<div class="hint" style="margin-top:8px;text-align:center;">全部完成可得 <b>+15🦴</b> 全清獎勵</div>`;
   const checkin=hasPet
     ? (petData.canCheckin
         ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`
@@ -142,7 +148,7 @@ function renderDailyTasks(){
     : `<div class="hint" style="margin-top:10px;">到「紀錄 → 🐣 我的寵物」領養一隻，完成任務就能賺 🦴 骨頭幣＋每日簽到拿獎勵。</div>`;
   box.innerHTML=
     `<div class="hint" style="margin-bottom:8px;">完成今日任務 → <b>養大寵物</b> 🐾 ＋ 累積 <b>競賽自律分</b> 🏆</div>`+
-    rows+checkin;
+    rows+bonus+checkin;
 }
 // 每日簽到（連續天數越多獎勵越大）
 async function petCheckin(){

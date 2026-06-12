@@ -195,6 +195,7 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_checkin DATE;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS checkin_streak INT DEFAULT 0;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS gacha_pets JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_allclear DATE;
     -- 索引：加速常用查詢（資料變多時明顯有感）
     CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meals(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_exercises_user_date ON exercises(user_id, date);
@@ -1146,7 +1147,19 @@ async function computePet(userId) {
   ]);
   const trophies = uR.rows.length ? await trophyCount(uR.rows[0].username) : 0;
   let row = petR.rows[0] || null;
-  if (row) row = await creditActivePet(userId, row, statR.rows);   // 出戰中那隻先結算成長
+  if (row) {
+    row = await creditActivePet(userId, row, statR.rows);   // 出戰中那隻先結算成長
+    // 今日任務全清獎勵：當天 5 項都完成且尚未領過 → 自動 +15🦴（一天一次）
+    const today = twToday();
+    const tr = statR.rows.find((r) => r.date === today);
+    const allClear = !!(tr && tr.logged && tr.water_hit && tr.exercised && (tr.poop || 0) > 0 && tr.weight != null);
+    const lastAC = row.last_allclear ? (row.last_allclear instanceof Date ? isoD(row.last_allclear) : String(row.last_allclear).slice(0, 10)) : null;
+    if (allClear && lastAC !== today) {
+      await pool.query("UPDATE pets SET coins_bonus=COALESCE(coins_bonus,0)+15, last_allclear=$1 WHERE user_id=$2", [today, userId]);
+      row.coins_bonus = (row.coins_bonus || 0) + 15;
+      row.last_allclear = today;
+    }
+  }
   return { state: petStateFromRows(row, statR.rows, trophies), row };
 }
 app.get("/api/pet", auth, async (req, res) => {
@@ -1450,6 +1463,7 @@ function petStateFromRows(petRow, rows, trophies) {
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
     equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies, collection,
     gachaPets: Array.isArray(petRow && petRow.gacha_pets) ? petRow.gacha_pets : [],
+    allClearClaimed: !!(petRow && petRow.last_allclear && ((petRow.last_allclear instanceof Date ? isoD(petRow.last_allclear) : String(petRow.last_allclear).slice(0,10)) === twToday())),
     checkinStreak: (petRow && petRow.checkin_streak) || 0,
     canCheckin: !petRow || (petRow.last_checkin == null) || ((petRow.last_checkin instanceof Date ? isoD(petRow.last_checkin) : String(petRow.last_checkin).slice(0,10)) !== twToday()),
   };
