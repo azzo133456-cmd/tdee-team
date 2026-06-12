@@ -1798,12 +1798,15 @@ app.get("/api/groups", auth, async (req, res) => {
       const allSeasons = await pool.query("SELECT winner,boss,results FROM group_seasons WHERE group_id=$1 AND winner IS NOT NULL", [g.id]);
       allSeasons.rows.forEach((s) => {
         const mult = s.boss ? 2 : 1;
-        trophies[s.winner] = (trophies[s.winner] || 0) + 1;                         // 🏆 座數＝冠軍次數
         let podium = Array.isArray(s.results) ? s.results : [];
-        if (!podium.length && s.winner) podium = [{ name: s.winner }];
-        podium.slice(0, 3).forEach((row, idx) => {
+        if (!podium.length && s.winner) podium = [{ name: s.winner, rank: 1 }];
+        const hasRank = podium.some((r) => r && r.rank != null);   // 新資料有 rank；舊資料退回用序位
+        podium.forEach((row, idx) => {
           const nm = row && row.name; if (!nm) return;
-          trophyPts[nm] = (trophyPts[nm] || 0) + place[idx] * mult;
+          const rk = hasRank ? row.rank : (idx + 1);
+          if (rk == null) return;                                  // 沒資料者(rank null)不計盃/不給分
+          if (rk === 1) trophies[nm] = (trophies[nm] || 0) + 1;     // 🏆 並列冠軍都算一座
+          if (rk >= 1 && rk <= 3) trophyPts[nm] = (trophyPts[nm] || 0) + place[rk - 1] * mult;   // 前三名依名次給分
         });
       });
       const uidByName = {}; mem.rows.forEach((u) => { uidByName[u.username] = u.id; });

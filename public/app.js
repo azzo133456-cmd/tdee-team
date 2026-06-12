@@ -1145,7 +1145,7 @@ function renderGroups(){
       `<div style="margin-top:4px;max-height:140px;overflow-y:auto;">${msgList}</div>`+
       `<div class="row" style="margin-top:6px;"><div style="flex:1 1 auto;"><input id="gmsg-${g.id}" maxlength="120" placeholder="說句加油/嗆聲（不會洩漏體重）" autocomplete="off"></div>`+
       `<div style="flex:0 0 auto;align-self:flex-end;"><button class="ghost sm" onclick="sendGroupMsg(${g.id})">送出</button></div></div></details>`;
-    const myIdx=g.members.findIndex(m=>m.me); const myRank=myIdx>=0?`第 ${myIdx+1}/${g.members.length}`:"";
+    const meM=g.members.find(m=>m.me); const myRank=meM?(meM.rank==null?"未上榜":`第 ${meM.rank}/${g.members.length}`):"";
     const open=(grpClosed.has(g.id))?"":" open";
     return `<details${open} data-gid="${g.id}" ontoggle="onGroupToggle(this)" style="border:1px solid var(--line);border-radius:10px;padding:2px 12px;margin-bottom:10px;">`+
       `<summary style="cursor:pointer;padding:8px 0;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">`+
