@@ -398,9 +398,27 @@ function aliasQuery(s){
   for(const [a,b] of SEARCH_ALIAS){ if(s.includes(a)) s=s.split(a).join(" "+b+" "); }
   return s;
 }
+// 單列 HTML（i = window.__fs 內的索引，點擊即加入）
+function sgRow(n,i){
+  const d=foodData(n);
+  const tag=SHARED_NAMES.has(n)?'<span title="共享食物庫" style="color:var(--sub);font-size:11px">👥 </span>':"";
+  const used=(FOOD_STATS[n]?.c||0)>0?'<span title="常用" style="color:var(--sub);font-size:11px">🕘</span>':"";
+  return `<div class="sg" onclick="pickFood(${i})">${tag}${n} ${densityTags(d)}${used}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`;
+}
+const sgHeader=(t)=>`<div class="sg" style="color:var(--sub);font-size:11px;pointer-events:none;cursor:default;background:transparent;">${t}</div>`;
 function foodSuggest(){
   const q=val("foodPick").trim(), box=document.getElementById("foodSuggest");
-  if(!q){ box.style.display="none"; box.innerHTML=""; return; }
+  if(!q){
+    // 沒打字 → 只顯示「最愛 + 最近常用」，不倒一堆出來
+    const favs=(store.favorites||[]).map(f=>f.n).filter(n=>foodData(n)).slice(0,6);
+    const recent=Object.keys(FOOD_STATS).filter(n=>foodData(n)&&!favs.includes(n)).sort((a,b)=>(FOOD_STATS[b].c||0)-(FOOD_STATS[a].c||0)).slice(0,6);
+    const list=[...favs,...recent]; window.__fs=list;
+    if(!list.length){ box.style.display="none"; box.innerHTML=""; return; }
+    let html="", idx=0;
+    if(favs.length){ html+=sgHeader("⭐ 最愛"); favs.forEach(n=>{ html+=sgRow(n,idx++); }); }
+    if(recent.length){ html+=sgHeader("🕘 最近常用"); recent.forEach(n=>{ html+=sgRow(n,idx++); }); }
+    box.innerHTML=html; box.style.display="block"; return;
+  }
   const ql=q.toLowerCase();
   const toks=aliasQuery(q).split(/\s+/).filter(Boolean);  // 多關鍵字：全部命中才算（別名先替換）
   let res=[...new Set(allFoodNames())].filter(n=>{ const nn=normSearch(n); return toks.every(t=>nn.includes(t)); });
@@ -416,9 +434,13 @@ function foodSuggest(){
     const ca=(FOOD_STATS[b]?.c||0)-(FOOD_STATS[a]?.c||0); if(ca) return ca;   // 常用優先
     return a.length-b.length;
   });
-  res=res.slice(0,50); window.__fs=res;
-  if(!res.length){ box.innerHTML='<div class="sg" style="color:var(--sub)">查無 — 用「📷 掃條碼」或「✏️ 自訂食物」建立</div>'; box.style.display="block"; return; }
-  box.innerHTML=res.map((n,i)=>{ const d=foodData(n); const tag=SHARED_NAMES.has(n)?'<span title="共享食物庫" style="color:var(--sub);font-size:11px">👥 </span>':""; const used=(FOOD_STATS[n]?.c||0)>0?'<span title="常用" style="color:var(--sub);font-size:11px">🕘</span>':""; return `<div class="sg" onclick="pickFood(${i})">${tag}${n} ${densityTags(d)}${used}<span style="color:var(--green);float:right">${d?Math.round(d[0]):""}</span></div>`; }).join("");
+  const more=res.length>14;
+  res=res.slice(0,14); window.__fs=res;
+  const aiBtn=`<div class="sg" style="cursor:default;background:transparent;text-align:center;padding:8px 0;">`+
+    `庫裡${res.length?"沒有你要的？":"找不到「"+q+"」"} `+
+    `<button class="ghost sm" onclick='estimateFromPick()'>✨ 用 AI 估這句</button></div>`;
+  if(!res.length){ box.innerHTML=aiBtn; box.style.display="block"; return; }
+  box.innerHTML=res.map((n,i)=>sgRow(n,i)).join("")+(more?sgHeader("…還有更多，再多打幾個字縮小範圍"):"")+aiBtn;
   box.style.display="block";
 }
 function renderShared(){
@@ -781,12 +803,14 @@ async function analyzePhoto(){
   }
 }
 // 用一句話估熱量（Gemini 文字），結果加入購物車
-async function estimateText(){
-  const text=val("estText").trim();
+// 從搜尋框直接用 AI 估（合併「搜尋」與「一句話估」成同一個框）
+function estimateFromPick(){ const t=val("foodPick").trim(); if(t){ document.getElementById("foodSuggest").style.display="none"; aiEstimate(t); } }
+function estimateText(){ const el=document.getElementById("estText"); aiEstimate(el?el.value.trim():""); }
+async function aiEstimate(text){
   const h=document.getElementById("estHint");
   if(!text){ h.textContent="請先輸入一句描述"; return; }
   foodCart=foodCart.filter(it=>!String(it.n).startsWith("✨ ")); renderFood();
-  h.textContent="🔎 估算中…約 3–8 秒";
+  h.textContent="🔎 AI 估算中…約 3–8 秒";
   try{
     const r=await api("/api/estimate",{method:"POST",body:JSON.stringify({text})});
     const items=r.items||[]; let tot=0;
@@ -799,7 +823,7 @@ async function estimateText(){
     const mealNote=applyMealGuess(r.meal);
     h.innerHTML=`已估 <b>${items.length}</b> 項、共約 <b>${Math.round(tot)} kcal</b>，已加入下方清單。可改克數後選餐別「＋加入」。${mealNote} <button class="ghost sm" onclick="saveAiFoods()">💾 存成自訂</button>`;
   }catch(e){
-    h.innerHTML=`估算失敗：${e.message} <button class="ghost sm" onclick="estimateText()">🔁 再試</button>`;
+    h.innerHTML=`估算失敗：${e.message} <button class="ghost sm" onclick='aiEstimate(${JSON.stringify(text)})'>🔁 再試</button>`;
   }
 }
 // 把目前 AI 辨識（✨）的項目存成自訂食物（去掉 ✨、進最愛＋共享庫，之後可直接搜尋）

@@ -183,10 +183,14 @@
   <div class="tabpage hidden" id="page-food">
     <!-- 食物熱量計算機 -->
     <div class="card">
-      <h2>食物熱量計算機</h2>
-      <div class="chips" id="favChips" style="margin-bottom:8px;"></div>
-      <label>搜尋食物（打字 → 點結果即加入）</label>
-      <input id="foodPick" placeholder="例如：白飯 / 雞胸肉" autocomplete="off" oninput="foodSuggest()">
+      <h2>新增食物</h2>
+      <!-- 三種記法：一眼看到 -->
+      <div class="chipbar" id="foodMethods" style="margin-bottom:10px;">
+        <button class="ghost sm" style="flex:1;" onclick="document.getElementById('foodPick').focus()">🔍 打字找</button>
+        <button class="ghost sm" style="flex:1;" onclick="document.getElementById('mealPhotoInput').click()">📷 拍照辨識</button>
+        <button class="ghost sm" style="flex:1;" onclick="document.getElementById('labelInput').click()">📋 掃標示</button>
+      </div>
+      <input id="foodPick" placeholder="輸入食物，或描述一餐…" autocomplete="off" oninput="foodSuggest()" onfocus="foodSuggest()">
       <div id="foodFilters" class="chipbar">
         <button class="ghost sm fbtn on" data-f="" onclick="setFoodFilter('',this)">全部</button>
         <button class="ghost sm fbtn" data-f="drink" onclick="setFoodFilter('drink',this)">🧋手搖</button>
@@ -195,23 +199,16 @@
         <button class="ghost sm fbtn" data-f="raw" onclick="setFoodFilter('raw',this)">🥗原型</button>
       </div>
       <div class="suggest" id="foodSuggest"></div>
-      <div class="hint tip">點結果即加入（帶上次克數）。🕘常用 👥共享 💪高蛋白 🍬高糖 🧈高脂</div>
+      <div class="hint" id="estHint" style="overflow-wrap:anywhere;"></div>
+      <div class="hint tip">打字找庫內食物（🕘常用 ⭐最愛 👥共享）；找不到就用 AI 估，或拍照辨識。</div>
+      <div class="chips" id="favChips" style="margin:6px 0;"></div>
       <div class="chipbar">
         <button class="ghost sm" onclick="toggleCustom()">✏️ 自訂</button>
         <button class="ghost sm" onclick="startScan()">📷 條碼</button>
-        <button class="ghost sm" onclick="document.getElementById('labelInput').click()">📋 標示</button>
-        <button class="ghost sm" onclick="addFav()">⭐ 最愛</button>
+        <button class="ghost sm" onclick="addFav()">⭐ 加最愛</button>
       </div>
       <input id="labelInput" type="file" accept="image/*" multiple style="display:none;" onchange="onLabelPick(event)">
       <div class="hint" id="labelHint" style="display:none; overflow-wrap:anywhere; word-break:break-word;"></div>
-      <div style="margin-top:8px;">
-        <label>✨ 用一句話估熱量</label>
-        <div class="row">
-          <div style="flex:1 1 auto;"><input id="estText" placeholder="例如：約250g豬梅花壽喜燒＋一碗白飯" autocomplete="off"></div>
-          <div style="flex:0 0 auto; align-self:flex-end;"><button class="ghost sm" onclick="estimateText()">估算</button></div>
-        </div>
-        <div class="hint" id="estHint" style="overflow-wrap:anywhere;"></div>
-      </div>
       <div id="customBox" style="display:none; border:1px dashed var(--line); border-radius:10px; padding:10px; margin-top:8px;">
         <label>食物名稱</label>
         <input id="cfName" placeholder="例如：OO牌蛋白棒" autocomplete="off">
