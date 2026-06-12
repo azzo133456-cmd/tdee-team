@@ -190,6 +190,7 @@ function showGachaResults(results){
     if(x.type==="coin"){ glyph=`<span style="font-size:24px;">🦴</span>`; sub="+"+x.amount; }
     else if(x.type==="dup"){ sub="重複 +🦴"+x.amount; }
     else if(x.type==="pet"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub=(x.illus?"✨稀有！":"新寵物🎉 ")+x.label; }
+    else if(x.type==="petdup"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub="已擁有 "+x.label; }
     else sub="飾品";
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;flex:0 0 auto;width:62px;${big}">`+
       `<div style="height:30px;display:flex;align-items:center;justify-content:center;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;

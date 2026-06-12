@@ -1216,18 +1216,19 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
       else if (g.type === "acc") {
         if (haveAcc.has(g.it)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: g.it, amount: GACHA_DUP_REFUND, rare: !!g.rare }); }
         else { owned.push(g.it); haveAcc.add(g.it); results.push({ type: "acc", label: g.it, rare: !!g.rare }); }
-      } else { // pet：抽一隻「還沒解鎖」的；全解鎖了就退幣
-        const locked = PET_ROSTER.filter((k) => !unlocked.has(k));
-        if (!locked.length) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: "🐾", amount: GACHA_DUP_REFUND, rare: true }); }
-        else {
-          // 依稀有度權重抽（插圖寵物最難）
-          const tot = locked.reduce((a, c) => a + petPullWeight(c), 0);
-          let rr = Math.random() * tot, k = locked[0];
-          for (const cand of locked) { rr -= petPullWeight(cand); if (rr <= 0) { k = cand; break; } }
-          const illus = (PET_RARITY[k] || 12) <= 1;
+      } else { // pet：從「全部寵物」依稀有度權重抽（已擁有的也照抽，不排除）
+        const tot = PET_ROSTER.reduce((a, c) => a + petPullWeight(c), 0);
+        let rr = Math.random() * tot, k = PET_ROSTER[0];
+        for (const cand of PET_ROSTER) { rr -= petPullWeight(cand); if (rr <= 0) { k = cand; break; } }
+        const illus = (PET_RARITY[k] || 12) <= 1;
+        const pf = petFromKey(k);
+        const label = (PET_SPECIES[pf.species] || {}).label || k;
+        if (unlocked.has(k)) {
+          // 已擁有：重複，不退幣（純展示）
+          results.push({ type: "petdup", key: k, species: pf.species, breed: pf.breed, label, rare: true, illus });
+        } else {
           unlocked.add(k); if (!gachaPets.includes(k)) gachaPets.push(k);
-          const pf = petFromKey(k);
-          results.push({ type: "pet", key: k, species: pf.species, breed: pf.breed, label: (PET_SPECIES[pf.species] || {}).label || k, rare: true, illus });
+          results.push({ type: "pet", key: k, species: pf.species, breed: pf.breed, label, rare: true, illus });
         }
       }
     }
