@@ -435,6 +435,16 @@ app.post("/api/meal", auth, async (req, res) => {
   }
 });
 
+// 按需批次取餐盤縮圖（開啟時不撈，渲染餐盤列時才背景補上）
+app.post("/api/plate/thumbs", auth, async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body.ids) ? req.body.ids : [])
+      .map((n) => parseInt(n, 10)).filter(Number.isFinite).slice(0, 60);
+    if (!ids.length) return res.json({ thumbs: [] });
+    const r = await pool.query("SELECT id,thumb FROM plates WHERE user_id=$1 AND id = ANY($2) AND thumb IS NOT NULL", [req.user.id, ids]);
+    res.json({ thumbs: r.rows });
+  } catch (e) { res.status(500).json({ error: "伺服器錯誤" }); }
+});
 // 按需批次取餐點照片（只在使用者真的查看某天時載入，避免開啟時把整段歷史大圖一次撈回）
 app.post("/api/meal/photos", auth, async (req, res) => {
   try {
@@ -1985,7 +1995,8 @@ app.get("/api/me/all", auth, async (req, res) => {
       pool.query("SELECT id,user_id,date,meal,name,kcal,protein,fat,carb,created_at,(photo IS NOT NULL) AS has_photo FROM meals WHERE user_id=$1 ORDER BY id", [req.user.id]),
       pool.query("SELECT name,kcal,protein,fat,carb,grams,kind,created_by FROM shared_foods ORDER BY name"),
       pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]),
-      pool.query("SELECT id,name,items,kcal,thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
+      // 同餐點照片：不撈 thumb(base64)，只回 has_thumb，縮圖改由 /api/plate/thumbs 按需載入
+      pool.query("SELECT id,name,items,kcal,(thumb IS NOT NULL) AS has_thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
     ]);
     res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null });
   } catch (e) {

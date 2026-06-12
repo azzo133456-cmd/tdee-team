@@ -1771,11 +1771,24 @@ async function savePlate(){
     alert("已存成餐盤「"+name.trim()+"」"+(thumb?"（含照片）":"")+"，下次可一鍵帶入。");
   }catch(e){ alert(e.message); }
 }
+let _thumbLoading=new Set();
+async function ensurePlateThumbs(ids){
+  const need=ids.filter(id=>!_thumbLoading.has(id)); if(!need.length) return;
+  need.forEach(id=>_thumbLoading.add(id));
+  try{
+    const r=await api("/api/plate/thumbs",{method:"POST",body:JSON.stringify({ids:need})});
+    (r.thumbs||[]).forEach(t=>{ const p=(store.plates||[]).find(x=>x.id===t.id); if(p) p.thumb=t.thumb; });
+    renderPlates();
+  }catch(e){}
+  finally{ need.forEach(id=>_thumbLoading.delete(id)); }
+}
 function renderPlates(){
   const list=store.plates||[];
   set("plateCount", list.length?list.length+" 個":"");
   const box=document.getElementById("plateList"); if(!box) return;
   if(!list.length){ box.innerHTML='<div class="empty">還沒有餐盤。組好常吃的一餐（可先拍照）後按「存成我的餐盤」，下次一鍵帶入。</div>'; return; }
+  const missing=list.filter(p=>p.has_thumb&&!p.thumb).map(p=>p.id);
+  if(missing.length) ensurePlateThumbs(missing);
   box.innerHTML=`<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;">`+list.map(p=>{
     const items=(p.items||[]).map(it=>it.n).slice(0,4).join("、");
     const img=p.thumb?`<img src="${p.thumb}" style="width:84px;height:84px;border-radius:10px;object-fit:cover;">`
