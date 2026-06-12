@@ -2341,20 +2341,10 @@ function renderEta(){
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
 function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderPlates(); renderFavs(); renderShared(); renderDay(); }
 
-async function reload(){
-  store = await api("/api/me/all");
-  // 造型選擇雙向同步：伺服器有就用伺服器；伺服器沒有但本機有（舊版只存本機）就補傳到伺服器，
-  // 確保你選的特效/角色在所有競賽都生效。
-  try{
-    const lfx=localStorage.getItem("tdee_fx"), lrc=localStorage.getItem("tdee_racer");
-    if(store.fx){ localStorage.setItem("tdee_fx",store.fx); }
-    else if(lfx){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({fx:lfx})}).catch(()=>{}); }
-    if(store.racer){ localStorage.setItem("tdee_racer",store.racer); }
-    else if(lrc){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({racer:lrc})}).catch(()=>{}); }
-    const lsk=localStorage.getItem("tdee_skin");
-    if(store.skin){ localStorage.setItem("tdee_skin",store.skin); }
-    else if(lsk){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({skin:lsk})}).catch(()=>{}); }
-  }catch(e){}
+const storeCacheKey=()=>"cacheAll:"+(session&&session.userId||"");
+// 把 /api/me/all 的資料套進 store 並渲染（離線/快取與網路兩條路共用）
+function applyStoreData(data){
+  store = data;
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
@@ -2370,6 +2360,23 @@ async function reload(){
     a.k+=+m.kcal||0; a.p+=+m.protein||0; a.f+=+m.fat||0; a.c+=+m.carb||0; });
   store.records.forEach(r=>{ const a=store.mealAgg[r.date.slice(0,10)]; if(a){ r.kcal=Math.round(a.k); r.protein=Math.round(a.p); r.fat=Math.round(a.f); r.carb=Math.round(a.c); } });
   renderAll();
+}
+async function reload(){
+  const data = await api("/api/me/all");
+  // 造型選擇雙向同步：伺服器有就用伺服器；伺服器沒有但本機有（舊版只存本機）就補傳到伺服器
+  try{
+    const lfx=localStorage.getItem("tdee_fx"), lrc=localStorage.getItem("tdee_racer");
+    if(data.fx){ localStorage.setItem("tdee_fx",data.fx); }
+    else if(lfx){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({fx:lfx})}).catch(()=>{}); }
+    if(data.racer){ localStorage.setItem("tdee_racer",data.racer); }
+    else if(lrc){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({racer:lrc})}).catch(()=>{}); }
+    const lsk=localStorage.getItem("tdee_skin");
+    if(data.skin){ localStorage.setItem("tdee_skin",data.skin); }
+    else if(lsk){ api("/api/cosmetic",{method:"POST",body:JSON.stringify({skin:lsk})}).catch(()=>{}); }
+  }catch(e){}
+  applyStoreData(data);
+  // 存一份到本機，下次開啟先用它「秒畫」再背景更新（大圖已不在 payload 內，體積可控）
+  try{ localStorage.setItem(storeCacheKey(), JSON.stringify(data)); }catch(e){}
   scheduleGroupSync();   // 資料更新後，背景自動同步並刷新競賽排行（免手動按更新）
 }
 // 防抖：資料變動 2.5 秒後，把最新統計上傳並重抓排行榜
@@ -2394,6 +2401,11 @@ async function boot(){
   document.getElementById("rDate").value=todayStr();
   document.getElementById("exDate").value=todayStr();
   document.getElementById("foodDate").value=todayStr();
+  // 先用上次的本機快取「秒畫」（即使伺服器回應慢，畫面也立刻有資料），再背景抓最新覆蓋
+  try{
+    const cached=localStorage.getItem(storeCacheKey());
+    if(cached){ applyStoreData(JSON.parse(cached)); if(store.profile) applyProfile(store.profile); renderDerived(); restoreCards(); }
+  }catch(e){}
   await reload();
   if(store.profile) applyProfile(store.profile);
   renderDerived();
