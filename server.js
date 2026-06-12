@@ -4,6 +4,7 @@ import crypto from "crypto";
 import webpush from "web-push";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { readFileSync } from "fs";
 
 // VAPID（可用環境變數覆蓋；預設後備供個人/好友用）
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC || "BAK-aviDC-bVVVdhF97BpF7mRA4YFvOp2okXmsABmvFw7-Iwxa7mQe5VZVsWFOBRrm_J6TKOJ0yDH3OM7zpuQGs";
@@ -1172,7 +1173,7 @@ app.get("/api/pet", auth, async (req, res) => {
     }
     const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND,
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
-    res.json({ pet: state, species: PET_SPECIES, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
+    res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
@@ -1382,14 +1383,30 @@ const PET_SPECIES = {
   bubu:     { label: "布布", stages: ["🥚", "🐾", "🐾", "🐾", "🐾"] },
   jelly:    { label: "水母", stages: ["🥚", "🌊", "🪼", "🪼", "🪼"] },
   money:    { label: "MONEY", stages: ["🥚", "🪙", "💰", "💵", "🤑"] },
-  hana2:    { label: "花花2", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
-  hana3:    { label: "花花3", stages: ["🥚", "🐱", "🐈", "😺", "🦁"] },
-  choco:    { label: "巧克力", stages: ["🥚", "🐶", "🐕", "🦮", "🐕"] },
   // 稀有寵物：只能從扭蛋抽到才解鎖領養（不出現在一般選單）
   phoenix:  { label: "鳳凰", stages: ["🥚", "🐣", "🔥", "🦅", "🦅"] },
   ghost:    { label: "幽靈", stages: ["🥚", "👻", "👻", "👻", "👻"] },
   star:     { label: "星靈", stages: ["🥚", "✨", "🌟", "⭐", "💫"] },
 };
+// 內建就有插圖的寵物（圖檔已附）。自訂的請寫進 public/pets/custom_pets.json，不用改這支程式。
+const BUILTIN_ART_KEYS = ["cat:silvertabby", "bubu", "jelly", "money"];
+// 自助註冊插圖寵物：讀 public/pets/custom_pets.json。格式 { "key": { "label": "顯示名", "stages": [選填5個emoji] } }
+//   每個 key 會自動：①成為新物種 ②設為最稀有(權重1) ③啟用 public/pets/<key>/ 的插圖。
+//   新增步驟：建資料夾放 0.png~4.png + 在 json 加一行 + 重啟/重新部署，不用找工程師。
+const CUSTOM_PETS = (() => {
+  try {
+    const raw = JSON.parse(readFileSync(join(__dirname, "public", "pets", "custom_pets.json"), "utf8"));
+    const out = {};
+    for (const k in raw) { if (k.startsWith("_")) continue; if (raw[k] && raw[k].label) out[k] = raw[k]; }
+    return out;
+  } catch (e) { console.error("custom_pets.json 讀取失敗（略過）:", e.message); return {}; }
+})();
+const DEFAULT_CUSTOM_STAGES = ["🥚", "🐾", "🐾", "🐾", "🐾"];
+for (const k in CUSTOM_PETS) {
+  PET_SPECIES[k] = { label: CUSTOM_PETS[k].label, stages: CUSTOM_PETS[k].stages || DEFAULT_CUSTOM_STAGES };
+}
+// 完整插圖清單（內建＋自訂），給前端啟用 <img>
+const ART_KEYS = [...BUILTIN_ART_KEYS, ...Object.keys(CUSTOM_PETS)];
 // 扭蛋池（伺服器端權威隨機，防作弊）：type=coin 給幣 / acc 飾品 / pet 隨機未解鎖寵物。w=權重
 const GACHA_POOL = [
   { type: "coin", amount: 10, w: 22, label: "🦴×10" },
@@ -1414,9 +1431,10 @@ const petFromKey = (key) => { const i = key.indexOf(":"); return i < 0 ? { speci
 const PET_ROSTER = (() => { const a = []; for (const sp in PET_SPECIES) { if (PET_BREED_IDS[sp]) for (const b of PET_BREED_IDS[sp]) a.push(sp + ":" + b); else a.push(sp); } return a; })();
 // 抽到的稀有度（權重越低越難抽）：專屬插圖最稀有，特殊 emoji 次之，其餘為一般。
 const PET_RARITY = {
-  "cat:silvertabby": 1, "bubu": 1, "jelly": 1, "money": 1, "hana2": 1, "hana3": 1, "choco": 1,   // 專屬插圖 → 最難抽
+  "cat:silvertabby": 1, "bubu": 1, "jelly": 1, "money": 1,   // 內建專屬插圖 → 最難抽
   "phoenix": 3, "ghost": 3, "star": 3,                        // 特殊 emoji → 較難
 };
+for (const k in CUSTOM_PETS) PET_RARITY[k] = 1;               // 自訂插圖一律最稀有（權重1）
 const petPullWeight = (key) => PET_RARITY[key] || 12;          // 一般寵物權重 12
 // 已解鎖的寵物集合＝gacha_pets ∪ 養過的(flock) ∪ 目前出戰（自動把既有玩家擁有的都算解鎖）
 function petUnlockedSet(row) {

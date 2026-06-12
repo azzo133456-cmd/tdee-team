@@ -106,7 +106,9 @@ function petGlyph(pet,size){
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
 async function loadPet(){
-  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost}; }
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost};
+    if(Array.isArray(r.artKeys)) r.artKeys.forEach(k=>PET_ART_KEYS.add(k));   // 伺服器回傳的插圖清單（含自訂寵物）自動啟用，前端免手改 }
+  }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
 }
