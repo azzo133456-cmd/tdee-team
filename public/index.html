@@ -191,6 +191,9 @@
         <button class="ghost sm" style="flex:1;" onclick="document.getElementById('mealPhotoInput').click()">📷 拍照辨識</button>
         <button class="ghost sm" style="flex:1;" onclick="document.getElementById('labelInput').click()">📋 掃標示</button>
       </div>
+      <input id="mealPhotoInput" type="file" accept="image/*" style="display:none;" onchange="onPhotoPick(event)">
+      <!-- 拍照預覽＋AI辨識：就出現在這裡(上方)，不用捲到底 -->
+      <div id="photoBox" style="margin-bottom:10px;"></div>
       <input id="foodPick" placeholder="輸入食物，或描述一餐…" autocomplete="off" oninput="foodSuggest()" onfocus="foodSuggest()">
       <div id="foodFilters" class="chipbar">
         <button class="ghost sm fbtn on" data-f="" onclick="setFoodFilter('',this)">全部</button>
@@ -232,17 +235,14 @@
       </div>
       <div class="foodlist" id="foodItems"></div>
       <div class="result" id="foodTotal" style="display:none;"></div>
-      <div id="mealAddBox">
-        <div class="row" style="margin-top:10px;">
-          <div><label>加到哪一餐</label>
+      <div id="mealAddBox" class="cartbar">
+        <div class="row" style="margin:0;align-items:flex-end;">
+          <div style="flex:1 1 auto;"><label style="margin:0 0 2px;">加到哪一餐</label>
             <select id="mealType"><option value="早餐">早餐</option><option value="午餐">午餐</option><option value="晚餐">晚餐</option><option value="點心">點心</option></select>
           </div>
-          <div style="flex:0 0 auto; align-self:flex-end;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
+          <div style="flex:0 0 auto;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
         </div>
-        <input id="mealPhotoInput" type="file" accept="image/*" style="display:none;" onchange="onPhotoPick(event)">
-        <button class="ghost sm" style="margin-top:8px;" onclick="document.getElementById('mealPhotoInput').click()">📷 為這一餐拍照／選圖</button>
-        <div id="mealPhotoPreview" style="margin-top:8px;"></div>
-        <div class="hint tip">可只拍照當飲食日記，按「＋加入」即可。</div>
+        <div class="hint tip" style="margin:4px 0 0;">可只拍照當飲食日記（上方拍照後直接按「＋加入」即可）。</div>
       </div>
       <div id="cartSaveBtns" style="display:none;">
         <button class="ghost" onclick="saveRecipe()">💾 存成食譜</button>

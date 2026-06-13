@@ -538,6 +538,7 @@ function renderFood(){
   }).join("");
   const tot=foodCart.reduce((a,b)=>{const m=cartMacros(b);return {k:a.k+m.k,p:a.p+m.p,f:a.f+m.f,c:a.c+m.c};},{k:0,p:0,f:0,c:0});
   const el=document.getElementById("foodTotal"), sb=document.getElementById("cartSaveBtns");
+  const mb=document.getElementById("mealAddBox"); if(mb) mb.classList.toggle("on", foodCart.length>0);   // 有東西才把存餐列固定置底
   if(foodCart.length){ el.style.display="block"; sb.style.display="block";
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
   }else{ el.style.display="none"; sb.style.display="none"; }
@@ -710,15 +711,19 @@ function onPhotoPick(ev){
     const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
     cv.getContext("2d").drawImage(img,0,0,w,h);
     mealPhoto=cv.toDataURL("image/jpeg",0.6);
-    document.getElementById("mealPhotoPreview").innerHTML=
-      `<img src="${mealPhoto}" style="max-width:120px;border-radius:8px;border:1px solid var(--line)"> <span class="x" style="color:#b5564e;cursor:pointer" onclick="clearMealPhoto()">移除</span>`
-      +`<div style="margin-top:6px;"><button class="ghost sm" onclick="analyzePhoto()">✨ AI 辨識熱量</button> <span id="aiHint" class="hint" style="display:inline">AI 估算僅供參考，可再手動微調</span></div>`;
+    document.getElementById("photoBox").innerHTML=
+      `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px;">`+
+      `<img src="${mealPhoto}" style="width:84px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex:0 0 auto;">`+
+      `<div style="flex:1 1 auto;min-width:0;">`+
+      `<button class="sm" style="width:auto;padding:7px 14px;margin:0;" onclick="analyzePhoto()">✨ AI 辨識熱量</button> `+
+      `<span class="x" style="color:#b5564e;cursor:pointer;font-size:13px;margin-left:6px;" onclick="clearMealPhoto()">移除</span>`+
+      `<div id="aiHint" class="hint" style="margin-top:6px;">辨識後品項會列在下方，調好克數→選餐別「＋加入」。</div></div></div>`;
     URL.revokeObjectURL(img.src);
   };
   img.src=URL.createObjectURL(file);
   ev.target.value="";
 }
-function clearMealPhoto(){ mealPhoto=null; document.getElementById("mealPhotoPreview").innerHTML=""; }
+function clearMealPhoto(){ mealPhoto=null; const b=document.getElementById("photoBox"); if(b) b.innerHTML=""; }
 function compressImg(file){
   return new Promise((res)=>{
     const img=new Image();

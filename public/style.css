@@ -158,3 +158,5 @@
   /* 寵物提示 toast */
   #petToast{position:fixed; left:50%; bottom:74px; transform:translateX(-50%) translateY(20px); background:#2a2a30; color:#fff; padding:10px 16px; border-radius:22px; font-size:14px; font-weight:600; box-shadow:0 6px 24px rgba(0,0,0,.35); opacity:0; pointer-events:none; z-index:90; transition:opacity .3s, transform .3s; max-width:88vw; text-align:center;}
   #petToast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  /* 食物計算機：存餐列（選餐別＋加入）有東西時固定在畫面底部，捲清單也看得到要存哪一餐 */
+  #mealAddBox.on{position:sticky; bottom:8px; z-index:20; background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-top:10px; box-shadow:0 6px 20px rgba(0,0,0,.10);}
