@@ -528,7 +528,7 @@ function renderFood(){
     const m=cartMacros(it);
     const lv=(it.sugarLv==null?1:it.sugarLv);
     let sugarSel="";
-    const hasLevel=/(無糖|分糖|微糖|半糖|少糖|全糖)\)/.test(it.n);  // 50嵐/茶湯會已內含甜度，不重複給選單
+    const hasLevel=/(無糖|分糖|微糖|半糖|少糖|全糖)\d*%?\)/.test(it.n);  // 50嵐/茶湯會已內含甜度(如「半糖50%」)，不重複給選單→避免雙重扣糖
     if(foodCat(it.n)==="drink" && !hasLevel){
       const opts=[[1,"全糖"],[0.7,"少糖"],[0.5,"半糖"],[0.3,"微糖"],[0.1,"1分糖"],[0,"無糖"]]
         .map(([v,t])=>`<option value="${v}"${v===lv?" selected":""}>${t}</option>`).join("");
