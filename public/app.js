@@ -97,20 +97,16 @@ function portionHint(n,g){
     SERVINGS[n]=G;
   }
   // 50嵐 / 茶湯會：依官方糖量熱量表自動產生各甜度版本
-  const LV=[["無糖",0],["1分糖10%",0.1],["微糖30%",0.3],["半糖50%",0.5],["少糖70%",0.7],["全糖",1]];
   const ML=700, S=window.FOODS_5050||{};
+  // 只存「全糖」基準一筆/杯（品名不帶甜度後綴）→ 自動出現糖量選單，使用者自選甜度；
+  // cartMacros 依甜度線性換算(糖量×甜度)，與舊版預先產生 6 種甜度完全等價，但飲料庫精簡 6 倍。
   for(const brand in S){
     for(const [name,fullK,sugarG] of S[brand]){
-      const nonSugar=Math.max(0,fullK-sugarG*4);     // 茶底＋奶/料的固定熱量
-      const fat=Math.round(nonSugar/9*10)/10;          // 推估：非糖熱量視為脂肪
+      const nonSugar=Math.max(0,fullK-sugarG*4);     // 茶底＋奶/料的固定熱量(非糖)
       const fac=100/ML;
-      for(const [lvName,lv] of LV){
-        const sg=Math.round(sugarG*lv*10)/10;          // 該甜度的糖量(g)
-        const kcal=Math.round(nonSugar+sg*4);
-        const key=`${brand} ${name}(${lvName})`;
-        FOODS_DYN[key]=[Math.round(kcal*fac*10)/10, 0, Math.round(fat*fac*10)/10, Math.round(sg*fac*10)/10];
-        SERVINGS[key]=ML;
-      }
+      const key=`${brand} ${name}`;                   // 不帶「(全糖)」等後綴
+      FOODS_DYN[key]=[Math.round(fullK*fac*10)/10, 0, Math.round(nonSugar/9*fac*10)/10, Math.round(sugarG*fac*10)/10];
+      SERVINGS[key]=ML;                               // 碳水＝全糖糖量；糖量選單會依甜度扣除
     }
   }
 })();
