@@ -2389,12 +2389,16 @@ async function reload(){
   try{ const slim = Object.assign({}, data, { sharedFoods: [] }); localStorage.setItem(storeCacheKey(), JSON.stringify(slim)); }catch(e){}
   scheduleGroupSync();   // 資料更新後，背景自動同步並刷新競賽排行（免手動按更新）
 }
-// 防抖：資料變動 2.5 秒後，把最新統計上傳並重抓排行榜
+// 防抖：資料變動 2.5 秒後，上傳每日統計並刷新寵物（所有人都要，寵物成長/每日任務都靠它）；
+//   競賽排行只有參賽者才額外重抓。先前「沒參賽就 return」會導致非參賽者的寵物今日不成長、任務不更新。
 let _grpSyncTimer=null;
 function scheduleGroupSync(){
-  if(!(myGroups&&myGroups.length)) return;   // 沒參賽就不用打 API
   clearTimeout(_grpSyncTimer);
-  _grpSyncTimer=setTimeout(async()=>{ try{ await syncDailyStats(); await loadGroups(); if(petData) await loadPet(); }catch(e){} },2500);
+  _grpSyncTimer=setTimeout(async()=>{ try{
+    await syncDailyStats();                       // 把今天的統計寫進 daily_stats（寵物 EXP/任務全清都讀這張表）
+    if(myGroups&&myGroups.length) await loadGroups();   // 有參賽才刷新排行榜
+    if(petData) await loadPet();                  // 刷新寵物（反映今日新成長/任務/全清獎勵）
+  }catch(e){} },2500);
 }
 
 /* ---------- helpers ---------- */
