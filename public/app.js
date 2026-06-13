@@ -629,7 +629,16 @@ function registerFood(n,d,defGram){
 }
 // 上傳到共享食物庫（全體共用，每100g）；失敗不影響本地使用
 async function shareFood(name,d,grams,kind){
-  try{ await api("/api/sharedfood",{method:"POST",body:JSON.stringify({name,kcal:d[0],protein:d[1],fat:d[2],carb:d[3],grams:grams||100,kind:kind||"food"})}); }catch(e){}
+  try{
+    await api("/api/sharedfood",{method:"POST",body:JSON.stringify({name,kcal:d[0],protein:d[1],fat:d[2],carb:d[3],grams:grams||100,kind:kind||"food"})});
+    // 即時更新本機共享庫清單，免得要重開才看得到（伺服器成功後才更新）
+    store.sharedFoods=store.sharedFoods||[];
+    const rec={name,kcal:+d[0]||0,protein:+d[1]||0,fat:+d[2]||0,carb:+d[3]||0,grams:grams||100,kind:kind||"food",created_by:(session&&session.userId)};
+    const ex=store.sharedFoods.find(s=>s.name===name);
+    if(ex) Object.assign(ex,rec); else store.sharedFoods.push(rec);
+    SHARED_NAMES.add(name);
+    if(typeof renderShared==="function") renderShared();
+  }catch(e){}
 }
 
 /* ---------- 條碼掃描（ZXing + Open Food Facts） ---------- */
