@@ -179,7 +179,7 @@ async function petGacha(count){
   if(!confirm(`花 🦴${cost} 抽 ${count} 發？`)) return;
   try{
     const r=await api("/api/pet/gacha",{method:"POST",body:JSON.stringify({count})}); petData=r.pet;
-    showGachaResults(r.results); renderPet();
+    showGachaResults(r.results);   // 結果畫面停留到使用者按「關閉」(內含 renderPet 回主畫面)；別在這再 renderPet 否則會立刻蓋掉結果
   }catch(e){ alert(e.message); }
 }
 function showGachaResults(results){
