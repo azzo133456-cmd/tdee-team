@@ -17,14 +17,21 @@ if (!username || !Number.isFinite(amount)) {
   console.error("用法: node tools/grant_coins.mjs <使用者名稱> [數量(預設180)]");
   process.exit(1);
 }
-if (!process.env.DATABASE_URL) {
-  console.error("❌ 找不到 DATABASE_URL。請在能連到資料庫的環境執行（如 `railway run ...`）。");
+// 本機透過 railway run 執行時，DATABASE_URL 會是內部網址(postgres.railway.internal)本機連不到；
+// 優先用公開網址 DATABASE_PUBLIC_URL。
+const conn = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL;
+if (!conn) {
+  console.error("❌ 找不到資料庫連線字串。請用 `railway run -s Postgres node tools/grant_coins.mjs ...` 執行。");
+  process.exit(1);
+}
+if (conn.includes("railway.internal")) {
+  console.error("❌ 目前拿到的是內部網址(本機連不到)。請改用 `railway run -s Postgres ...`，讓腳本拿到 DATABASE_PUBLIC_URL。");
   process.exit(1);
 }
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
+  connectionString: conn,
+  ssl: conn.includes("localhost") ? false : { rejectUnauthorized: false },
 });
 
 try {
