@@ -263,11 +263,21 @@ function renderPet(){
   const avSize=isArt?96:64, avBox=isArt?108:74;
   // 🥚 扭蛋
   const gc=(petMeta&&petMeta.gacha)||{cost:60,tenCost:540};
-  const gachaBlock=`<div style="margin-top:10px;font-size:13px;font-weight:600;">🥚 扭蛋 <span class="hint" style="font-weight:400;">（飾品／稀有寵物／骨頭幣）</span></div>`+
+  const od=gc.odds;
+  const oddsHtml=od?`<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;color:var(--sub);">ℹ️ 機率說明</summary>`+
+    `<div style="font-size:12px;color:var(--sub);line-height:1.7;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:8px;">`+
+    `每抽結果：🎀 飾品 <b>${od.acc}%</b>　🐾 寵物 <b>${od.pet}%</b>`+
+    `<div style="margin-top:4px;">抽到寵物時，再依稀有度抽一隻：</div>`+
+    `<div>・一般（${od.basicCount} 隻）：總機率 <b>${od.petBasic}%</b></div>`+
+    `<div>・特殊 emoji（${od.specialCount} 隻）：總機率 <b>${od.petSpecial}%</b></div>`+
+    `<div>・✨ 專屬插圖（${od.illusCount} 隻，最稀有）：總機率 <b>${od.petIllus}%</b>，每隻約 ${od.illusEach}%</div>`+
+    `<div style="margin-top:4px;">重複寵物只顯示「已擁有」不退幣；重複飾品退 🦴${gc.dupRefund||20}。</div>`+
+    `</div></details>`:"";
+  const gachaBlock=`<div style="margin-top:10px;font-size:13px;font-weight:600;">🥚 扭蛋 <span class="hint" style="font-weight:400;">（飾品／寵物）</span></div>`+
     `<div class="chipbar" style="margin-top:4px;">`+
     `<button class="ghost sm" ${p.coins>=gc.cost?'':'disabled'} style="${p.coins>=gc.cost?'':'opacity:.45;'}" onclick="petGacha(1)">單抽 🦴${gc.cost}</button>`+
     `<button class="ghost sm" ${p.coins>=gc.tenCost?'':'disabled'} style="${p.coins>=gc.tenCost?'':'opacity:.45;'}" onclick="petGacha(10)">十連 🦴${gc.tenCost}</button>`+
-    `</div>`;
+    `</div>`+oddsHtml;
   box.innerHTML=
     `<div style="display:flex;align-items:center;gap:14px;">`+
       `<div style="position:relative;width:${avBox}px;height:${avBox}px;display:flex;align-items:center;justify-content:center;background:var(--soft);border-radius:16px;flex:0 0 auto;">`+

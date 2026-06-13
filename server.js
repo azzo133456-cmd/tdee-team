@@ -1191,7 +1191,7 @@ app.get("/api/pet", auth, async (req, res) => {
     if (row && JSON.stringify(row.dex || []) !== JSON.stringify(state.dex)) {
       await pool.query("UPDATE pets SET dex=$1 WHERE user_id=$2", [JSON.stringify(state.dex), req.user.id]);
     }
-    const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND,
+    const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND, odds: gachaOdds(),
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
     res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
@@ -1430,14 +1430,13 @@ for (const k in CUSTOM_PETS) {
 }
 // 完整插圖清單（內建＋自訂），給前端啟用 <img>
 const ART_KEYS = [...BUILTIN_ART_KEYS, ...Object.keys(CUSTOM_PETS)];
-// 扭蛋池（伺服器端權威隨機，防作弊）：type=coin 給幣 / acc 飾品 / pet 隨機未解鎖寵物。w=權重
+// 扭蛋池（伺服器端權威隨機，防作弊）：acc 飾品 / pet 隨機寵物。w=權重。
+// 設計：飾品共 40 權重、寵物 60 權重 → 總和 100 → 飾品 40% / 寵物 60%。
 const GACHA_POOL = [
-  { type: "coin", amount: 10, w: 22, label: "🦴×10" },
-  { type: "coin", amount: 30, w: 10, label: "🦴×30" },
-  { type: "acc", it: "🍓", w: 9 }, { type: "acc", it: "🌹", w: 9 },
-  { type: "acc", it: "🦋", w: 7 }, { type: "acc", it: "🎃", w: 5 },
+  { type: "acc", it: "🍓", w: 10 }, { type: "acc", it: "🌹", w: 10 },
+  { type: "acc", it: "🦋", w: 8 }, { type: "acc", it: "🎃", w: 5 },
   { type: "acc", it: "⚡", w: 4 }, { type: "acc", it: "🌈", w: 3, rare: true },
-  { type: "pet", w: 21 },   // 抽到「隨機一隻還沒解鎖的寵物」
+  { type: "pet", w: 60 },   // 抽寵物（依稀有度權重再抽一隻；已擁有的也會抽到→顯示已擁有不退幣）
 ];
 const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品退幣（寵物重複不退、僅顯示已擁有）
 function gachaRoll() {
@@ -1459,6 +1458,25 @@ const PET_RARITY = {
 };
 for (const k in CUSTOM_PETS) PET_RARITY[k] = 1;               // 自訂插圖一律最稀有（權重1）
 const petPullWeight = (key) => PET_RARITY[key] || 12;          // 一般寵物權重 12
+// 公開機率（依實際權重即時算，扭蛋池/寵物有變動都自動更新）
+function gachaOdds() {
+  const tot = GACHA_POOL.reduce((a, g) => a + g.w, 0) || 1;
+  const accW = GACHA_POOL.filter((g) => g.type === "acc").reduce((a, g) => a + g.w, 0);
+  const petW = GACHA_POOL.filter((g) => g.type === "pet").reduce((a, g) => a + g.w, 0);
+  const petPool = PET_ROSTER.reduce((a, k) => a + petPullWeight(k), 0) || 1;
+  let illusW = 0, specialW = 0, basicW = 0, illusCount = 0, specialCount = 0, basicCount = 0;
+  for (const k of PET_ROSTER) { const w = petPullWeight(k); if (w === 1) { illusW += w; illusCount++; } else if (w === 3) { specialW += w; specialCount++; } else { basicW += w; basicCount++; } }
+  const petP = petW / tot;
+  const r1 = (x) => Math.round(x * 1000) / 10;     // 1 位小數 %
+  const r2 = (x) => Math.round(x * 10000) / 100;   // 2 位小數 %
+  return {
+    acc: r1(accW / tot), pet: r1(petW / tot),
+    petBasic: r1(petP * basicW / petPool), basicCount,
+    petSpecial: r1(petP * specialW / petPool), specialCount,
+    petIllus: r1(petP * illusW / petPool), illusCount,
+    illusEach: r2(petP * (1 / petPool)),           // 每一隻指定插圖的機率
+  };
+}
 // 已解鎖的寵物集合＝gacha_pets ∪ 養過的(flock) ∪ 目前出戰（自動把既有玩家擁有的都算解鎖）
 function petUnlockedSet(row) {
   const s = new Set(Array.isArray(row && row.gacha_pets) ? row.gacha_pets : []);
