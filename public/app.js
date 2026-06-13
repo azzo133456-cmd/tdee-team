@@ -717,7 +717,7 @@ function onPhotoPick(ev){
       `<div style="flex:1 1 auto;min-width:0;">`+
       `<button class="sm" style="width:auto;padding:7px 14px;margin:0;" onclick="analyzePhoto()">✨ AI 辨識熱量</button> `+
       `<span class="x" style="color:#b5564e;cursor:pointer;font-size:13px;margin-left:6px;" onclick="clearMealPhoto()">移除</span>`+
-      `<div id="aiHint" class="hint" style="margin-top:6px;">辨識後品項會列在下方，調好克數→選餐別「＋加入」。</div></div></div>`;
+      `<div id="aiHint" class="hint" style="margin-top:6px;">要熱量數字 → 按「✨ AI 辨識」；<b>只想留照片當日記</b> → 直接到下方選餐別「＋加入」即可。</div></div></div>`;
     URL.revokeObjectURL(img.src);
   };
   img.src=URL.createObjectURL(file);
@@ -2349,7 +2349,7 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderPlates(); renderFavs(); renderShared(); renderDay(); }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
 
 const storeCacheKey=()=>"cacheAll:"+(session&&session.userId||"");
 // 把 /api/me/all 的資料套進 store 並渲染（離線/快取與網路兩條路共用）

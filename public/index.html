@@ -188,7 +188,7 @@
       <!-- 三種記法：一眼看到 -->
       <div class="chipbar" id="foodMethods" style="margin-bottom:10px;">
         <button class="ghost sm" style="flex:1;" onclick="document.getElementById('foodPick').focus()">🔍 打字找</button>
-        <button class="ghost sm" style="flex:1;" onclick="document.getElementById('mealPhotoInput').click()">📷 拍照辨識</button>
+        <button class="ghost sm" style="flex:1;" onclick="document.getElementById('mealPhotoInput').click()">📷 拍照</button>
         <button class="ghost sm" style="flex:1;" onclick="document.getElementById('labelInput').click()">📋 掃標示</button>
       </div>
       <input id="mealPhotoInput" type="file" accept="image/*" style="display:none;" onchange="onPhotoPick(event)">
@@ -246,19 +246,11 @@
       </div>
       <div id="cartSaveBtns" style="display:none;">
         <button class="ghost" onclick="saveRecipe()">💾 存成食譜</button>
-        <button class="ghost" onclick="savePlate()">🍽️ 存成我的餐盤（可附照片）</button>
       </div>
       <div class="hint tip">來源：台灣FDA＋連鎖/小吃/手搖包＋AI辨識，皆為概估。</div>
     </div>
 
-    <!-- 我的餐盤（拍照存的常吃餐點，一鍵重記） -->
-    <div class="card collapsed">
-      <h2 class="ch" data-ck="plates" onclick="toggleCard(this)">🍽️ 我的餐盤 <span class="pill" id="plateCount"></span><span class="caret">▾</span></h2>
-      <div class="cardbody">
-        <div id="plateList"><div class="empty">還沒有餐盤。組好常吃的一餐（可先拍照）後按「存成我的餐盤」，下次一鍵帶入。</div></div>
-        <div class="hint tip">點餐盤即把內容載入計算機清單，再選餐別加入。餐盤是個人專用、不會公開。</div>
-      </div>
-    </div>
+    <!-- （已移除「我的餐盤」卡片；後端與資料保留，需要可復原） -->
 
     <!-- 今日飲食（在計算機下方） -->
     <div class="card">
