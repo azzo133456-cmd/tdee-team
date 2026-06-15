@@ -322,6 +322,21 @@ app.put("/api/profile", auth, async (req, res) => {
   }
 });
 
+/* ---------- 經期記錄（存在 profile.periods，為 YYYY-MM-DD 的陣列；切換 = 有就刪、沒有就加） ---------- */
+app.post("/api/period/toggle", auth, async (req, res) => {
+  try {
+    const date = String(req.body && req.body.date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "日期格式錯誤" });
+    const cur = (req.user.profile && Array.isArray(req.user.profile.periods)) ? req.user.profile.periods : [];
+    const has = cur.includes(date);
+    const next = (has ? cur.filter(d => d !== date) : cur.concat(date)).sort();
+    await pool.query("UPDATE users SET profile = jsonb_set(COALESCE(profile,'{}'::jsonb),'{periods}',$1::jsonb) WHERE id=$2", [JSON.stringify(next), req.user.id]);
+    res.json({ ok: true, periods: next, on: !has });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
 /* ---------- 每日紀錄 ---------- */
 app.post("/api/record", auth, async (req, res) => {
   try {

@@ -1058,6 +1058,49 @@ async function maybeWeeklyReview(){
   if(aiInFlight) return;   // 使用者正在用 AI，這次先讓賢，下次開 App 再補
   await genWeeklyReview(ws,false);
 }
+/* ---------- 經期記錄（僅女性顯示；只記「開始日」，自動算週期天數與相位） ---------- */
+function periodDates(){ const p=store.profile&&store.profile.periods; return Array.isArray(p)?p.slice().sort():[]; }
+// 依「最近一次經期開始日」算目前是第幾天、處於哪個相位
+function cyclePhase(){
+  const ds=periodDates(); if(!ds.length) return null;
+  const last=ds[ds.length-1];
+  const day=Math.floor((new Date(todayStr())-new Date(last))/86400000)+1;  // 開始日當第 1 天
+  if(day<1) return null;
+  // 概略相位：1-5 月經期、6-13 濾泡期、14-15 排卵、16-28 黃體期(易水腫)、>28 可能下次將至
+  let phase, note;
+  if(day<=5){ phase="月經期"; note="這幾天體重可能偏高（水分），屬正常，別過度節食。"; }
+  else if(day<=13){ phase="濾泡期"; note="水分通常較穩定，是看減重趨勢的好時機。"; }
+  else if(day<=15){ phase="排卵期"; note="體重可能小幅波動，正常。"; }
+  else if(day<=28){ phase="黃體期"; note="⚠️ 易水分滯留、體重偏高 0.5–2kg，是水不是脂肪，別慌。"; }
+  else { phase="週期偏長"; note="已超過 28 天，下次經期可能將至；記得記錄開始日。"; }
+  return {day, phase, note, last};
+}
+function renderPeriod(){
+  const card=document.getElementById("cardPeriod"); if(!card) return;
+  const isF=(store.profile&&store.profile.sex||val("sex"))==="f";
+  card.style.display=isF?"":"none";
+  if(!isF) return;
+  const ds=periodDates(), cur=val("rDate")||todayStr(), on=ds.includes(cur);
+  const btn=document.getElementById("periodBtn");
+  if(btn) btn.textContent=on?"🩸 取消「經期開始」("+cur.slice(5)+")":"🩸 記錄「經期開始」("+cur.slice(5)+")";
+  const ph=cyclePhase(), pill=document.getElementById("periodPill");
+  if(pill) pill.textContent=ph?("第 "+ph.day+" 天·"+ph.phase):"";
+  const st=document.getElementById("periodStatus");
+  if(st) st.innerHTML=ph?`目前<b>週期第 ${ph.day} 天</b>（${ph.phase}，起算 ${ph.last}）<br>${ph.note}`:`還沒記錄任何經期開始日。把上方日期設成經期第一天再按下方按鈕。`;
+  const list=document.getElementById("periodList");
+  if(list){
+    list.innerHTML = ds.length? ds.slice(-6).reverse().map(d=>`<span class="pill" style="margin:2px 4px 2px 0;cursor:pointer;" onclick="togglePeriodDate('${d}')" title="點擊移除">${d} ✕</span>`).join(""):"";
+  }
+}
+async function togglePeriod(){ await togglePeriodDate(val("rDate")||todayStr()); }
+async function togglePeriodDate(date){
+  try{
+    const r=await api("/api/period/toggle",{method:"POST",body:JSON.stringify({date})});
+    store.profile=store.profile||{}; store.profile.periods=r.periods;
+    try{ localStorage.setItem(storeCacheKey(), JSON.stringify({...store, sharedFoods:undefined})); }catch(e){}
+    renderPeriod(); renderDashboard();
+  }catch(e){ alert("經期記錄失敗："+e.message); }
+}
 function renderReviews(){
   const box=document.getElementById("reviewList"); if(!box) return;
   const list=store.reviews||[];
@@ -2216,6 +2259,11 @@ function renderDashboard(){
     });
     html+=`<div class="hint" style="margin-top:8px;">🏆 ${parts.join("　·　")}</div>`;
   }
+  // 經期相位提示（黃體期/月經期時提醒水分浮動，避免被體重嚇到）
+  const ph=(typeof cyclePhase==="function")?cyclePhase():null;
+  if(ph && (ph.phase==="黃體期"||ph.phase==="月經期")){
+    html+=`<div class="hint" style="margin-top:8px;color:var(--warm)">🩸 週期第 ${ph.day} 天（${ph.phase}）：${ph.note}</div>`;
+  }
   box.innerHTML=html;
 }
 let reportDays=7;
@@ -2251,35 +2299,14 @@ function renderReport(){
   let underGoal=0;
   if(tgt){ underGoal=intakeDays.filter(r=>(+r.kcal||0)<=tgt.kcal).length; }
   const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
-  // ── 減重 KPI（最上方，核心）──
+  // 減重進度 KPI（週速度/距目標/ETA/TDEE）統一在「📋 我的減重計畫」呈現，這裡不重複，
+  // 報表專注於「執行面」明細：攝取/運動/淨熱量/三大營養/體重體脂變化/達標天數。
   const P=planContext();
   let html="";
   if(P.goal==="cut"){
-    const obs=P.weeklyObservedKg;                       // 實測每週kg（負=下降）
-    const tgtRate=P.weeklyTargetKg!=null?-Math.abs(P.weeklyTargetKg):null; // 目標每週應為負
-    // 是否在軌道：有實測速度且在下降，且達到目標速度的 60% 以上
-    let track="—", trackCol="var(--sub)";
-    if(obs!=null && tgtRate!=null){
-      if(obs<=tgtRate*0.6){ track="✅ 在軌道"; trackCol="var(--green)"; }
-      else if(obs<0){ track="偏慢"; trackCol="var(--warm)"; }
-      else { track="⚠ 未下降"; trackCol="#b5564e"; }
-    }
-    const rateTxt=obs!=null?(obs>0?"+":"")+obs+"kg/週":"資料不足";
-    const tgtTxt=tgtRate!=null?tgtRate+"kg/週":"—";
-    const distTxt=(P.weight!=null&&P.targetWeight!=null)?(+(P.weight-P.targetWeight).toFixed(1))+"kg":"—";
-    html+=`<div class="stat-row" style="margin-top:4px;">`+
-      stat(rateTxt,"實際週速度",obs!=null&&obs<0?"var(--green)":(obs>0?"#b5564e":""))+
-      stat(tgtTxt,"目標週速度")+
-      stat(distTxt,"距目標")+
-      stat(track,"進度",trackCol)+`</div>`;
-    const etaTxt=P.etaText||"需更多體重紀錄";
-    const tdeeTxt=P.tdee?P.tdee.toLocaleString()+(P.tdeeIsReal?"":"*"):"—";
-    html+=`<div class="hint" style="margin-top:8px;">`+
-      `🎯 目標 ${P.targetWeight??"—"}kg｜預計達成：<b>${etaTxt}</b>　·　`+
-      `每日攝取目標 ${P.target?P.target.kcal.toLocaleString():"—"} kcal（赤字約 ${P.dailyDeficitTarget||"—"}）　·　`+
-      `TDEE ${tdeeTxt} ${P.tdeeIsReal?"（實測）":`（公式估*，已記 ${P.dataDays} 天，滿約7天自動轉實測）`}</div>`;
+    html+=`<div class="hint" style="margin-top:2px;">📋 減重進度、週速度與預計達成日請看上方「我的減重計畫」。以下為執行面明細。</div>`;
   }
-  // ── 飲食/運動執行面（次要）──
+  // ── 飲食/運動執行面 ──
   html+=`<div class="stat-row" style="margin-top:10px;">`+
     stat(avgIntake?avgIntake.toLocaleString():"—","平均攝取/天")+
     stat(avgBurn?"−"+avgBurn.toLocaleString():"0","平均運動/天")+
@@ -2407,8 +2434,8 @@ function renderEta(){
   set("etaOut", `${y}/${m}/${d}`);
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); }
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
+function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); renderPeriod(); }
 
 const storeCacheKey=()=>"cacheAll:"+(session&&session.userId||"");
 // 把 /api/me/all 的資料套進 store 並渲染（離線/快取與網路兩條路共用）
@@ -2473,6 +2500,7 @@ async function boot(){
   document.getElementById("loginView").classList.add("hidden");
   document.getElementById("appView").classList.remove("hidden");
   document.getElementById("rDate").value=todayStr();
+  document.getElementById("rDate").addEventListener("change",()=>{ if(typeof renderPeriod==="function") renderPeriod(); });
   document.getElementById("exDate").value=todayStr();
   document.getElementById("foodDate").value=todayStr();
   // 先用上次的本機快取「秒畫」（即使伺服器回應慢，畫面也立刻有資料），再背景抓最新覆蓋
