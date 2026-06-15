@@ -89,6 +89,7 @@ async function initDb() {
       kcal INT, protein REAL, fat REAL, carb REAL,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    ALTER TABLE recipes ADD COLUMN IF NOT EXISTS servings INT DEFAULT 1;
     CREATE TABLE IF NOT EXISTS plates (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -535,9 +536,10 @@ app.post("/api/recipe", auth, async (req, res) => {
     const { name, items, kcal, protein, fat, carb } = req.body;
     if (!name || !Array.isArray(items) || items.length === 0)
       return res.status(400).json({ error: "需要食譜名稱與內容" });
+    const servings = Math.max(1, Math.min(50, Math.round(+req.body.servings || 1)));   // 這份食譜總共幾人份
     await pool.query(
-      "INSERT INTO recipes(user_id,name,items,kcal,protein,fat,carb) VALUES($1,$2,$3,$4,$5,$6,$7)",
-      [req.user.id, name, JSON.stringify(items), kcal ?? null, protein ?? null, fat ?? null, carb ?? null]
+      "INSERT INTO recipes(user_id,name,items,kcal,protein,fat,carb,servings) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [req.user.id, name, JSON.stringify(items), kcal ?? null, protein ?? null, fat ?? null, carb ?? null, servings]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -750,8 +752,10 @@ app.post("/api/analyze", auth, aiLimit, async (req, res) => {
 
     const hint = String(req.body.hint || "").trim().slice(0, 200);
     const prompt =
-      "你是營養師。看這張食物照片，把畫面中的每一道菜／品項分別列出（例如烤雞腿、炒冬粉各算一筆，不要全部加總成一筆）。" +
-      "每筆估計其重量與營養。並從菜色內容判斷這比較像哪一餐 meal（只能是『早餐/午餐/晚餐/點心』其一；判斷不出填空字串）。" +
+      "你是營養師。看這張食物照片，請盡量拆到『主要食材／組成』的層級分別列出，不要用一道菜的總熱量帶過。" +
+      "例如『滷肉飯』拆成 白飯、滷肉、滷蛋、青菜 各一筆；『便當』把白飯與每樣配菜分開；火鍋把肉、菜、丸餃、主食分開。" +
+      "看不出細項的單一品項（如一杯飲料）才整筆估。每筆估計其重量與營養。" +
+      "並從菜色內容判斷這比較像哪一餐 meal（只能是『早餐/午餐/晚餐/點心』其一；判斷不出填空字串）。" +
       "只回傳 JSON 物件，不要任何說明文字、不要 markdown 圍欄。格式：" +
       '{"meal":"早餐/午餐/晚餐/點心或空字串","items":[{"name":"中文品名","grams":該品項重量克數,"kcal":熱量,"protein":蛋白質克,"fat":脂肪克,"carb":碳水克}, ...]}。' +
       "name 可帶簡短說明（如「烤雞腿(醬燒)」）。若只有單一品項 items 就只含一筆。" +

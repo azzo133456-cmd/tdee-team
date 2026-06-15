@@ -1715,20 +1715,24 @@ async function saveRecipe(){
   if(!foodCart.length){ alert("清單是空的"); return; }
   const name=prompt("食譜名稱（例如：我的早餐）");
   if(!name||!name.trim()) return;
+  const servText=prompt("這份食譜（這鍋／整份）總共是幾人份？\n之後套用時可選「1份」或「整鍋」。\n吃 1 份就直接按確定。","1");
+  if(servText===null) return;
+  const servings=Math.max(1,Math.min(50,parseInt(servText)||1));
   const t=cartTotal();
   const nm=name.trim();
   try{
     await api("/api/recipe",{method:"POST",body:JSON.stringify({
-      name:nm, items:foodCart,
+      name:nm, items:foodCart, servings,
       kcal:Math.round(t.k), protein:+t.p.toFixed(1), fat:+t.f.toFixed(1), carb:+t.c.toFixed(1)
     })});
-    // 整份食譜也上架共享食物庫（以整份總重為一份）
+    // 整份食譜也上架共享食物庫，預設一份＝整份÷人份（搜尋帶入時就是 1 人份）
     const totalG=foodCart.reduce((a,it)=>a+(+it.g||0),0)||100;
     const per100=[t.k*100/totalG, t.p*100/totalG, t.f*100/totalG, t.c*100/totalG];
-    shareFood("🍱 "+nm, per100, Math.round(totalG), "recipe");
-    FOODS_DYN["🍱 "+nm]=per100; SERVINGS["🍱 "+nm]=Math.round(totalG);
+    const oneServG=Math.round(totalG/servings);
+    shareFood("🍱 "+nm, per100, oneServG, "recipe");
+    FOODS_DYN["🍱 "+nm]=per100; SERVINGS["🍱 "+nm]=oneServG;
     await reload();
-    alert("已存成食譜「"+nm+"」，並上架共享食物庫（可直接搜尋「🍱 "+nm+"」）");
+    alert("已存成食譜「"+nm+"」"+(servings>1?`（${servings} 人份，搜尋／套用預設為 1 份）`:"")+"，並上架共享食物庫（可搜尋「🍱 "+nm+"」）");
   }catch(e){ alert(e.message); }
 }
 function renderRecipes(){
@@ -1738,18 +1742,23 @@ function renderRecipes(){
   if(!list.length){ box.innerHTML='<div class="empty">還沒有食譜。在上方食物計算機組好餐點後按「存成食譜」。</div>'; return; }
   box.innerHTML=list.map(r=>{
     const items=(r.items||[]).map(it=>it.n+(it.g?` ${it.g}g`:"")).join("、");
+    const sv=r.servings||1, perK=Math.round((r.kcal||0)/sv);
+    const kc=sv>1?`每份 ${perK}<br><span style="font-size:10px;color:var(--sub)">全 ${r.kcal||0} · ${sv}人份</span>`:`${r.kcal||0} kcal`;
+    const applyBtns=sv>1
+      ? `<span class="x" style="color:var(--accent)" onclick="applyRecipe(${r.id})">套用1份</span><span class="x" style="color:var(--sub)" onclick="applyRecipe(${r.id},true)">整鍋</span>`
+      : `<span class="x" style="color:var(--accent)" onclick="applyRecipe(${r.id})">套用</span>`;
     return `<div class="foodrow"><span class="nm"><b>${r.name}</b><br><span style="color:var(--sub);font-size:12px">${items}</span></span>`+
-      `<span class="kc">${r.kcal||0} kcal</span>`+
-      `<span class="x" style="color:var(--accent)" onclick="applyRecipe(${r.id})">套用</span>`+
+      `<span class="kc" style="text-align:right">${kc}</span>`+applyBtns+
       `<span class="x" onclick="delRecipe(${r.id})">✕</span></div>`;
   }).join("");
 }
-function applyRecipe(id){
+function applyRecipe(id, whole){
   const r=(store.recipes||[]).find(x=>x.id===id); if(!r) return;
+  const sv=whole?1:(r.servings||1);   // 預設套用 1 份(整份÷人份)；whole=true 載入整鍋
   foodCart=(r.items||[]).map(it=>{
-    const g=it.g||100;
+    const fullG=it.g||100, g=Math.round(fullG/sv*10)/10;
     let base=it.base;
-    if(!base) base=(it.k!=null)?[it.k/g*100,(it.p||0)/g*100,(it.f||0)/g*100,(it.c||0)/g*100]:(foodData(it.n)||[0,0,0,0]);
+    if(!base) base=(it.k!=null)?[it.k/fullG*100,(it.p||0)/fullG*100,(it.f||0)/fullG*100,(it.c||0)/fullG*100]:(foodData(it.n)||[0,0,0,0]);
     return {n:it.n, g, base:base.map(Number)};
   });
   renderFood();
