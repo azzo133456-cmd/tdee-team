@@ -2145,12 +2145,18 @@ async function delRecord(rid){
 
 /* ---------- 真實 TDEE ---------- */
 // tdee = 含運動的總 TDEE；tdeeBase = 不含運動的基礎 TDEE；avgBurn = 期間平均每日運動消耗
+// 視窗取近 28 天（蓋滿一個生理週期，抹平女性週期性水分滯留）；體重先做 EMA 平滑再算趨勢，
+// 削掉單日鈉/碳水造成的暴衝暴跌，讓斜率（每週體重變化）更貼近真實脂肪變化。
 function calcReal(records, exercises){
-  const recs=(records||[]).filter(r=>r.weight!=null).slice(-14);
+  const recs=(records||[]).filter(r=>r.weight!=null).slice(-28);
   const out={tdee:null,tdeeBase:null,avgK:null,avgBurn:0,slopeWk:null,deficit:null,days:recs.length};
   if(recs.length<7) return out;
   const t0=new Date(recs[0].date).getTime();
-  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000), ys=recs.map(r=>+r.weight);
+  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
+  // 體重 EMA 平滑（α=0.3）：先把每日水分雜訊壓掉，再對平滑後的曲線做線性回歸取斜率
+  const raw=recs.map(r=>+r.weight);
+  const ALPHA=0.3; const ys=[]; let e=raw[0];
+  for(let i=0;i<raw.length;i++){ e = i===0 ? raw[0] : ALPHA*raw[i]+(1-ALPHA)*e; ys.push(e); }
   const n=xs.length,mx=avg(xs),my=avg(ys);
   let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
   const slope=den?num/den:0;
