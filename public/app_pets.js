@@ -152,9 +152,14 @@ function renderDailyTasks(){
       `<span class="hint" style="flex:1;">漏記一天簽到自動接住連續</span>`+
       `<button class="ghost sm" ${petData.coins>=sCost?'':'disabled'} style="${petData.coins>=sCost?'':'opacity:.45;'}" onclick="buyShield()">買 🦴${sCost}</button></div>`
     : "";
+  // 簽到門檻：今天要「有喝水」(任意量)
+  const td2=(typeof todayStr==="function")?todayStr():new Date().toISOString().slice(0,10);
+  const drankWater=((typeof waterFor==="function")?waterFor(td2):0)>0;
   const checkin=hasPet
     ? (petData.canCheckin
-        ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`+shieldRow
+        ? (drankWater
+            ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`+shieldRow
+            : `<button class="sm" disabled style="width:100%;margin-top:10px;opacity:.5;cursor:not-allowed;">🎁 每日簽到（今天先喝點水 💧）</button>`+shieldRow)
         : `<div class="hint" style="margin-top:10px;text-align:center;">✅ 今天已簽到 · 連續 ${petData.checkinStreak} 天</div>`+shieldRow)
     : `<div class="hint" style="margin-top:10px;">到「紀錄 → 🐣 我的寵物」領養一隻，完成任務就能賺 🦴 骨頭幣＋每日簽到拿獎勵。</div>`;
   box.innerHTML=

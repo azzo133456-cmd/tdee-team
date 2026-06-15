@@ -1204,6 +1204,9 @@ app.post("/api/pet/checkin", auth, async (req, res) => {
     const today = twToday();
     const last = r.rows[0].last_checkin ? (r.rows[0].last_checkin instanceof Date ? isoD(r.rows[0].last_checkin) : String(r.rows[0].last_checkin).slice(0, 10)) : null;
     if (last === today) return res.status(400).json({ error: "今天已經簽到過囉，明天再來～" });
+    // 門檻：今天要「有喝水」(任意量)才能簽到
+    const wq = await pool.query("SELECT water_ml FROM records WHERE user_id=$1 AND date=$2", [req.user.id, today]);
+    if (!(wq.rows[0] && +wq.rows[0].water_ml > 0)) return res.status(400).json({ error: "今天先喝點水再來簽到吧 💧" });
     const yesterday = addDays(today, -1);
     let shields = r.rows[0].streak_shields || 0, usedShield = false;
     let streak;
