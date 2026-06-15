@@ -717,7 +717,8 @@ function onPhotoPick(ev){
       `<div style="flex:1 1 auto;min-width:0;">`+
       `<button class="sm" style="width:auto;padding:7px 14px;margin:0;" onclick="analyzePhoto()">✨ AI 辨識熱量</button> `+
       `<span class="x" style="color:#b5564e;cursor:pointer;font-size:13px;margin-left:6px;" onclick="clearMealPhoto()">移除</span>`+
-      `<div id="aiHint" class="hint" style="margin-top:6px;">要熱量數字 → 按「✨ AI 辨識」；<b>只想留照片當日記</b> → 直接到下方選餐別「＋加入」即可。</div></div></div>`;
+      `<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--sub);margin-top:6px;cursor:pointer;"><input type="checkbox" id="aiWhole" style="margin:0;">整道菜一筆（不拆食材）</label>`+
+      `<div id="aiHint" class="hint" style="margin-top:4px;">要熱量數字 → 按「✨ AI 辨識」；<b>只想留照片當日記</b> → 直接到下方選餐別「＋加入」即可。</div></div></div>`;
     URL.revokeObjectURL(img.src);
   };
   img.src=URL.createObjectURL(file);
@@ -788,7 +789,8 @@ async function analyzePhoto(){
   foodCart=foodCart.filter(it=>!String(it.n).startsWith("✨ ")); renderFood();
   if(h){ h.textContent="🔎 辨識中…約 3–8 秒"; }
   try{
-    const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto,hint})});
+    const whole=!!(document.getElementById("aiWhole")&&document.getElementById("aiWhole").checked);
+    const r=await api("/api/analyze",{method:"POST",body:JSON.stringify({image:mealPhoto,hint,whole})});
     const items=r.items||[]; let tot=0;
     aiBaseG={};   // 記下 AI 原始克數，供「整體份數」縮放用
     items.forEach(it=>{
