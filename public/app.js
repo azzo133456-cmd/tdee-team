@@ -216,9 +216,25 @@ function calcMifflin(){
 function baseTDEE(){
   const R=calcReal(store.records, store.exercises);
   const mode=val("tdeeBasis")||"gross";
+  const formula=calcMifflin();   // 公式估算（含活動係數）的 gross TDEE，用來當夾限基準
+  // 有實測且有公式可比 → 安全校正：避免「減重初期掉水分」被當成超大赤字而灌水 TDEE
+  if(R.tdee && formula){
+    const days=R.days||0;
+    // 資料越少越信任公式：7 天→全用公式，14 天→全用實測，中間線性過渡
+    const wReal=Math.min(1, Math.max(0, (days-7)/7));
+    const blend=R.tdee*wReal + formula*(1-wReal);
+    // 硬上下限：實測不得偏離公式 ±30%（防止初期暴衝）
+    const hi=formula*1.3, lo=formula*0.7;
+    const grossClamped=Math.round(Math.min(hi, Math.max(lo, blend)));
+    const corrected = grossClamped!==Math.round(R.tdee);   // 是否被校正過
+    const tag=corrected?"·已校正":"";
+    if(mode==="base") return {tdee:grossClamped-(R.avgBurn||0), src:"基礎 TDEE(不含運動)"+tag, mode:"base", corrected};
+    return {tdee:grossClamped, src:"真實 TDEE(含運動)"+tag, mode:"gross", corrected};
+  }
+  // 沒有公式可比（基本資料沒填全）才退回未校正的實測
   if(mode==="base" && R.tdeeBase) return {tdee:R.tdeeBase, src:"基礎 TDEE(不含運動)", mode:"base"};
   if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE(含運動)", mode:"gross"};
-  return {tdee:calcMifflin(), src:"公式估算", mode:"gross"};
+  return {tdee:formula, src:"公式估算", mode:"gross"};
 }
 function applyGoal(tdee){
   const goal=val("goal"), rate=+val("goalRate");
@@ -391,6 +407,7 @@ function calcGoal(){
   if(base.mode==="base") basis+="　→ 這是「沒運動」的量，有運動的當天請把消耗加回去再吃。";
   const styleName={low:"低碳",balanced:"均衡",high:"高碳"}[t.macroStyle]||"均衡";
   basis+=`　·　蛋白 ${t.proteinBasis}　·　${styleName}（脂肪${Math.round(t.fatPct*100)}%）`;
+  if(base.corrected) basis+="　⚠️ 初期掉的多為水分，實測 TDEE 已向公式校正，避免高估；記滿約 2 週會更準。";
   set("goalBasis", basis);
   drawMacroBar("goalBar","goalLeg",protein,fat,carb);
 }
