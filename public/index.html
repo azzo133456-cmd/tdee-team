@@ -69,6 +69,24 @@
       <h2 class="ch" data-ck="dailytask" onclick="toggleCard(this)">📅 今日任務 <span class="pill" id="taskPill"></span><span class="caret">▾</span></h2>
       <div class="cardbody"><div id="taskBox"></div></div>
     </div>
+
+    <!-- 我的減重計畫（自動判斷階段） -->
+    <div class="card">
+      <h2 class="ch" data-ck="plan" onclick="toggleCard(this)">📋 我的減重計畫 <span class="pill" id="planPhasePill"></span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="planBox"></div></div>
+    </div>
+
+    <!-- 每週覆盤（每週一自動產生上週點評） -->
+    <div class="card collapsed">
+      <h2 class="ch" data-ck="reviews" onclick="toggleCard(this)">📝 每週覆盤 <span class="pill" id="reviewCount"></span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="chipbar">
+          <button class="ghost sm" onclick="genWeeklyReview(prevWeekStart(),true)">產生上週覆盤</button>
+        </div>
+        <div id="reviewList"></div>
+      </div>
+    </div>
+
     <!-- 基礎估算（可折疊） -->
     <div class="card collapsed">
       <h2 class="ch" data-ck="basic" onclick="toggleCard(this)">① 基礎估算 <span class="pill">Mifflin</span><span class="caret">▾</span></h2>
@@ -415,23 +433,6 @@
         <button class="ghost" onclick="togglePeriod()" id="periodBtn">🩸 記錄「經期開始」（依上方日期）</button>
         <div class="hint tip">點一下把上方日期記為「經期開始」，再點一下取消。只記「開始日」即可，系統會自動算週期天數並提醒水分浮動期，讓你不會被體重起伏嚇到。</div>
         <div id="periodList" style="margin-top:8px;"></div>
-      </div>
-    </div>
-
-    <!-- 我的減重計畫（自動判斷階段） -->
-    <div class="card">
-      <h2 class="ch" data-ck="plan" onclick="toggleCard(this)">📋 我的減重計畫 <span class="pill" id="planPhasePill"></span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="planBox"></div></div>
-    </div>
-
-    <!-- 每週覆盤（每週一自動產生上週點評） -->
-    <div class="card collapsed">
-      <h2 class="ch" data-ck="reviews" onclick="toggleCard(this)">📝 每週覆盤 <span class="pill" id="reviewCount"></span><span class="caret">▾</span></h2>
-      <div class="cardbody">
-        <div class="chipbar">
-          <button class="ghost sm" onclick="genWeeklyReview(prevWeekStart(),true)">產生上週覆盤</button>
-        </div>
-        <div id="reviewList"></div>
       </div>
     </div>
 
