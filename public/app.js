@@ -191,7 +191,7 @@ async function changeName(){
 }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight"];
+const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","macroStyle"];
 function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); }
 function readProfile(){ const o={}; pIds.forEach(id=> o[id]=val(id)); return o; }
 let saveTimer=null;
@@ -226,13 +226,36 @@ function applyGoal(tdee){
   if(goal==="bulk") return Math.round(tdee*(1+rate*0.5));
   return tdee;
 }
+// 取最近一筆體脂（優先用紀錄，其次用基本資料欄位），用來算瘦體重
+function latestBodyFat(){
+  const bf=(store.records||[]).filter(r=>r.body_fat!=null);
+  if(bf.length) return +bf[bf.length-1].body_fat;
+  return null;
+}
 function goalTargets(){
   const base=baseTDEE(); if(!base.tdee) return null;
   const target=applyGoal(base.tdee);
   const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||60 : 60);
-  const protein=Math.round(w*2.0), fatKcal=target*0.25, fat=Math.round(fatKcal/9);
+  // 蛋白質依「目標 × 體脂」分級（實證：減脂赤字保肌肉需求最高，增肌夠用即可）
+  //   有填體脂→用瘦體重(LBM)更準；否則退回體重。
+  //   LBM 係數 減脂2.4/維持2.0/增肌2.2；體重 係數 減脂2.0/維持1.6/增肌1.8
+  const goalNow=val("goal");
+  const bf=latestBodyFat();
+  let protein, proteinBasis;
+  if(bf!=null && bf>0 && bf<60){
+    const lbm=w*(1-bf/100);
+    const k={cut:2.4,maintain:2.0,bulk:2.2}[goalNow]||2.0;
+    protein=Math.round(lbm*k); proteinBasis="瘦體重"+lbm.toFixed(1)+"kg×"+k;
+  }else{
+    const k={cut:2.0,maintain:1.6,bulk:1.8}[goalNow]||1.6;
+    protein=Math.round(w*k); proteinBasis="體重×"+k;
+  }
+  // 脂肪佔比依碳水風格：低碳40% / 均衡25% / 高碳18%
+  const style=val("macroStyle")||"balanced";
+  const fatPct=style==="low"?0.40:style==="high"?0.18:0.25;
+  const fatKcal=target*fatPct, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
-  return {kcal:target, protein, fat, carb, base};
+  return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style};
 }
 // 減重計畫脈絡：把「目標TDEE是否實測、目標體重、目標vs實際每週速度、預計達成日、赤字」整合一包
 // 給 AI 教練與報表共用，讓建議都對準『減重進度』而非泛泛營養
@@ -366,6 +389,8 @@ function calcGoal(){
   set("goalKcal", target.toLocaleString()+" kcal");
   let basis=`基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${({cut:"減脂",maintain:"維持",bulk:"增肌"})[goal]}`;
   if(base.mode==="base") basis+="　→ 這是「沒運動」的量，有運動的當天請把消耗加回去再吃。";
+  const styleName={low:"低碳",balanced:"均衡",high:"高碳"}[t.macroStyle]||"均衡";
+  basis+=`　·　蛋白 ${t.proteinBasis}　·　${styleName}（脂肪${Math.round(t.fatPct*100)}%）`;
   set("goalBasis", basis);
   drawMacroBar("goalBar","goalLeg",protein,fat,carb);
 }

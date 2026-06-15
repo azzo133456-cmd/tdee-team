@@ -113,6 +113,12 @@
           <option value="gross" selected>含運動（維持目前運動量）</option>
           <option value="base">不含運動（運動另外加回）</option>
         </select>
+        <label>碳水風格</label>
+        <select id="macroStyle">
+          <option value="low">低碳（脂肪40%・易餓穩血糖）</option>
+          <option value="balanced" selected>均衡（脂肪25%）</option>
+          <option value="high">高碳（脂肪18%・運動量大）</option>
+        </select>
         <div class="result">
           <div class="lbl">建議每日攝取</div>
           <div class="big" id="goalKcal">—</div>
@@ -120,7 +126,7 @@
         </div>
         <div class="macro-bar" id="goalBar"></div>
         <div class="macro-leg" id="goalLeg"></div>
-        <div class="hint tip">蛋白＝體重×2g、脂肪25%、其餘碳水。基準優先用真實TDEE。</div>
+        <div class="hint tip">蛋白依目標分級（減脂保肌肉吃最多）：有填體脂用瘦體重×2.4/2.0/2.2（減脂/維持/增肌），否則體重×2.0/1.6/1.8；脂肪依碳水風格、其餘碳水。基準優先用真實TDEE。</div>
       </div>
     </div>
 
