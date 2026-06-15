@@ -123,7 +123,7 @@ function petDailyTasks(){
   const water=(typeof waterFor==="function")?waterFor(td):(+recT.water_ml||0);
   return [
     {ok:nutK>0, name:"記錄飲食", coin:5},
-    {ok:water>=goal, name:"喝滿水", coin:2},
+    {ok:water>0, name:"有喝水", coin:2},
     {ok:exT, name:"運動", coin:3},
     {ok:(+recT.poop||0)>0, name:"嗯嗯", coin:1},
     {ok:recT.weight!=null, name:"量體重", coin:2},
@@ -152,14 +152,9 @@ function renderDailyTasks(){
       `<span class="hint" style="flex:1;">漏記一天簽到自動接住連續</span>`+
       `<button class="ghost sm" ${petData.coins>=sCost?'':'disabled'} style="${petData.coins>=sCost?'':'opacity:.45;'}" onclick="buyShield()">買 🦴${sCost}</button></div>`
     : "";
-  // 簽到門檻：今天要「有喝水」(任意量)
-  const td2=(typeof todayStr==="function")?todayStr():new Date().toISOString().slice(0,10);
-  const drankWater=((typeof waterFor==="function")?waterFor(td2):0)>0;
   const checkin=hasPet
     ? (petData.canCheckin
-        ? (drankWater
-            ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`+shieldRow
-            : `<button class="sm" disabled style="width:100%;margin-top:10px;opacity:.5;cursor:not-allowed;">🎁 每日簽到（今天先喝點水 💧）</button>`+shieldRow)
+        ? `<button class="sm" style="width:100%;margin-top:10px;" onclick="petCheckin()">🎁 每日簽到（已連 ${petData.checkinStreak} 天）</button>`+shieldRow
         : `<div class="hint" style="margin-top:10px;text-align:center;">✅ 今天已簽到 · 連續 ${petData.checkinStreak} 天</div>`+shieldRow)
     : `<div class="hint" style="margin-top:10px;">到「紀錄 → 🐣 我的寵物」領養一隻，完成任務就能賺 🦴 骨頭幣＋每日簽到拿獎勵。</div>`;
   box.innerHTML=

@@ -1164,7 +1164,7 @@ async function creditActivePet(userId, petRow, rows) {
 async function computePet(userId) {
   const [petR, statR, uR] = await Promise.all([
     pool.query("SELECT * FROM pets WHERE user_id=$1", [userId]),
-    pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop,weight FROM daily_stats WHERE user_id=$1", [userId]),
+    pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,water_pct,poop,weight FROM daily_stats WHERE user_id=$1", [userId]),
     pool.query("SELECT username FROM users WHERE id=$1", [userId]),
   ]);
   const trophies = uR.rows.length ? await trophyCount(uR.rows[0].username) : 0;
@@ -1174,7 +1174,8 @@ async function computePet(userId) {
     // 今日任務全清獎勵：當天 5 項都完成且尚未領過 → 自動 +15🦴（一天一次）
     const today = twToday();
     const tr = statR.rows.find((r) => r.date === today);
-    const allClear = !!(tr && tr.logged && tr.water_hit && tr.exercised && (tr.poop || 0) > 0 && tr.weight != null);
+    const drankWater = tr && (tr.water_pct != null ? +tr.water_pct > 0 : tr.water_hit);
+    const allClear = !!(tr && tr.logged && drankWater && tr.exercised && (tr.poop || 0) > 0 && tr.weight != null);   // 水改為「有喝水」即可
     const lastAC = row.last_allclear ? (row.last_allclear instanceof Date ? isoD(row.last_allclear) : String(row.last_allclear).slice(0, 10)) : null;
     if (allClear && lastAC !== today) {
       await pool.query("UPDATE pets SET coins_bonus=COALESCE(coins_bonus,0)+15, last_allclear=$1 WHERE user_id=$2", [today, userId]);
@@ -1204,9 +1205,6 @@ app.post("/api/pet/checkin", auth, async (req, res) => {
     const today = twToday();
     const last = r.rows[0].last_checkin ? (r.rows[0].last_checkin instanceof Date ? isoD(r.rows[0].last_checkin) : String(r.rows[0].last_checkin).slice(0, 10)) : null;
     if (last === today) return res.status(400).json({ error: "今天已經簽到過囉，明天再來～" });
-    // 門檻：今天要「有喝水」(任意量)才能簽到
-    const wq = await pool.query("SELECT water_ml FROM records WHERE user_id=$1 AND date=$2", [req.user.id, today]);
-    if (!(wq.rows[0] && +wq.rows[0].water_ml > 0)) return res.status(400).json({ error: "今天先喝點水再來簽到吧 💧" });
     const yesterday = addDays(today, -1);
     let shields = r.rows[0].streak_shields || 0, usedShield = false;
     let streak;
@@ -1319,7 +1317,7 @@ app.post("/api/pet/choose", auth, async (req, res) => {
     const name = req.body.name === undefined ? null : String(req.body.name || "").trim().slice(0, 16) || null;
     const [petR, statR] = await Promise.all([
       pool.query("SELECT * FROM pets WHERE user_id=$1", [req.user.id]),
-      pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,poop,weight FROM daily_stats WHERE user_id=$1", [req.user.id]),
+      pool.query("SELECT date::text,logged,kcal_hit,protein_hit,exercised,water_hit,water_pct,poop,weight FROM daily_stats WHERE user_id=$1", [req.user.id]),
     ]);
     const key = petUnlockKey(species, breed);
     const firstAdopt = !petR.rows[0];
@@ -1500,7 +1498,7 @@ function petExpFromRows(rows) {
     if (r.kcal_hit) exp += 8;
     if (r.protein_hit) exp += 5;
     if (r.exercised) exp += 5;
-    if (r.water_hit) exp += 4;
+    if (r.water_pct != null ? +r.water_pct > 0 : r.water_hit) exp += 4;   // 有喝水(任意量)即可
     if (r.weight != null) exp += 6;       // 記錄體重也餵養（TDEE 追蹤的核心好習慣）
     if ((r.poop || 0) > 0) exp += 3;
   });
@@ -1519,7 +1517,7 @@ function petCoinsFromRows(rows, trophies) {
     if (r.logged) c += 5;
     if (r.kcal_hit) c += 3;
     if (r.exercised) c += 3;
-    if (r.water_hit) c += 2;
+    if (r.water_pct != null ? +r.water_pct > 0 : r.water_hit) c += 2;   // 有喝水(任意量)即可
     if (r.protein_hit) c += 2;
     if (r.weight != null) c += 2;       // 記錄體重也給幣
     if ((r.poop || 0) > 0) c += 1;
