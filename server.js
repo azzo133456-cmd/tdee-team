@@ -1216,7 +1216,7 @@ app.get("/api/pet", auth, async (req, res) => {
     if (row && JSON.stringify(row.dex || []) !== JSON.stringify(state.dex)) {
       await pool.query("UPDATE pets SET dex=$1 WHERE user_id=$2", [JSON.stringify(state.dex), req.user.id]);
     }
-    const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND, odds: gachaOdds(),
+    const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND, petDupRefund: GACHA_PET_DUP_REFUND, odds: gachaOdds(),
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
     res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
@@ -1261,16 +1261,18 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
       else if (g.type === "acc") {
         if (haveAcc.has(g.it)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: g.it, amount: GACHA_DUP_REFUND, rare: !!g.rare }); }
         else { owned.push(g.it); haveAcc.add(g.it); results.push({ type: "acc", label: g.it, rare: !!g.rare }); }
-      } else { // pet：從「全部寵物」依稀有度權重抽（已擁有的也照抽，不排除）
-        const tot = PET_ROSTER.reduce((a, c) => a + petPullWeight(c), 0);
+      } else { // pet：依稀有度權重抽；已擁有的「稍微降權」（B）但仍抽得到，不排除
+        const pw = (c) => petPullWeight(c) * (unlocked.has(c) ? PET_OWNED_MULT : 1);
+        const tot = PET_ROSTER.reduce((a, c) => a + pw(c), 0);
         let rr = Math.random() * tot, k = PET_ROSTER[0];
-        for (const cand of PET_ROSTER) { rr -= petPullWeight(cand); if (rr <= 0) { k = cand; break; } }
+        for (const cand of PET_ROSTER) { rr -= pw(cand); if (rr <= 0) { k = cand; break; } }
         const illus = (PET_RARITY[k] || 12) <= 1;
         const pf = petFromKey(k);
         const label = (PET_SPECIES[pf.species] || {}).label || k;
         if (unlocked.has(k)) {
-          // 已擁有：重複，不退幣（純展示）
-          results.push({ type: "petdup", key: k, species: pf.species, breed: pf.breed, label, rare: true, illus });
+          // 已擁有：重複，退一點幣（A），不再白抽
+          bonus += GACHA_PET_DUP_REFUND;
+          results.push({ type: "petdup", key: k, species: pf.species, breed: pf.breed, label, amount: GACHA_PET_DUP_REFUND, rare: true, illus });
         } else {
           unlocked.add(k); if (!gachaPets.includes(k)) gachaPets.push(k);
           results.push({ type: "pet", key: k, species: pf.species, breed: pf.breed, label, rare: true, illus });
@@ -1463,7 +1465,9 @@ const GACHA_POOL = [
   { type: "acc", it: "⚡", w: 4 }, { type: "acc", it: "🌈", w: 3, rare: true },
   { type: "pet", w: 60 },   // 抽寵物（依稀有度權重再抽一隻；已擁有的也會抽到→顯示已擁有不退幣）
 ];
-const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品退幣（寵物重複不退、僅顯示已擁有）
+const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品退幣
+const GACHA_PET_DUP_REFUND = 20;   // 重複寵物退幣（A：抽到已擁有的寵物退一點幣，不再白抽）
+const PET_OWNED_MULT = 0.4;        // 已擁有寵物的抽取權重倍率（B：稍微降低、但不排除，仍抽得到）
 function gachaRoll() {
   const tot = GACHA_POOL.reduce((a, g) => a + g.w, 0);
   let r = Math.random() * tot;

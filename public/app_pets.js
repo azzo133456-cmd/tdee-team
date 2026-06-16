@@ -190,7 +190,7 @@ function showGachaResults(results){
     if(x.type==="coin"){ glyph=`<span style="font-size:24px;">🦴</span>`; sub="+"+x.amount; }
     else if(x.type==="dup"){ sub="重複 +🦴"+x.amount; }
     else if(x.type==="pet"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub=(x.illus?"✨稀有！":"新寵物🎉 ")+x.label; }
-    else if(x.type==="petdup"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub="已擁有 "+x.label; }
+    else if(x.type==="petdup"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub="已擁有 "+x.label+(x.amount?" +🦴"+x.amount:""); }
     else sub="飾品";
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;flex:0 0 auto;width:62px;${big}">`+
       `<div style="height:30px;display:flex;align-items:center;justify-content:center;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;
@@ -271,7 +271,8 @@ function renderPet(){
     `<div>・一般（${od.basicCount} 隻）：總機率 <b>${od.petBasic}%</b></div>`+
     `<div>・特殊 emoji（${od.specialCount} 隻）：總機率 <b>${od.petSpecial}%</b></div>`+
     `<div>・✨ 專屬插圖（${od.illusCount} 隻，最稀有）：總機率 <b>${od.petIllus}%</b>，每隻約 ${od.illusEach}%</div>`+
-    `<div style="margin-top:4px;">重複寵物只顯示「已擁有」不退幣；重複飾品退 🦴${gc.dupRefund||20}。</div>`+
+    `<div style="margin-top:4px;">已擁有的寵物會「稍微降低」抽中機率（仍抽得到）；抽到重複寵物退 🦴${gc.petDupRefund||20}，重複飾品退 🦴${gc.dupRefund||20}。</div>`+
+    `<div style="color:var(--sub);">※上表為「未擁有」時的基準機率，實際會因你已擁有的而略有調整。</div>`+
     `</div></details>`:"";
   const gachaBlock=`<div style="margin-top:10px;font-size:13px;font-weight:600;">🥚 扭蛋 <span class="hint" style="font-weight:400;">（飾品／寵物）</span></div>`+
     `<div class="chipbar" style="margin-top:4px;">`+
