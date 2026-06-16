@@ -212,29 +212,37 @@ function calcMifflin(){
 }
 
 /* ---------- 目標建議 ---------- */
-// 依使用者選的基準回傳要用的 TDEE
-function baseTDEE(){
+// 單一真相來源：把「原始反推 / 公式 / 夾限校正後」全算好，全 App（真實TDEE卡、目標建議、
+// 減重計畫）都用這個，避免各處算法不一致而顯示出不同的 TDEE。
+//   gross = 校正後採用的含運動 TDEE；rawGross = 未校正的原始反推；formula = 公式估算。
+function tdeeModel(){
   const R=calcReal(store.records, store.exercises);
-  const mode=val("tdeeBasis")||"gross";
   const formula=calcMifflin();   // 公式估算（含活動係數）的 gross TDEE，用來當夾限基準
-  // 有實測且有公式可比 → 安全校正：避免「減重初期掉水分」被當成超大赤字而灌水 TDEE
   if(R.tdee && formula){
     const days=R.days||0;
     // 資料越少越信任公式：7 天→全用公式，14 天→全用實測，中間線性過渡
     const wReal=Math.min(1, Math.max(0, (days-7)/7));
     const blend=R.tdee*wReal + formula*(1-wReal);
-    // 硬上下限：實測不得偏離公式 ±30%（防止初期暴衝）
-    const hi=formula*1.3, lo=formula*0.7;
-    const grossClamped=Math.round(Math.min(hi, Math.max(lo, blend)));
-    const corrected = grossClamped!==Math.round(R.tdee);   // 是否被校正過
-    const tag=corrected?"·已校正":"";
-    if(mode==="base") return {tdee:grossClamped-(R.avgBurn||0), src:"基礎 TDEE(不含運動)"+tag, mode:"base", corrected};
-    return {tdee:grossClamped, src:"真實 TDEE(含運動)"+tag, mode:"gross", corrected};
+    // 硬上下限：實測不得偏離公式 ±30%（防止初期掉水分被當成超大赤字而灌水）
+    const grossClamped=Math.round(Math.min(formula*1.3, Math.max(formula*0.7, blend)));
+    return {hasReal:true, formula, rawGross:R.tdee, gross:grossClamped, base:grossClamped-(R.avgBurn||0),
+            avgBurn:R.avgBurn||0, corrected:grossClamped!==Math.round(R.tdee), days, R};
   }
-  // 沒有公式可比（基本資料沒填全）才退回未校正的實測
-  if(mode==="base" && R.tdeeBase) return {tdee:R.tdeeBase, src:"基礎 TDEE(不含運動)", mode:"base"};
-  if(R.tdee) return {tdee:R.tdee, src:"真實 TDEE(含運動)", mode:"gross"};
-  return {tdee:formula, src:"公式估算", mode:"gross"};
+  // 沒有實測（或基本資料沒填全無法比對）：用公式
+  return {hasReal:false, formula, rawGross:R.tdee||null, gross:formula||null,
+          base:(R.tdeeBase!=null?R.tdeeBase:formula), avgBurn:R.avgBurn||0, corrected:false, days:R.days||0, R};
+}
+// 依使用者選的基準回傳要用的 TDEE
+function baseTDEE(){
+  const m=tdeeModel(), mode=val("tdeeBasis")||"gross";
+  if(!m.hasReal){
+    if(mode==="base" && m.R.tdeeBase!=null) return {tdee:m.R.tdeeBase, src:"基礎 TDEE(不含運動)", mode:"base"};
+    if(m.R.tdee) return {tdee:m.R.tdee, src:"真實 TDEE(含運動)", mode:"gross"};
+    return {tdee:m.formula, src:"公式估算", mode:"gross"};
+  }
+  const tag=m.corrected?"·已校正":"";
+  if(mode==="base") return {tdee:m.base, src:"基礎 TDEE(不含運動)"+tag, mode:"base", corrected:m.corrected};
+  return {tdee:m.gross, src:"真實 TDEE(含運動)"+tag, mode:"gross", corrected:m.corrected};
 }
 function applyGoal(tdee){
   const goal=val("goal"), rate=+val("goalRate");
@@ -2338,10 +2346,14 @@ function renderReport(){
 }
 function renderReal(){
   const R=calcReal(store.records, store.exercises);
+  const M=tdeeModel();
   const cmp=document.querySelector("#cmpTbl tbody");
   if(R.tdee){
-    set("realTdee",R.tdee.toLocaleString()); set("realTdeeBase",R.tdeeBase.toLocaleString());
-    set("realDetail",`根據最近 ${R.days} 天紀錄`);
+    // 顯示「校正後採用值」（與目標建議、減重計畫一致），不再顯示未夾限的原始反推，避免四處數字打架
+    set("realTdee",M.gross.toLocaleString()); set("realTdeeBase",M.base.toLocaleString());
+    set("realDetail", M.corrected
+      ? `根據最近 ${R.days} 天紀錄校正（原始反推 ${R.tdee.toLocaleString()}，因初期掉水分偏高，已向公式收斂）`
+      : `根據最近 ${R.days} 天紀錄`);
   }else{
     set("realTdee","—"); set("realTdeeBase","—");
     // 還差幾天能算出實測：需 ≥7 天有體重 且 其中 ≥3 天有攝取
@@ -2363,14 +2375,15 @@ function renderReal(){
   if(!R.tdee){ cmp.innerHTML=`<tr><td class="empty" colspan="3">資料足夠後會顯示比較</td></tr>`; set("cmpHint",""); return; }
   const row=(k,v,note)=>`<tr><td style="text-align:left">${k}</td><td style="font-weight:700">${v}</td><td style="text-align:left;color:var(--sub);font-size:12px">${note}</td></tr>`;
   cmp.innerHTML=
-    row("平均每日攝取", R.avgK.toLocaleString()+" kcal", "14 天吃進的平均")+
+    row("平均每日攝取", R.avgK.toLocaleString()+" kcal", "近 28 天吃進的平均")+
     row("週體重變化", (R.slopeWk>=0?"+":"")+R.slopeWk.toFixed(2)+" kg", R.slopeWk<0?"下降中":R.slopeWk>0?"上升中":"持平")+
     row("體重反推每日赤字", (R.deficit>=0?"+":"")+R.deficit.toLocaleString()+" kcal", "脂肪 1kg≈7700kcal")+
+    (M.corrected?row("原始反推 TDEE", R.tdee.toLocaleString()+" kcal", "未校正，初期掉水分易偏高"):"")+
     row("平均每日運動消耗", R.avgBurn.toLocaleString()+" kcal", "你記錄的運動")+
-    row("➊ 總 TDEE（含運動）", "<b>"+R.tdee.toLocaleString()+"</b> kcal", "攝取＋赤字")+
-    row("➋ 基礎 TDEE（不含運動）", "<b>"+R.tdeeBase.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
+    row("➊ 總 TDEE（含運動）", "<b>"+M.gross.toLocaleString()+"</b> kcal", M.corrected?"校正後採用值":"攝取＋赤字")+
+    row("➋ 基礎 TDEE（不含運動）", "<b>"+M.base.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
   const goal=val("goal"), rate=+val("goalRate");
-  let useGross=R.tdee; if(goal==="cut")useGross=Math.round(R.tdee*(1-rate)); if(goal==="bulk")useGross=Math.round(R.tdee*(1+rate*0.5));
+  let useGross=M.gross; if(goal==="cut")useGross=Math.round(M.gross*(1-rate)); if(goal==="bulk")useGross=Math.round(M.gross*(1+rate*0.5));
   set("cmpHint",
     `兩者差 ${R.avgBurn.toLocaleString()} kcal ＝ 你平均每天靠運動多燒的量。`+
     `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
