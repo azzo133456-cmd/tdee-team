@@ -2348,9 +2348,11 @@ function renderReal(){
   const R=calcReal(store.records, store.exercises);
   const M=tdeeModel();
   const cmp=document.querySelector("#cmpTbl tbody");
+  // 防呆：基本資料沒填全時 calcMifflin()=null → M.gross/base 為 null，退回原始實測，避免 toLocaleString 崩潰
+  const gross=(M.gross!=null?M.gross:R.tdee), base=(M.base!=null?M.base:R.tdeeBase);
   if(R.tdee){
     // 顯示「校正後採用值」（與目標建議、減重計畫一致），不再顯示未夾限的原始反推，避免四處數字打架
-    set("realTdee",M.gross.toLocaleString()); set("realTdeeBase",M.base.toLocaleString());
+    set("realTdee",gross!=null?gross.toLocaleString():"—"); set("realTdeeBase",base!=null?base.toLocaleString():"—");
     set("realDetail", M.corrected
       ? `根據最近 ${R.days} 天紀錄校正（原始反推 ${R.tdee.toLocaleString()}，因初期掉水分偏高，已向公式收斂）`
       : `根據最近 ${R.days} 天紀錄`);
@@ -2380,10 +2382,10 @@ function renderReal(){
     row("體重反推每日赤字", (R.deficit>=0?"+":"")+R.deficit.toLocaleString()+" kcal", "脂肪 1kg≈7700kcal")+
     (M.corrected?row("原始反推 TDEE", R.tdee.toLocaleString()+" kcal", "未校正，初期掉水分易偏高"):"")+
     row("平均每日運動消耗", R.avgBurn.toLocaleString()+" kcal", "你記錄的運動")+
-    row("➊ 總 TDEE（含運動）", "<b>"+M.gross.toLocaleString()+"</b> kcal", M.corrected?"校正後採用值":"攝取＋赤字")+
-    row("➋ 基礎 TDEE（不含運動）", "<b>"+M.base.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
+    row("➊ 總 TDEE（含運動）", "<b>"+gross.toLocaleString()+"</b> kcal", M.corrected?"校正後採用值":"攝取＋赤字")+
+    row("➋ 基礎 TDEE（不含運動）", "<b>"+base.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
   const goal=val("goal"), rate=+val("goalRate");
-  let useGross=M.gross; if(goal==="cut")useGross=Math.round(M.gross*(1-rate)); if(goal==="bulk")useGross=Math.round(M.gross*(1+rate*0.5));
+  let useGross=gross; if(goal==="cut")useGross=Math.round(gross*(1-rate)); if(goal==="bulk")useGross=Math.round(gross*(1+rate*0.5));
   set("cmpHint",
     `兩者差 ${R.avgBurn.toLocaleString()} kcal ＝ 你平均每天靠運動多燒的量。`+
     `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
@@ -2458,7 +2460,12 @@ function renderEta(){
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
 function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
-function renderAll(){ set("curName",session.username); renderDerived(); renderTable(); renderDashboard(); renderPlan(); renderReviews(); renderReport(); renderReal(); renderPoints(); drawChart(); renderExercises(); renderPR(); renderVolTrend(); renderBalance(); renderRecipes(); renderFavs(); renderShared(); renderDay(); renderPeriod(); }
+function renderAll(){
+  set("curName",session.username);
+  // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
+  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderReviews,renderReport,renderReal,renderPoints,drawChart,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
+  for(const fn of parts){ try{ fn(); }catch(e){ console.error("render 區塊出錯：",fn.name,e); } }
+}
 
 const storeCacheKey=()=>"cacheAll:"+(session&&session.userId||"");
 // 把 /api/me/all 的資料套進 store 並渲染（離線/快取與網路兩條路共用）
