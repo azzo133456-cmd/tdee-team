@@ -192,11 +192,20 @@ async function changeName(){
 
 /* ---------- profile ---------- */
 const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","macroStyle"];
-function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); }
-function readProfile(){ const o={}; pIds.forEach(id=> o[id]=val(id)); return o; }
+// 在伺服器的真實 profile 套進表單「之前」，絕不可儲存：否則會把空白/預設表單 PUT 上去，蓋掉雲端真資料。
+let profileReady=false;
+function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); profileReady=true; }
+function readProfile(){
+  const o={};
+  // 數值類欄位若為空字串就「不送」，避免空值覆蓋雲端既有資料（防止再次發生 profile 被洗白）
+  const numeric=new Set(["age","height","weight","targetWeight"]);
+  pIds.forEach(id=>{ const v=val(id); if(numeric.has(id) && (v===""||v==null)) return; o[id]=v; });
+  return o;
+}
 let saveTimer=null;
 function saveProfile(){
   renderDerived();
+  if(!profileReady) return;   // 尚未載入真實 profile，這次不存（防止覆蓋）
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=> api("/api/profile",{method:"PUT",body:JSON.stringify(readProfile())}).catch(()=>{}), 600);
 }
