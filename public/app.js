@@ -1089,11 +1089,21 @@ function renderPeriod(){
   if(st) st.innerHTML=ph?`目前<b>週期第 ${ph.day} 天</b>（${ph.phase}，起算 ${ph.last}）<br>${ph.note}`:`還沒記錄任何經期開始日。把上方日期設成經期第一天再按下方按鈕。`;
   const list=document.getElementById("periodList");
   if(list){
-    list.innerHTML = ds.length? ds.slice(-6).reverse().map(d=>`<span class="pill" style="margin:2px 4px 2px 0;cursor:pointer;" onclick="togglePeriodDate('${d}')" title="點擊移除">${d} ✕</span>`).join(""):"";
+    if(ds.length){
+      list.innerHTML = `<div class="hint" style="margin-bottom:4px;">已記錄的經期開始日（點一下把它帶入上方日期，再按按鈕即可取消）：</div>`+
+        ds.slice(-12).reverse().map(d=>`<span class="pill" style="margin:2px 4px 2px 0;cursor:pointer;${d===cur?"outline:2px solid var(--accent);":""}" onclick="pickPeriodDate('${d}')" title="點擊帶入日期">${d}</span>`).join("");
+    }else list.innerHTML="";
   }
+}
+// 點已記錄的日期：只把它帶入上方日期欄並重繪（不直接刪，避免誤刪）；要取消請再按一次按鈕
+function pickPeriodDate(d){
+  const inp=document.getElementById("rDate"); if(inp){ inp.value=d; }
+  renderPeriod();
 }
 async function togglePeriod(){ await togglePeriodDate(val("rDate")||todayStr()); }
 async function togglePeriodDate(date){
+  // 取消（刪除）既有日期時跳確認，避免誤刪
+  if(periodDates().includes(date) && !confirm(`取消「${date}」的經期開始記錄？`)) return;
   try{
     const r=await api("/api/period/toggle",{method:"POST",body:JSON.stringify({date})});
     store.profile=store.profile||{}; store.profile.periods=r.periods;
