@@ -33,7 +33,7 @@ const PET_ART_KEYS=new Set([
   "choco",             // public/pets/choco/
 ]);
 // 圖片資產版本：圖檔內容更新（如重新去背）但檔名不變時，bump 這個數字就能讓所有人強制重抓新圖（破快取）。
-const ASSETV="149";
+const ASSETV="150";
 function petArtUrl(species,breed,stage){
   if(breed && PET_ART_KEYS.has(species+":"+breed)) return "pets/"+species+"_"+breed+"/"+stage+".png?v="+ASSETV;
   if(PET_ART_KEYS.has(species)) return "pets/"+species+"/"+stage+".png?v="+ASSETV;
