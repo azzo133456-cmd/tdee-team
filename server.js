@@ -1920,9 +1920,10 @@ app.get("/api/groups", auth, async (req, res) => {
         // 名稱特效：優先用本人選的造型（解鎖門檻由前端把關），否則用自律分對應特效
         const picked = fxByName[m.name];
         m.fx = (picked && picked in FX_MIN_MAP) ? picked : clsForPoints(actPts);
-        // 賽道角色：本人選的動物 / 頭像，否則預設旗子
+        // 賽道角色：本人選的動物 emoji / 頭像 / 賽道小圖(racerart:key)，否則預設旗子
         const pr = racerByName[m.name];
-        m.racer = (pr && (pr in RACER_MINS || pr === "avatar")) ? pr : "🏁";
+        const okRacer = pr && (pr in RACER_MINS || pr === "avatar" || (pr.indexOf("racerart:") === 0 && RACER_ART_KEYS.includes(pr.slice(9))));
+        m.racer = okRacer ? pr : "🏁";
         if (skinByName[m.name]) m.skin = skinByName[m.name];   // 各自的賽道皮膚（給所有人看）
         if (avatarByName[m.name]) m.avatar = avatarByName[m.name];
         // 寵物（給所有人看）：只送顯示用的最小資訊，不洩漏體重/詳細數據
