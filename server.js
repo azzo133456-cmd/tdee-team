@@ -197,6 +197,7 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_checkin DATE;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS checkin_streak INT DEFAULT 0;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS gacha_pets JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS racers JSONB DEFAULT '[]'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_allclear DATE;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS streak_shields INT DEFAULT 0;
     -- 索引：加速常用查詢（資料變多時明顯有感）
@@ -1144,7 +1145,9 @@ app.post("/api/cosmetic", auth, async (req, res) => {
   try {
     // fx：fx0~fx15；racer：單一表情符號或空字串（空＝預設旗子）。null=不更動該欄
     const fx = req.body.fx === undefined ? undefined : (req.body.fx === null ? null : String(req.body.fx).slice(0, 8));
-    const racer = req.body.racer === undefined ? undefined : (req.body.racer === null ? null : String(req.body.racer).slice(0, 8));
+    // racer：單一表情符號、"avatar"、空字串、或 "racerart:<key>"（賽道小圖）。後者需 key 已註冊。
+    let racer = req.body.racer === undefined ? undefined : (req.body.racer === null ? null : String(req.body.racer).slice(0, 40));
+    if (typeof racer === "string" && racer.startsWith("racerart:") && !RACER_ART_KEYS.includes(racer.slice(9))) racer = "";
     const skin = req.body.skin === undefined ? undefined : (req.body.skin === null ? null : String(req.body.skin).slice(0, 12));
     if (fx !== undefined) await pool.query("UPDATE users SET fx=$1 WHERE id=$2", [fx || null, req.user.id]);
     if (racer !== undefined) await pool.query("UPDATE users SET racer=$1 WHERE id=$2", [racer || null, req.user.id]);
@@ -1218,7 +1221,7 @@ app.get("/api/pet", auth, async (req, res) => {
     }
     const gacha = { cost: GACHA_COST, tenCost: GACHA_TEN_COST, dupRefund: GACHA_DUP_REFUND, petDupRefund: GACHA_PET_DUP_REFUND, odds: gachaOdds(),
       pool: GACHA_POOL.map((g) => ({ type: g.type, label: g.label || g.it || (PET_SPECIES[g.key] && PET_SPECIES[g.key].label), rare: !!g.rare })) };
-    res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
+    res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, racerArts: CUSTOM_RACERS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
@@ -1252,6 +1255,8 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
     if (!row) return res.status(400).json({ error: "先領養一隻寵物再來抽" });
     if (state.coins < cost) return res.status(400).json({ error: `骨頭幣不夠（需要 ${cost}，你有 ${state.coins}）` });
     let owned = state.owned.slice(), gachaPets = state.gachaPets.slice(), bonus = 0;
+    let racers = Array.isArray(state.racers) ? state.racers.slice() : [];
+    const haveRacer = new Set(racers);
     const results = [];
     const haveAcc = new Set([...state.unlocked, ...owned]);
     const unlocked = petUnlockedSet(row);   // 已解鎖寵物（含養過/起手）；抽中時即時更新
@@ -1261,6 +1266,11 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
       else if (g.type === "acc") {
         if (haveAcc.has(g.it)) { bonus += GACHA_DUP_REFUND; results.push({ type: "dup", label: g.it, amount: GACHA_DUP_REFUND, rare: !!g.rare }); }
         else { owned.push(g.it); haveAcc.add(g.it); results.push({ type: "acc", label: g.it, rare: !!g.rare }); }
+      } else if (g.type === "racer") { // 賽道小圖：從已註冊的隨機一張；已擁有→退幣
+        const rk = RACER_ART_KEYS[Math.floor(Math.random() * RACER_ART_KEYS.length)];
+        const rlabel = (CUSTOM_RACERS[rk] || {}).label || rk;
+        if (haveRacer.has(rk)) { bonus += GACHA_DUP_REFUND; results.push({ type: "racerdup", key: rk, label: rlabel, amount: GACHA_DUP_REFUND, rare: true }); }
+        else { racers.push(rk); haveRacer.add(rk); results.push({ type: "racer", key: rk, label: rlabel, rare: true }); }
       } else { // pet：依稀有度權重抽；已擁有的「稍微降權」（B）但仍抽得到，不排除
         const pw = (c) => petPullWeight(c) * (unlocked.has(c) ? PET_OWNED_MULT : 1);
         const tot = PET_ROSTER.reduce((a, c) => a + pw(c), 0);
@@ -1279,8 +1289,8 @@ app.post("/api/pet/gacha", auth, async (req, res) => {
         }
       }
     }
-    await pool.query("UPDATE pets SET owned=$1, gacha_pets=$2, coins_spent=COALESCE(coins_spent,0)+$3, coins_bonus=COALESCE(coins_bonus,0)+$4 WHERE user_id=$5",
-      [JSON.stringify(owned), JSON.stringify(gachaPets), cost, bonus, req.user.id]);
+    await pool.query("UPDATE pets SET owned=$1, gacha_pets=$2, racers=$3, coins_spent=COALESCE(coins_spent,0)+$4, coins_bonus=COALESCE(coins_bonus,0)+$5 WHERE user_id=$6",
+      [JSON.stringify(owned), JSON.stringify(gachaPets), JSON.stringify(racers), cost, bonus, req.user.id]);
     const { state: ns } = await computePet(req.user.id);
     res.json({ results, pet: ns });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
@@ -1457,13 +1467,31 @@ for (const k in CUSTOM_PETS) {
 }
 // 完整插圖清單（內建＋自訂），給前端啟用 <img>
 const ART_KEYS = [...BUILTIN_ART_KEYS, ...Object.keys(CUSTOM_PETS)];
+// 賽道角色小圖（自助註冊）：讀 public/racers/custom_racers.json，格式 { "key": { "label": "顯示名" } }
+//   圖檔放 public/racers/<key>.png（賽道上約 18px）。抽到後可在競賽「賽道角色」選用。_ 開頭的 key 略過。
+const CUSTOM_RACERS = (() => {
+  try {
+    const raw = JSON.parse(readFileSync(join(__dirname, "public", "racers", "custom_racers.json"), "utf8"));
+    const out = {};
+    for (const k in raw) { if (k.startsWith("_")) continue; if (raw[k] && raw[k].label) out[k] = { label: raw[k].label }; }
+    return out;
+  } catch (e) { return {}; }
+})();
+const RACER_ART_KEYS = Object.keys(CUSTOM_RACERS);
 // 扭蛋池（伺服器端權威隨機，防作弊）：acc 飾品 / pet 隨機寵物。w=權重。
 // 設計：飾品共 40 權重、寵物 60 權重 → 總和 100 → 飾品 40% / 寵物 60%。
-const GACHA_POOL = [
+// 有註冊賽道小圖時：飾品25 / 賽道小圖15 / 寵物60；沒有時維持原本 飾品40 / 寵物60（不影響寵物機率）
+const GACHA_POOL = RACER_ART_KEYS.length ? [
+  { type: "acc", it: "🍓", w: 7 }, { type: "acc", it: "🌹", w: 6 },
+  { type: "acc", it: "🦋", w: 5 }, { type: "acc", it: "🎃", w: 3 },
+  { type: "acc", it: "⚡", w: 2 }, { type: "acc", it: "🌈", w: 2, rare: true },
+  { type: "racer", w: 15 },   // 抽賽道小圖（再從已註冊的賽道小圖隨機一張；已擁有→退幣）
+  { type: "pet", w: 60 },
+] : [
   { type: "acc", it: "🍓", w: 10 }, { type: "acc", it: "🌹", w: 10 },
   { type: "acc", it: "🦋", w: 8 }, { type: "acc", it: "🎃", w: 5 },
   { type: "acc", it: "⚡", w: 4 }, { type: "acc", it: "🌈", w: 3, rare: true },
-  { type: "pet", w: 60 },   // 抽寵物（依稀有度權重再抽一隻；已擁有的也會抽到→顯示已擁有不退幣）
+  { type: "pet", w: 60 },   // 抽寵物（依稀有度權重再抽一隻；已擁有的也會抽到→顯示已擁有退幣）
 ];
 const GACHA_COST = 60, GACHA_TEN_COST = 540, GACHA_DUP_REFUND = 20;   // 重複飾品退幣
 const GACHA_PET_DUP_REFUND = 20;   // 重複寵物退幣（A：抽到已擁有的寵物退一點幣，不再白抽）
@@ -1631,6 +1659,7 @@ function petStateFromRows(petRow, rows, trophies) {
     exp, rawExp, nextExp, mood, moodLabel, moodFace, daysSince, lastLogged,
     equipped: equipped || "", unlocked, owned, equippable, coins, dex, trophies, collection,
     gachaPets: Array.isArray(petRow && petRow.gacha_pets) ? petRow.gacha_pets : [],
+    racers: Array.isArray(petRow && petRow.racers) ? petRow.racers : [],   // 已擁有的賽道小圖 key
     unlockedPets: [...petUnlockedSet(petRow)],   // 已解鎖可選的寵物（鍵：species 或 species:breed）
     allClearClaimed: !!(petRow && petRow.last_allclear && ((petRow.last_allclear instanceof Date ? isoD(petRow.last_allclear) : String(petRow.last_allclear).slice(0,10)) === twToday())),
     shields: (petRow && petRow.streak_shields) || 0,

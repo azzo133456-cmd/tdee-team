@@ -106,7 +106,7 @@ function petGlyph(pet,size){
   return svg||`<span style="font-size:${Math.round((size||40)*0.6)}px;">${pet.emoji||"🐾"}</span>`;
 }
 async function loadPet(){
-  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,rareKeys:r.rareKeys||[],stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost};
+  try{ const r=await api("/api/pet"); petData=r.pet; petMeta={species:r.species,rareKeys:r.rareKeys||[],stageNames:r.stageNames,stageExp:r.stageExp,shop:r.shop,feed:r.feed,gacha:r.gacha,shieldCost:r.shieldCost,racerArts:r.racerArts||{}};
     if(Array.isArray(r.artKeys)) r.artKeys.forEach(k=>PET_ART_KEYS.add(k));   // 伺服器回傳的插圖清單（含自訂寵物）自動啟用，前端免手改 }
   }
   catch(e){ petData=null; }
@@ -191,6 +191,8 @@ function showGachaResults(results){
     else if(x.type==="dup"){ sub="重複 +🦴"+x.amount; }
     else if(x.type==="pet"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub=(x.illus?"✨稀有！":"新寵物🎉 ")+x.label; }
     else if(x.type==="petdup"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub="已擁有 "+x.label+(x.amount?" +🦴"+x.amount:""); }
+    else if(x.type==="racer"){ glyph=`<img src="racers/${x.key}.png" style="width:28px;height:28px;object-fit:contain;display:block;">`; sub="新賽道角色🏁 "+x.label; }
+    else if(x.type==="racerdup"){ glyph=`<img src="racers/${x.key}.png" style="width:28px;height:28px;object-fit:contain;display:block;">`; sub="已擁有 "+x.label+(x.amount?" +🦴"+x.amount:""); }
     else sub="飾品";
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;flex:0 0 auto;width:62px;${big}">`+
       `<div style="height:30px;display:flex;align-items:center;justify-content:center;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;

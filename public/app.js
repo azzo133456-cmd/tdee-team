@@ -1222,9 +1222,11 @@ function renderGroups(){
     const race=g.members.map((m,i)=>{
       const p=m.noData?0:Math.round(Math.abs(m.score-worst)/range*86);   // 0~86%（沒資料者停在起點）
       const racer=m.racer||"🏁";
-      // 角色：頭像圖（avatar）或表情符號
+      // 角色：頭像圖（avatar）／賽道小圖（racerart:<key>）／表情符號
       const runnerInner=(racer==="avatar"&&m.avatar)
         ?`<img src="${m.avatar}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;display:block;">`
+        :(typeof racer==="string"&&racer.indexOf("racerart:")===0)
+          ?`<img src="racers/${racer.slice(9)}.png" style="width:20px;height:20px;object-fit:contain;display:block;">`
         :(racer==="avatar"?"🏁":racer);
       const fxCls=(m.fx&&m.fx!=="fx0")?(" "+m.fx):"";
       const nm=`<span class="namefx${fxCls}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>`;
@@ -1484,6 +1486,17 @@ function renderPoints(){
       `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;${okAv?'cursor:pointer;':'opacity:.4;'}background:${on?'var(--soft)':'#fff'};">`+
       `<div style="font-size:18px;">${inner}</div><div style="font-size:11px;${okAv?'':'color:var(--sub)'}">我的頭像</div>`+
       `<div style="font-size:10px;color:var(--sub)">${okAv?(on?"使用中":"可用"):(store.avatar?AV_MIN+"分":"需頭像")}</div></div>`;
+  }
+  // 扭蛋抽到的「賽道小圖」：擁有才出現，點即套用（不需積分，靠扭蛋取得）
+  if(typeof petData==="object"&&petData&&Array.isArray(petData.racers)&&petData.racers.length){
+    const arts=(typeof petMeta==="object"&&petMeta&&petMeta.racerArts)||{};
+    petData.racers.forEach(k=>{
+      const key="racerart:"+k, on=pickR===key, label=(arts[k]&&arts[k].label)||k;
+      racerGallery+=`<div onclick="chooseRacer('${key}')" title="扭蛋取得的賽道角色" `+
+        `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;cursor:pointer;background:${on?'var(--soft)':'#fff'};">`+
+        `<div style="height:20px;display:flex;align-items:center;justify-content:center;"><img src="racers/${k}.png" style="width:20px;height:20px;object-fit:contain;"></div>`+
+        `<div style="font-size:11px;">${label}</div><div style="font-size:10px;color:var(--sub)">${on?"使用中":"可用"}</div></div>`;
+    });
   }
   // 賽道皮膚畫廊
   let pickS=""; try{ pickS=localStorage.getItem("tdee_skin")||(store.skin||""); }catch(e){ pickS=store.skin||""; }
