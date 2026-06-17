@@ -32,9 +32,11 @@ const PET_ART_KEYS=new Set([
   "hana3",             // public/pets/hana3/
   "choco",             // public/pets/choco/
 ]);
+// 圖片資產版本：圖檔內容更新（如重新去背）但檔名不變時，bump 這個數字就能讓所有人強制重抓新圖（破快取）。
+const ASSETV="149";
 function petArtUrl(species,breed,stage){
-  if(breed && PET_ART_KEYS.has(species+":"+breed)) return "pets/"+species+"_"+breed+"/"+stage+".png";
-  if(PET_ART_KEYS.has(species)) return "pets/"+species+"/"+stage+".png";
+  if(breed && PET_ART_KEYS.has(species+":"+breed)) return "pets/"+species+"_"+breed+"/"+stage+".png?v="+ASSETV;
+  if(PET_ART_KEYS.has(species)) return "pets/"+species+"/"+stage+".png?v="+ASSETV;
   return null;
 }
 function petFacial(species,P){
@@ -191,8 +193,8 @@ function showGachaResults(results){
     else if(x.type==="dup"){ sub="重複 +🦴"+x.amount; }
     else if(x.type==="pet"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub=(x.illus?"✨稀有！":"新寵物🎉 ")+x.label; }
     else if(x.type==="petdup"){ glyph=petGlyph({species:x.species,breed:x.breed,stageIdx:2,emoji:x.label},30); sub="已擁有 "+x.label+(x.amount?" +🦴"+x.amount:""); }
-    else if(x.type==="racer"){ glyph=`<img src="racers/${x.key}.png" style="width:28px;height:28px;object-fit:contain;display:block;">`; sub="新賽道角色🏁 "+x.label; }
-    else if(x.type==="racerdup"){ glyph=`<img src="racers/${x.key}.png" style="width:28px;height:28px;object-fit:contain;display:block;">`; sub="已擁有 "+x.label+(x.amount?" +🦴"+x.amount:""); }
+    else if(x.type==="racer"){ glyph=`<img src="racers/${x.key}.png?v=${ASSETV}" style="width:28px;height:28px;object-fit:contain;display:block;">`; sub="新賽道角色🏁 "+x.label; }
+    else if(x.type==="racerdup"){ glyph=`<img src="racers/${x.key}.png?v=${ASSETV}" style="width:28px;height:28px;object-fit:contain;display:block;">`; sub="已擁有 "+x.label+(x.amount?" +🦴"+x.amount:""); }
     else sub="飾品";
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;flex:0 0 auto;width:62px;${big}">`+
       `<div style="height:30px;display:flex;align-items:center;justify-content:center;line-height:1.1;">${glyph}</div><div style="font-size:10px;color:var(--sub);margin-top:2px;">${sub}</div></div>`;

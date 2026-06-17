@@ -1226,7 +1226,7 @@ function renderGroups(){
       const runnerInner=(racer==="avatar"&&m.avatar)
         ?`<img src="${m.avatar}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;display:block;">`
         :(typeof racer==="string"&&racer.indexOf("racerart:")===0)
-          ?`<img src="racers/${racer.slice(9)}.png" style="width:20px;height:20px;object-fit:contain;display:block;">`
+          ?`<img src="racers/${racer.slice(9)}.png?v=${ASSETV}" style="width:20px;height:20px;object-fit:contain;display:block;">`
         :(racer==="avatar"?"🏁":racer);
       const fxCls=(m.fx&&m.fx!=="fx0")?(" "+m.fx):"";
       const nm=`<span class="namefx${fxCls}" data-emoji="${fxEmoji(m.fx)}">${m.name}</span>`;
@@ -1494,7 +1494,7 @@ function renderPoints(){
       const key="racerart:"+k, on=pickR===key, label=(arts[k]&&arts[k].label)||k;
       racerGallery+=`<div onclick="chooseRacer('${key}')" title="扭蛋取得的賽道角色" `+
         `style="flex:0 0 auto;text-align:center;padding:6px 8px;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:10px;cursor:pointer;background:${on?'var(--soft)':'#fff'};">`+
-        `<div style="height:20px;display:flex;align-items:center;justify-content:center;"><img src="racers/${k}.png" style="width:20px;height:20px;object-fit:contain;"></div>`+
+        `<div style="height:20px;display:flex;align-items:center;justify-content:center;"><img src="racers/${k}.png?v=${ASSETV}" style="width:20px;height:20px;object-fit:contain;"></div>`+
         `<div style="font-size:11px;">${label}</div><div style="font-size:10px;color:var(--sub)">${on?"使用中":"可用"}</div></div>`;
     });
   }
