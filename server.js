@@ -1614,6 +1614,35 @@ app.post("/api/game/memory", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
+/* ---------- 小遊戲：打地鼠(骨頭版)（每日首次完成才發幣；可重玩練習） ---------- */
+app.get("/api/game/whack", auth, async (req, res) => {
+  try {
+    const games = await readGames(req.user.id);
+    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const today = twToday();
+    const g = games.whack;
+    res.json({ played: !!(g && g.date === today), result: (g && g.date === today) ? g : null });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/game/whack", auth, async (req, res) => {
+  try {
+    const score = Math.round(+req.body.score);
+    if (!(score >= 0 && score <= 300)) return res.status(400).json({ error: "分數不合理" });
+    const today = twToday();
+    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+    const prevBest = (games.whack && games.whack.date === today) ? (games.whack.best || games.whack.score || 0) : null;
+    const already = games.whack && games.whack.date === today;
+    const coins = already ? 0 : (score >= 22 ? 30 : score >= 14 ? 20 : score >= 7 ? 12 : 6);
+    games.whack = { date: today, score, best: Math.max(score, prevBest || 0), coins: already ? (games.whack.coins || 0) : coins };
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), coins, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ coins, score, best: games.whack.best, already, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 // 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
 app.post("/api/pet/gacha", auth, async (req, res) => {
   try {

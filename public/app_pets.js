@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
@@ -372,6 +372,65 @@ async function finishMemory(){
     const box=document.getElementById("memBox");
     if(box) box.innerHTML+=`<div style="text-align:center;margin-top:10px;font-weight:800;color:var(--green)">🎉 完成！${moves} 步${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}</div>`+
       `<div style="text-align:center;margin-top:8px;"><button onclick="startMemory()" style="width:auto;padding:10px 22px;">再玩一次</button></div>`;
+    if(typeof renderPet==="function") renderPet();
+  }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：打地鼠(骨頭版) ---------- */
+let whackState=null;
+async function loadWhackGame(){
+  const card=document.getElementById("whackCard"); if(!card) return;
+  try{ const g=await api("/api/game/whack"); renderWhackGame(g); }
+  catch(e){ card.style.display="none"; }
+}
+function renderWhackGame(g){
+  const card=document.getElementById("whackCard"), box=document.getElementById("whackBox");
+  if(!card||!box) return; card.style.display="";
+  const last=(g.played&&g.result)?`<div class="hint" style="text-align:center;">今天最佳 ${g.result.best||g.result.score} 分、已得 🦴${g.result.coins}（可再玩練習）</div>`
+    :`<div class="hint" style="text-align:center;">20 秒內猛點冒出的 🦴 骨頭得分，避開 🍩(扣分)。每天首次發幣。</div>`;
+  box.innerHTML=last+`<div style="text-align:center;margin-top:8px;"><button onclick="startWhack()" style="width:auto;padding:12px 24px;">🔨 開始(20秒)</button></div>`;
+}
+function whackClear(){ if(whackState){ if(whackState.spawn)clearInterval(whackState.spawn); if(whackState.tick)clearInterval(whackState.tick); } }
+function startWhack(){
+  whackClear();
+  whackState={score:0,time:20,holes:Array(9).fill(null),spawn:null,tick:null,over:false};
+  drawWhack();
+  whackState.spawn=setInterval(whackSpawn,720);
+  whackState.tick=setInterval(()=>{ if(!whackState)return; whackState.time--; if(whackState.time<=0){ endWhack(); } else drawWhack(); },1000);
+}
+function whackSpawn(){
+  if(!whackState||whackState.over) return;
+  const h=whackState.holes;
+  for(let i=0;i<9;i++){ if(h[i]){ h[i].age++; if(h[i].age>=2) h[i]=null; } }   // 冒出約1.4秒
+  const empty=[]; for(let i=0;i<9;i++) if(!h[i]) empty.push(i);
+  if(empty.length){ const i=empty[Math.floor(Math.random()*empty.length)]; h[i]={type:Math.random()<0.8?"bone":"junk",age:0}; }
+  drawWhack();
+}
+function drawWhack(){
+  const box=document.getElementById("whackBox"); if(!box||!whackState) return;
+  const cells=whackState.holes.map((c,i)=>{
+    const face=c?(c.type==="bone"?"🦴":"🍩"):"";
+    return `<div onclick="whackTap(${i})" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:30px;border-radius:50%;cursor:pointer;user-select:none;background:${c?'#fff':'var(--soft)'};border:2px solid var(--line);">${face}</div>`;
+  }).join("");
+  box.innerHTML=`<div style="text-align:center;font-size:14px;font-weight:700;margin-bottom:6px;">⏱️ ${whackState.time}s　·　分數 ${whackState.score}</div>`+
+    `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:280px;margin:0 auto;">${cells}</div>`;
+}
+function whackTap(i){
+  if(!whackState||whackState.over) return;
+  const c=whackState.holes[i]; if(!c) return;
+  if(c.type==="bone") whackState.score++; else whackState.score=Math.max(0,whackState.score-1);
+  whackState.holes[i]=null; drawWhack();
+}
+async function endWhack(){
+  if(!whackState||whackState.over) return;
+  whackState.over=true; whackClear();
+  const score=whackState.score;
+  try{
+    const r=await api("/api/game/whack",{method:"POST",body:JSON.stringify({score})});
+    if(r.pet) petData=r.pet;
+    const box=document.getElementById("whackBox");
+    if(box) box.innerHTML=`<div style="text-align:center;font-weight:800;font-size:18px;color:var(--green);margin:8px 0;">⏰ 時間到！得 ${score} 分${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}</div>`+
+      `<div style="text-align:center;font-size:13px;">今天最佳 ${r.best} 分</div>`+
+      `<div style="text-align:center;margin-top:10px;"><button onclick="startWhack()" style="width:auto;padding:10px 22px;">再玩一次</button></div>`;
     if(typeof renderPet==="function") renderPet();
   }catch(e){ alert(e.message); }
 }
