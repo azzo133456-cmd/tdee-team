@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame(); loadBingoGame();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 async function loadCalorieGame(){
@@ -222,6 +222,43 @@ async function claimBingo(){
     await loadBingoGame();
     if(typeof renderPet==="function") renderPet();
     alert(`領到 🦴${r.coins}！${r.full?"(含集滿全卡加碼)":""}`);
+  }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：團隊魔王戰（每週，群組合作） ---------- */
+async function loadBossGame(){
+  const card=document.getElementById("bossCard"); if(!card) return;
+  try{ const g=await api("/api/game/boss"); renderBossGame(g.bosses||[]); }
+  catch(e){ card.style.display="none"; }
+}
+function renderBossGame(bosses){
+  const card=document.getElementById("bossCard"), box=document.getElementById("bossBox");
+  if(!card||!box) return;
+  if(!bosses.length){ card.style.display="none"; return; }   // 沒加入任何競賽群組就不顯示
+  card.style.display="";
+  box.innerHTML=`<div class="hint" style="margin-bottom:8px;">全隊本週的健康行為會累積成傷害打魔王，打倒後每人各領一次 🦴${bosses[0].reward}（每週一重置）。</div>`+
+    bosses.map(b=>{
+      const pct=Math.min(100,Math.round(b.damage/b.hp*100));
+      const hpLeft=Math.max(0,b.hp-b.damage);
+      let action;
+      if(b.defeated && !b.claimed) action=`<button onclick="claimBoss(${b.groupId})" style="margin-top:6px;">🏆 領取討伐獎勵 +🦴${b.reward}</button>`;
+      else if(b.defeated && b.claimed) action=`<div class="hint" style="margin-top:4px;color:var(--green)">✅ 已討伐並領獎，下週再戰！</div>`;
+      else action=`<div class="hint" style="margin-top:4px;">剩餘血量 <b>${hpLeft}</b>／${b.hp}，全隊一起完成健康行為來補刀！</div>`;
+      return `<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;">`+
+        `<div style="display:flex;justify-content:space-between;align-items:baseline;">`+
+          `<span style="font-weight:700;">${b.bossName}</span>`+
+          `<span class="hint">${b.name}・${b.members}人</span></div>`+
+        `<div style="font-size:12px;color:var(--sub);margin:4px 0 2px;">傷害 ${b.damage}／${b.hp}　${b.defeated?'<b style="color:var(--green)">已討伐 🎉</b>':''}</div>`+
+        `<div class="prog"><i style="width:${pct}%;${b.defeated?'background:var(--green);':''}"></i></div>`+
+        action+`</div>`;
+    }).join("");
+}
+async function claimBoss(groupId){
+  try{
+    const r=await api("/api/game/boss/claim",{method:"POST",body:JSON.stringify({groupId})});
+    if(r.pet) petData=r.pet;
+    await loadBossGame();
+    if(typeof renderPet==="function") renderPet();
+    alert(`討伐成功！領到 🦴${r.reward} 🏆`);
   }catch(e){ alert(e.message); }
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）

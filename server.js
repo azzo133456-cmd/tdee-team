@@ -1477,6 +1477,59 @@ app.post("/api/game/bingo/claim", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
+/* ---------- 小遊戲：團隊魔王戰（每週，群組合作；唯讀 daily_stats，不動既有競賽） ----------
+   全隊本週的「達標健康行為」累積成傷害，打掉魔王血量；打倒後每位成員可各領一次幣。*/
+const BOSS_NAMES = ["甜食魔王 🍰", "油炸怪獸 🍟", "手搖惡魔 🧋", "宵夜巨獸 🌙", "懶散史萊姆 🫠", "碳水巨龍 🐲", "拖延幽靈 👻"];
+const BOSS_REWARD = 40;
+async function bossForGroup(g) {
+  const mem = await pool.query("SELECT user_id FROM group_members WHERE group_id=$1", [g.id]);
+  const ids = mem.rows.map(m => m.user_id);
+  if (!ids.length) return null;
+  const ws = bingoWeekStart();
+  const st = await pool.query(
+    "SELECT logged,kcal_hit,protein_hit,exercised,water_hit FROM daily_stats WHERE user_id=ANY($1) AND date>=$2 AND date<=$3",
+    [ids, ws, twToday()]);
+  let damage = 0;
+  st.rows.forEach(r => { damage += (r.logged ? 1 : 0) + (r.kcal_hit ? 1 : 0) + (r.protein_hit ? 1 : 0) + (r.exercised ? 1 : 0) + (r.water_hit ? 1 : 0); });
+  const hp = ids.length * 21;                                   // 每人約 60% 達標即可打倒
+  const bossName = BOSS_NAMES[dailyGameIndex(g.id + ":" + ws, BOSS_NAMES.length)];
+  return { groupId: g.id, name: g.name, bossName, hp, damage, defeated: damage >= hp, members: ids.length, week: ws };
+}
+app.get("/api/game/boss", auth, async (req, res) => {
+  try {
+    const games = await readGames(req.user.id);
+    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const mine = await pool.query("SELECT g.id,g.name FROM groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=$1 ORDER BY g.created_at DESC", [req.user.id]);
+    const out = [];
+    for (const g of mine.rows) {
+      const b = await bossForGroup(g);
+      if (b) out.push({ ...b, claimed: !!(games.boss && games.boss[String(g.id)] === b.week), reward: BOSS_REWARD });
+    }
+    res.json({ bosses: out });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/game/boss/claim", auth, async (req, res) => {
+  try {
+    const gid = +req.body.groupId;
+    const inG = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [gid, req.user.id]);
+    if (!inG.rowCount) return res.status(400).json({ error: "你不在這個群組" });
+    const grp = await pool.query("SELECT id,name FROM groups WHERE id=$1", [gid]);
+    if (!grp.rowCount) return res.status(400).json({ error: "群組不存在" });
+    const b = await bossForGroup(grp.rows[0]);
+    if (!b || !b.defeated) return res.status(400).json({ error: "魔王還沒被打倒，全隊再加油！" });
+    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物" });
+    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+    games.boss = games.boss || {};
+    if (games.boss[String(gid)] === b.week) return res.status(400).json({ error: "本週這隻魔王的獎勵已領過囉" });
+    games.boss[String(gid)] = b.week;
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), BOSS_REWARD, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ reward: BOSS_REWARD, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 // 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
 app.post("/api/pet/gacha", auth, async (req, res) => {
   try {
