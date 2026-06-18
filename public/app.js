@@ -2602,8 +2602,10 @@ function drawMetabolismCharts(){
   }
   card.style.display="";
   const labels=series.map(s=>s.date.slice(5).replace("-","/"));
-  const intake=series.map(s=>s.intake);
-  const maIntake=series.map((s,i)=>{ const w=series.slice(Math.max(0,i-6),i+1).map(x=>x.intake).filter(v=>v!=null); return w.length?Math.round(w.reduce((a,b)=>a+b,0)/w.length):null; });
+  // 「今天」還沒記完，攝取會異常低 → 不畫今天那根柱與其均值，避免看起來像超大赤字
+  const todayS=todayStr();
+  const intake=series.map(s=> s.date===todayS ? null : s.intake);
+  const maIntake=series.map((s,i)=>{ if(s.date===todayS) return null; const w=intake.slice(Math.max(0,i-6),i+1).filter(v=>v!=null); return w.length?Math.round(w.reduce((a,b)=>a+b,0)/w.length):null; });
   const realLine=series.map(s=>s.real);
   const cvA=document.getElementById("kcalChart");
   if(cvA){
