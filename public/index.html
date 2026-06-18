@@ -187,6 +187,19 @@
       </div>
     </div>
 
+    <!-- 熱量收支 / 代謝趨勢 -->
+    <div class="card" id="metabCard" style="display:none;">
+      <h2 class="ch" data-ck="metab" onclick="toggleCard(this)">📊 熱量收支・代謝趨勢<span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div style="font-size:13px;font-weight:600;">攝取 vs 消耗（TDEE）</div>
+        <div class="hint tip" style="margin:2px 0 6px;">柱＝每日攝取、藍線＝7日均、紅虛線＝TDEE。線在 TDEE 下方＝在減，落差就是當天赤字。</div>
+        <canvas id="kcalChart" height="165"></canvas>
+        <div style="font-size:13px;font-weight:600;margin-top:14px;">代謝（TDEE）趨勢</div>
+        <div class="hint tip" style="margin:2px 0 6px;">橘＝真實 TDEE、灰虛線＝公式估算。真實值持續下滑＝代謝適應，這時該休息一下而非再砍。</div>
+        <canvas id="tdeeChart" height="150"></canvas>
+      </div>
+    </div>
+
     <!-- 體重趨勢 -->
     <div class="card">
       <h2 class="ch" data-ck="weight-trend" onclick="toggleCard(this)">體重趨勢<span class="caret">▾</span></h2>

@@ -2,7 +2,7 @@ const API = "";
 const SKEY = "tdeeUser_session";
 let session = JSON.parse(localStorage.getItem(SKEY) || "null"); // {token,userId,username}
 let store = { profile:{}, records:[], exercises:[] };
-let chart = null, foodCart = [], authMode = "login";
+let chart = null, kcalChart = null, tdeeChart = null, foodCart = [], authMode = "login";
 
 /* ---------- 食物資料庫（每 100g：kcal, 蛋白P, 脂肪F, 碳水C） ---------- */
 const FOODS = {
@@ -2567,6 +2567,63 @@ function drawChart(){
   if(chart)chart.destroy();
   chart=new Chart(cv,{type:"line",data:{labels:allLabels,datasets},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales}});
 }
+// 計算「每天」的滾動真實 TDEE 歷史（用截至當天的資料、套同一套夾限校正），給代謝/熱量收支圖用
+function tdeeSeries(daysBack){
+  daysBack=daysBack||45;
+  const recs=store.records||[], exs=store.exercises||[];
+  const formula=calcMifflin();                          // 公式估算當基準（依目前基本資料）
+  const since=isoLocal(new Date(new Date(todayStr())-(daysBack-1)*86400000));
+  const dates=[...new Set(recs.filter(r=>r.date.slice(0,10)>=since && (r.weight!=null||r.kcal!=null)).map(r=>r.date.slice(0,10)))].sort();
+  const series=dates.map(d=>{
+    const upto=recs.filter(r=>r.date.slice(0,10)<=d);
+    const R=calcReal(upto, exs);                         // calcReal 內部自動取截至當天的近 28 天
+    let real=null;
+    if(R.tdee && formula){
+      const days=R.days||0, wReal=Math.min(1,Math.max(0,(days-7)/7));
+      const blend=R.tdee*wReal+formula*(1-wReal);
+      real=Math.round(Math.min(formula*1.3, Math.max(formula*0.7, blend)));
+    }
+    const rec=recs.find(r=>r.date.slice(0,10)===d);
+    const intake=(rec&&rec.kcal!=null)?Math.round(+rec.kcal):null;
+    return {date:d, real, formula:formula||null, intake};
+  });
+  return {series, formula};
+}
+// A. 攝取 vs 消耗(TDEE)　B. 代謝(TDEE)趨勢　兩張小圖；資料不足時整張卡隱藏
+function drawMetabolismCharts(){
+  const card=document.getElementById("metabCard"); if(!card) return;
+  const {series,formula}=tdeeSeries(45);
+  const haveReal=series.some(s=>s.real!=null);
+  const intakeDays=series.filter(s=>s.intake!=null).length;
+  if(series.length<5 || (!haveReal && intakeDays<4)){
+    card.style.display="none";
+    if(kcalChart){kcalChart.destroy();kcalChart=null;} if(tdeeChart){tdeeChart.destroy();tdeeChart=null;}
+    return;
+  }
+  card.style.display="";
+  const labels=series.map(s=>s.date.slice(5).replace("-","/"));
+  const intake=series.map(s=>s.intake);
+  const maIntake=series.map((s,i)=>{ const w=series.slice(Math.max(0,i-6),i+1).map(x=>x.intake).filter(v=>v!=null); return w.length?Math.round(w.reduce((a,b)=>a+b,0)/w.length):null; });
+  const realLine=series.map(s=>s.real);
+  const cvA=document.getElementById("kcalChart");
+  if(cvA){
+    if(kcalChart)kcalChart.destroy();
+    kcalChart=new Chart(cvA,{data:{labels,datasets:[
+      {type:"bar",label:"攝取",data:intake,backgroundColor:"rgba(91,138,166,.30)",borderWidth:0},
+      {type:"line",label:"7日均攝取",data:maIntake,borderColor:"#5b8aa6",borderWidth:2,pointRadius:0,tension:.3,spanGaps:true},
+      {type:"line",label:"TDEE",data:realLine,borderColor:"#b5564e",borderDash:[5,4],borderWidth:2,pointRadius:0,tension:.3,spanGaps:true}
+    ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:10}}},x:{ticks:{font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8}}}}});
+  }
+  const cvB=document.getElementById("tdeeChart");
+  if(cvB){
+    const formLine=series.map(()=>formula||null);
+    if(tdeeChart)tdeeChart.destroy();
+    tdeeChart=new Chart(cvB,{type:"line",data:{labels,datasets:[
+      {label:"真實 TDEE",data:realLine,borderColor:"#c98b5e",backgroundColor:"rgba(201,139,94,.12)",borderWidth:2,pointRadius:0,fill:true,tension:.3,spanGaps:true},
+      {label:"公式估算",data:formLine,borderColor:"#9aa0a6",borderDash:[4,4],borderWidth:1.5,pointRadius:0,fill:false}
+    ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:10}}},x:{ticks:{font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8}}}}});
+  }
+}
 function renderEta(){
   const target=+val("targetWeight");
   const recs=store.records.filter(r=>r.weight!=null);
@@ -2591,7 +2648,7 @@ function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta();
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
-  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderBodyComp,renderReviews,renderReport,renderReal,renderPoints,drawChart,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
+  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderBodyComp,renderReviews,renderReport,renderReal,renderPoints,drawChart,drawMetabolismCharts,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
   for(const fn of parts){ try{ fn(); }catch(e){ console.error("render 區塊出錯：",fn.name,e); } }
 }
 
