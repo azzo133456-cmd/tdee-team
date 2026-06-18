@@ -464,30 +464,6 @@
       <div class="cardbody"><div id="petBox"></div></div>
     </div>
 
-    <!-- 每日小遊戲：熱量猜謎 -->
-    <div class="card" id="gameCard" style="display:none;">
-      <h2 class="ch" data-ck="game" onclick="toggleCard(this)">🎯 熱量猜謎 <span class="pill">每日一題</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="gameBox"></div></div>
-    </div>
-
-    <!-- 每日小遊戲：健康知識測驗 -->
-    <div class="card" id="quizCard" style="display:none;">
-      <h2 class="ch" data-ck="quiz" onclick="toggleCard(this)">🧠 健康知識 <span class="pill">每日一題</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="quizBox"></div></div>
-    </div>
-
-    <!-- 小遊戲：健康賓果（每週） -->
-    <div class="card" id="bingoCard" style="display:none;">
-      <h2 class="ch" data-ck="bingo" onclick="toggleCard(this)">🎲 健康賓果 <span class="pill">每週</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="bingoBox"></div></div>
-    </div>
-
-    <!-- 小遊戲：團隊魔王戰（每週，群組合作） -->
-    <div class="card" id="bossCard" style="display:none;">
-      <h2 class="ch" data-ck="boss" onclick="toggleCard(this)">👹 團隊魔王戰 <span class="pill">每週合作</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="bossBox"></div></div>
-    </div>
-
     <!-- 群組競賽（不顯示彼此體重） -->
     <div class="card collapsed">
       <h2 class="ch" data-ck="groups" onclick="toggleCard(this)">🏆 群組競賽 <span class="pill" id="groupCount"></span><span class="caret">▾</span></h2>
@@ -579,12 +555,44 @@
     </div>
   </div>
 
+  <!-- ===== 分頁：遊戲 ===== -->
+  <div class="tabpage hidden" id="page-games">
+    <div class="card" style="border:none;background:transparent;padding:6px 2px 0;">
+      <div class="hint">玩遊戲賺骨頭幣 🦴，可拿去扭蛋。健康類每日一題，娛樂類玩個爽！</div>
+    </div>
+
+    <!-- 每日小遊戲：熱量猜謎 -->
+    <div class="card" id="gameCard" style="display:none;">
+      <h2 class="ch" data-ck="game" onclick="toggleCard(this)">🎯 熱量猜謎 <span class="pill">每日一題</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="gameBox"></div></div>
+    </div>
+
+    <!-- 每日小遊戲：健康知識測驗 -->
+    <div class="card" id="quizCard" style="display:none;">
+      <h2 class="ch" data-ck="quiz" onclick="toggleCard(this)">🧠 健康知識 <span class="pill">每日一題</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="quizBox"></div></div>
+    </div>
+
+    <!-- 小遊戲：健康賓果（每週） -->
+    <div class="card" id="bingoCard" style="display:none;">
+      <h2 class="ch" data-ck="bingo" onclick="toggleCard(this)">🎲 健康賓果 <span class="pill">每週</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="bingoBox"></div></div>
+    </div>
+
+    <!-- 小遊戲：團隊魔王戰（每週，群組合作） -->
+    <div class="card" id="bossCard" style="display:none;">
+      <h2 class="ch" data-ck="boss" onclick="toggleCard(this)">👹 團隊魔王戰 <span class="pill">每週合作</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="bossBox"></div></div>
+    </div>
+  </div>
+
   <!-- 底部導覽 -->
   <div class="bottomnav">
     <div class="nav on" data-tab="overview" onclick="showTab('overview')">📊<span>概覽</span></div>
     <div class="nav" data-tab="food" onclick="showTab('food')">🍽️<span>飲食</span></div>
     <div class="nav" data-tab="exercise" onclick="showTab('exercise')">🏃<span>運動</span></div>
     <div class="nav" data-tab="records" onclick="showTab('records')">📝<span>紀錄</span></div>
+    <div class="nav" data-tab="games" onclick="showTab('games')">🎮<span>遊戲</span></div>
   </div>
 </div>
 

@@ -629,7 +629,7 @@ function applyTips(){
 }
 function toggleTips(){ localStorage.setItem("tdee_tips", localStorage.getItem("tdee_tips")==="1"?"0":"1"); applyTips(); }
 function showTab(name){
-  ["overview","food","exercise","records"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
+  ["overview","food","exercise","records","games"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
   window.scrollTo(0,0);
 }
