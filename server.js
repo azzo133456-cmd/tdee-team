@@ -1278,6 +1278,20 @@ const GAME_FOODS = [
   { n: "鍋貼10個", k: 560, e: "🥟" }, { n: "鮭魚生魚片6片", k: 130, e: "🐟" }, { n: "燕麥40g(乾)", k: 150, e: "🥣" },
   { n: "菠蘿麵包", k: 320, e: "🍞" }, { n: "關東煮黑輪", k: 80, e: "🍢" }, { n: "焗烤義大利麵", k: 700, e: "🍝" },
   { n: "地瓜球(一份)", k: 350, e: "🟤" },
+  { n: "蚵仔煎", k: 500, e: "🍳" }, { n: "肉圓", k: 350, e: "🥟" }, { n: "大腸麵線", k: 350, e: "🍜" },
+  { n: "鹽水雞(一份)", k: 300, e: "🍗" }, { n: "火腿蛋三明治", k: 350, e: "🥪" }, { n: "起司堡", k: 300, e: "🍔" },
+  { n: "炸雞一塊", k: 290, e: "🍗" }, { n: "披薩一片", k: 285, e: "🍕" }, { n: "番茄義大利麵", k: 550, e: "🍝" },
+  { n: "燒餅油條", k: 450, e: "🥖" }, { n: "蘿蔔糕(一份)", k: 300, e: "🟫" }, { n: "鍋燒意麵", k: 600, e: "🍜" },
+  { n: "臭豆腐(一份)", k: 450, e: "🟤" }, { n: "排骨便當", k: 850, e: "🍱" }, { n: "雞絲飯", k: 450, e: "🍚" },
+  { n: "廣東粥", k: 350, e: "🥣" }, { n: "麻辣燙(中)", k: 600, e: "🌶️" }, { n: "咖哩飯", k: 700, e: "🍛" },
+  { n: "親子丼", k: 650, e: "🍚" }, { n: "牛丼", k: 700, e: "🍚" }, { n: "蛋包飯", k: 650, e: "🍳" },
+  { n: "豚骨拉麵", k: 550, e: "🍜" }, { n: "湯烏龍麵", k: 400, e: "🍜" }, { n: "涼麵(一份)", k: 500, e: "🍝" },
+  { n: "多多綠茶(中)", k: 350, e: "🥤" }, { n: "檸檬愛玉", k: 200, e: "🍋" }, { n: "微糖奶茶(中)", k: 350, e: "🧋" },
+  { n: "運動飲料(600ml)", k: 150, e: "🥤" }, { n: "啤酒(330ml)", k: 140, e: "🍺" }, { n: "養樂多一瓶", k: 70, e: "🍶" },
+  { n: "無糖優格一杯", k: 100, e: "🥛" }, { n: "起司一片", k: 80, e: "🧀" }, { n: "綜合堅果30g", k: 180, e: "🥜" },
+  { n: "洋芋片(小包)", k: 300, e: "🥔" }, { n: "巧克力一排", k: 250, e: "🍫" }, { n: "冰淇淋一球", k: 200, e: "🍨" },
+  { n: "雞蛋糕3個", k: 200, e: "🟡" }, { n: "車輪餅(紅豆)", k: 200, e: "🟠" }, { n: "銅鑼燒", k: 220, e: "🟤" },
+  { n: "厚片吐司(花生)", k: 320, e: "🍞" }, { n: "肉鬆飯糰", k: 400, e: "🍙" },
 ];
 // 依日期決定今天第幾題（全體同步，且每天不同）
 function dailyGameIndex(dateStr, len) { let h = 0; for (const c of dateStr) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % len; }
@@ -1347,6 +1361,31 @@ const QUIZ_BANK = [
   { q: "一顆雞蛋大約含多少蛋白質？", o: ["1g", "6~7g", "20g"], a: 1, w: "一顆約 6~7g 蛋白質，是方便的優質蛋白來源。" },
   { q: "高 GI 食物的特性是？", o: ["快速升血糖", "完全沒熱量", "一定會變胖"], a: 0, w: "升糖快、較易餓；搭配蛋白纖維可減緩。" },
   { q: "運動後肌肉痠痛幾天體重微升，常因？", o: ["長脂肪", "肌肉發炎與水分", "代謝變慢"], a: 1, w: "修復過程的發炎與儲水，屬正常,會回落。" },
+  { q: "三大營養素中，消化時自己消耗熱量(TEF)最高的是？", o: ["碳水", "脂肪", "蛋白質"], a: 2, w: "蛋白質的食物熱效應最高，這也是高蛋白有利減脂的原因之一。" },
+  { q: "睡眠不足對減重的影響？", o: ["完全沒影響", "更容易餓、代謝變差", "幫助燃脂"], a: 1, w: "睡不夠會擾亂飢餓賀爾蒙、增加食慾，不利減脂。" },
+  { q: "體脂計(生物電阻)的讀數最容易被什麼影響？", o: ["身高", "體內水分", "穿什麼衣服"], a: 1, w: "水分多寡會大幅影響導電，所以體脂只看長期趨勢、固定條件量。" },
+  { q: "健康的減重速度建議每週不超過體重的多少？", o: ["約 1%", "約 5%", "越快越好"], a: 0, w: "太快易掉肌肉與反彈，約每週 0.5~1% 較穩。" },
+  { q: "早上空腹量體重的主要理由？", o: ["比較輕", "條件一致、可比較", "比較準到公克"], a: 1, w: "固定條件才能比較趨勢，不是因為數字好看。" },
+  { q: "果汁和整顆水果，哪個纖維較多、較有飽足感？", o: ["果汁", "整顆水果", "一樣"], a: 1, w: "榨汁會去掉纖維、糖更集中，整顆水果較佳。" },
+  { q: "局部瘦身（只瘦肚子）可行嗎？", o: ["可以，多做仰臥起坐", "不行，減脂是全身性的", "可以，靠按摩"], a: 1, w: "脂肪是全身一起降，無法指定部位。" },
+  { q: "BMR(基礎代謝)約佔 TDEE 的比例？", o: ["約 10%", "約 60~70%", "約 90%"], a: 1, w: "基礎代謝是大頭，運動消耗其實佔比相對小。" },
+  { q: "想增加每日消耗，CP值高又持久的是？", o: ["拼命做有氧", "提高日常活動量(NEAT)+重訓增肌", "只靠節食"], a: 1, w: "多走動的 NEAT 與肌肉量長期影響大且可持續。" },
+  { q: "喝冰水會大量燃燒脂肪嗎？", o: ["會，消耗很多", "幾乎可忽略", "會變胖"], a: 1, w: "身體加熱水的耗能極小，別當減肥手段。" },
+  { q: "「淨碳水」通常是總碳水減掉什麼？", o: ["蛋白質", "膳食纖維", "水分"], a: 1, w: "纖維不太被吸收，部分計算會扣除。" },
+  { q: "增肌一定要吃得很油膩嗎？", o: ["要，越油越好", "不用，重點是熱量盈餘+足夠蛋白+重訓", "完全不能吃油"], a: 1, w: "增肌靠盈餘與訓練，不是靠油膩。" },
+  { q: "體重停滯時，第一步該先檢查？", o: ["立刻斷食", "記錄是否低估、量測是否同條件", "換體重計"], a: 1, w: "常見是漏記或量測條件不一致，先排除這些。" },
+  { q: "一份雞胸肉(約一個手掌大)蛋白質約？", o: ["5g", "25~30g", "60g"], a: 1, w: "約 25~30g，是高效率的蛋白來源。" },
+  { q: "下列何者是低 GI(升糖較慢)的食物？", o: ["白吐司", "燕麥/糙米", "含糖飲料"], a: 1, w: "全穀與豆類升糖較慢，較有飽足、穩血糖。" },
+  { q: "喝水有助控制食慾，部分原因是？", o: ["水有熱量", "增加飽足、有時口渴會被誤判成餓", "加快脂肪分解"], a: 1, w: "餐前喝水可增加飽足，也避免把口渴當成飢餓。" },
+  { q: "一根中型香蕉大約多少大卡？", o: ["約 50", "約 105", "約 250"], a: 1, w: "約 105 kcal，是方便的運動前點心。" },
+  { q: "便祕時體重短暫上升，主要因為？", o: ["長脂肪", "腸道內容物", "長肌肉"], a: 1, w: "只是腸道存量，不是真的變胖。" },
+  { q: "蛋白質的攝取較理想的方式是？", o: ["集中一餐吃完", "三餐分散攝取", "只在睡前吃"], a: 1, w: "分散到各餐較利於肌肉合成與飽足。" },
+  { q: "反式脂肪主要來自？", o: ["天然蔬果", "部分氫化油、油炸與烘焙食品", "白開水"], a: 1, w: "反式脂肪對心血管不利，應盡量避免。" },
+  { q: "全穀類(如糙米、燕麥)相較精緻澱粉的好處？", o: ["熱量是零", "纖維多、較有飽足、升糖較慢", "完全不含碳水"], a: 1, w: "保留麩皮胚芽，營養與飽足較佳。" },
+  { q: "減脂期碳水一定要完全戒掉嗎？", o: ["一定要", "不必，看的是總熱量與蛋白是否足夠", "只能吃碳水"], a: 1, w: "低碳只是手段之一，關鍵仍是總熱量赤字。" },
+  { q: "肌肉量較多的人，靜止時消耗會？", o: ["較低", "較高", "完全一樣"], a: 1, w: "肌肉是耗能組織，肌肉多基礎代謝通常較高。" },
+  { q: "含糖飲料對減脂的主要問題是？", o: ["完全沒問題", "液體糖熱量高又不太有飽足感", "讓人變瘦"], a: 1, w: "喝下大量糖卻不太有飽足，很容易超出熱量。" },
+  { q: "運動前後體重差好幾百公克，多半是？", o: ["燒掉的脂肪", "流汗的水分", "長出的肌肉"], a: 1, w: "主要是水分流失，補水後就回來了。" },
 ];
 // 取得今天的知識題（不洩漏答案，除非已玩過）
 app.get("/api/game/quiz", auth, async (req, res) => {
@@ -1377,6 +1416,64 @@ app.post("/api/game/quiz", auth, async (req, res) => {
       [JSON.stringify(games), coins, req.user.id]);
     const { state } = await computePet(req.user.id);
     res.json({ correct, answer: item.a, why: item.w, coins, options: item.o, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
+/* ---------- 小遊戲：健康賓果（每週一張 3x3，完成連線發幣） ---------- */
+function bingoWeekStart() { const t = twToday(); const d = new Date(t + "T00:00:00"); const dow = (d.getDay() + 6) % 7; return addDays(t, -dow); }
+const BINGO_CELLS = [
+  { label: "記飲食 1 天", k: c => c.logged >= 1 },
+  { label: "記飲食 3 天", k: c => c.logged >= 3 },
+  { label: "記飲食 5 天", k: c => c.logged >= 5 },
+  { label: "熱量達標 3 天", k: c => c.kcal >= 3 },
+  { label: "蛋白達標 3 天", k: c => c.protein >= 3 },
+  { label: "運動 2 天", k: c => c.exercise >= 2 },
+  { label: "運動 4 天", k: c => c.exercise >= 4 },
+  { label: "喝水達標 3 天", k: c => c.water >= 3 },
+  { label: "量體重 3 天", k: c => c.weight >= 3 },
+];
+const BINGO_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const BINGO_LINE_COIN = 15, BINGO_FULL_BONUS = 30;
+async function bingoStatus(userId) {
+  const ws = bingoWeekStart();
+  const st = await pool.query(
+    "SELECT logged,kcal_hit,protein_hit,exercised,water_hit,weight FROM daily_stats WHERE user_id=$1 AND date>=$2 AND date<=$3",
+    [userId, ws, twToday()]);
+  const c = { logged: 0, kcal: 0, protein: 0, exercise: 0, water: 0, weight: 0 };
+  st.rows.forEach(r => { if (r.logged) c.logged++; if (r.kcal_hit) c.kcal++; if (r.protein_hit) c.protein++; if (r.exercised) c.exercise++; if (r.water_hit) c.water++; if (r.weight != null) c.weight++; });
+  const done = BINGO_CELLS.map(cell => !!cell.k(c));
+  const completedLines = BINGO_LINES.map((ln, i) => i).filter(i => BINGO_LINES[i].every(idx => done[idx]));
+  const fullCard = done.every(Boolean);
+  return { ws, done, completedLines, fullCard };
+}
+app.get("/api/game/bingo", auth, async (req, res) => {
+  try {
+    const games = await readGames(req.user.id);
+    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const s = await bingoStatus(req.user.id);
+    const saved = (games.bingo && games.bingo.week === s.ws) ? games.bingo : { week: s.ws, claimed: [], full: false };
+    const newLines = s.completedLines.filter(i => !(saved.claimed || []).includes(i));
+    const claimable = newLines.length * BINGO_LINE_COIN + (s.fullCard && !saved.full ? BINGO_FULL_BONUS : 0);
+    res.json({ cells: BINGO_CELLS.map((c, i) => ({ label: c.label, done: s.done[i] })), lines: BINGO_LINES,
+      completedLines: s.completedLines, claimedLines: saved.claimed || [], fullCard: s.fullCard, fullClaimed: !!saved.full, claimable });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/game/bingo/claim", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+    const s = await bingoStatus(req.user.id);
+    const saved = (games.bingo && games.bingo.week === s.ws) ? games.bingo : { week: s.ws, claimed: [], full: false };
+    const newLines = s.completedLines.filter(i => !(saved.claimed || []).includes(i));
+    const fullNew = s.fullCard && !saved.full;
+    const coins = newLines.length * BINGO_LINE_COIN + (fullNew ? BINGO_FULL_BONUS : 0);
+    if (coins <= 0) return res.status(400).json({ error: "目前沒有可領的連線獎勵" });
+    games.bingo = { week: s.ws, claimed: [...new Set([...(saved.claimed || []), ...newLines])], full: saved.full || fullNew };
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), coins, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ coins, newLines: newLines.length, full: fullNew, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 

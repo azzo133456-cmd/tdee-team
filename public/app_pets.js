@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 async function loadCalorieGame(){
@@ -185,6 +185,43 @@ async function playQuizGame(choice){
       `<div class="hint" style="color:var(--ink);line-height:1.6;margin-top:4px;">${r.why}</div>`+
       `<div class="hint tip" style="margin-top:6px;">明天再來一題 🧠</div>`;
     if(typeof renderPet==="function") renderPet();
+  }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：健康賓果（每週 3x3，完成連線領幣） ---------- */
+async function loadBingoGame(){
+  const card=document.getElementById("bingoCard"); if(!card) return;
+  try{ const g=await api("/api/game/bingo"); renderBingoGame(g); }
+  catch(e){ card.style.display="none"; }
+}
+function renderBingoGame(g){
+  const card=document.getElementById("bingoCard"), box=document.getElementById("bingoBox");
+  if(!card||!box) return;
+  card.style.display="";
+  const inLine=new Set(); g.completedLines.forEach(i=>g.lines[i].forEach(idx=>inLine.add(idx)));
+  const cells=g.cells.map((c,i)=>{
+    const done=c.done, line=inLine.has(i);
+    const bg=done?(line?"var(--green)":"var(--soft)"):"#fff";
+    const col=done&&line?"#fff":(done?"var(--green)":"var(--sub)");
+    return `<div style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border:1px solid ${done?'var(--green)':'var(--line)'};border-radius:10px;background:${bg};color:${col};padding:4px;font-size:11px;line-height:1.25;">`+
+      `<div style="font-size:15px;margin-bottom:2px;">${done?'✅':'⬜'}</div>${c.label}</div>`;
+  }).join("");
+  let html=`<div class="hint" style="margin-bottom:8px;">本週完成健康行為連成一線就能領骨頭幣（每週一重置）。</div>`+
+    `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">${cells}</div>`;
+  html+=`<div style="margin-top:10px;font-size:13px;">已連線 <b>${g.completedLines.length}</b> 條　·　已領 ${g.claimedLines.length} 條${g.fullClaimed?"　·　全滿獎已領 🏅":""}</div>`;
+  if(g.claimable>0){
+    html+=`<button onclick="claimBingo()" style="margin-top:8px;">🦴 領取連線獎勵 +${g.claimable}</button>`;
+  }else{
+    html+=`<div class="hint tip" style="margin-top:8px;">完成更多行為連成新線就能領獎；集滿 9 格再加碼 +${30}。</div>`;
+  }
+  box.innerHTML=html;
+}
+async function claimBingo(){
+  try{
+    const r=await api("/api/game/bingo/claim",{method:"POST",body:JSON.stringify({})});
+    if(r.pet) petData=r.pet;
+    await loadBingoGame();
+    if(typeof renderPet==="function") renderPet();
+    alert(`領到 🦴${r.coins}！${r.full?"(含集滿全卡加碼)":""}`);
   }catch(e){ alert(e.message); }
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
