@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame(); loadG2048Game();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame(); loadG2048Game(); loadJumpGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
@@ -516,6 +516,63 @@ async function g2End(){
     const box=document.getElementById("g2Box");
     if(box) box.innerHTML+=`<div style="text-align:center;margin-top:10px;font-weight:800;color:var(--green)">遊戲結束！最高方塊 ${best}${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}</div>`+
       `<div style="text-align:center;margin-top:8px;"><button onclick="startG2048()" style="width:auto;padding:10px 22px;">再玩一次</button></div>`;
+    if(typeof renderPet==="function") renderPet();
+  }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：寵物跳跳（Flappy 風，主角＝你的寵物） ---------- */
+let jumpState=null;
+async function loadJumpGame(){
+  const card=document.getElementById("jumpCard"); if(!card) return;
+  try{ const g=await api("/api/game/jump"); renderJumpGame(g); }
+  catch(e){ card.style.display="none"; }
+}
+function renderJumpGame(g){
+  const card=document.getElementById("jumpCard"), box=document.getElementById("jumpBox");
+  if(!card||!box) return; card.style.display="";
+  const last=(g.played&&g.result)?`今天最佳 ${g.result.best} 分、已得 🦴${g.result.coins}`:`點畫面讓寵物往上跳，穿過縫隙得分。每天首次發幣。`;
+  box.innerHTML=`<div id="jumpInfo" class="hint" style="text-align:center;">${last}</div>`+
+    `<canvas id="jumpCanvas" width="300" height="360" onclick="jumpFlap()" style="display:block;margin:8px auto 0;width:100%;max-width:300px;background:#cfe3ee;border-radius:10px;touch-action:manipulation;"></canvas>`+
+    `<div style="text-align:center;margin-top:8px;"><button onclick="startJump()" id="jumpBtn" style="width:auto;padding:12px 24px;">🐾 開始(點畫面跳)</button></div>`;
+}
+function jumpStop(){ if(jumpState&&jumpState.raf) cancelAnimationFrame(jumpState.raf); }
+function jumpFlap(){ if(jumpState&&!jumpState.over) jumpState.vy=-6.4; }
+function startJump(){
+  jumpStop();
+  const cv=document.getElementById("jumpCanvas"); if(!cv) return;
+  const ctx=cv.getContext("2d");
+  const art=(typeof petArtUrl==="function"&&petData)?petArtUrl(petData.species,petData.breed,petData.stageIdx):null;
+  let img=null; if(art){ img=new Image(); img.src=art; }
+  jumpState={ctx,W:cv.width,H:cv.height,x:64,y:cv.height/2,vy:0,pipes:[],spawnT:70,score:0,over:false,img,emoji:(petData&&petData.emoji)||"🐾",raf:null};
+  const btn=document.getElementById("jumpBtn"); if(btn) btn.textContent="🐾 點畫面跳！";
+  jumpLoop();
+}
+function jumpLoop(){
+  const s=jumpState; if(!s||s.over) return;
+  const ctx=s.ctx,W=s.W,H=s.H;
+  s.vy+=0.42; s.y+=s.vy;
+  s.spawnT++; if(s.spawnT>=92){ s.spawnT=0; const gap=112, gapY=40+Math.random()*(H-80-gap); s.pipes.push({x:W,gapY,gap,passed:false}); }
+  s.pipes.forEach(p=>p.x-=2.2); s.pipes=s.pipes.filter(p=>p.x>-40);
+  s.pipes.forEach(p=>{ if(!p.passed && p.x+34<s.x){ p.passed=true; s.score++; } });
+  let dead = s.y<14 || s.y>H-14;
+  for(const p of s.pipes){ if(s.x+15>p.x && s.x-15<p.x+34 && (s.y-15<p.gapY || s.y+15>p.gapY+p.gap)) dead=true; }
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle="#cfe3ee"; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#7fb08a"; s.pipes.forEach(p=>{ ctx.fillRect(p.x,0,34,p.gapY); ctx.fillRect(p.x,p.gapY+p.gap,34,H-(p.gapY+p.gap)); });
+  if(s.img&&s.img.complete&&s.img.naturalWidth) ctx.drawImage(s.img,s.x-18,s.y-18,36,36);
+  else { ctx.font="30px serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(s.emoji,s.x,s.y); }
+  ctx.fillStyle="#3a2f25"; ctx.font="bold 22px sans-serif"; ctx.textAlign="left"; ctx.textBaseline="alphabetic"; ctx.fillText(s.score,12,30);
+  if(dead){ jumpEnd(); return; }
+  s.raf=requestAnimationFrame(jumpLoop);
+}
+async function jumpEnd(){
+  if(!jumpState||jumpState.over) return; jumpState.over=true; jumpStop();
+  const score=jumpState.score;
+  try{
+    const r=await api("/api/game/jump",{method:"POST",body:JSON.stringify({score})});
+    if(r.pet) petData=r.pet;
+    const info=document.getElementById("jumpInfo");
+    if(info) info.innerHTML=`💥 撞到了！得 ${score} 分${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}　·　最佳 ${r.best}`;
+    const btn=document.getElementById("jumpBtn"); if(btn) btn.textContent="🐾 再玩一次";
     if(typeof renderPet==="function") renderPet();
   }catch(e){ alert(e.message); }
 }
