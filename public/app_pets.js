@@ -394,7 +394,7 @@ function startWhack(){
   whackClear();
   whackState={score:0,time:20,holes:Array(9).fill(null),spawn:null,tick:null,over:false};
   drawWhack();
-  whackState.spawn=setInterval(whackSpawn,720);
+  whackState.spawn=setInterval(whackSpawn,580);
   whackState.tick=setInterval(()=>{ if(!whackState)return; whackState.time--; if(whackState.time<=0){ endWhack(); } else drawWhack(); },1000);
 }
 function whackSpawn(){

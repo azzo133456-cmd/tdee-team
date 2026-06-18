@@ -1634,7 +1634,7 @@ app.post("/api/game/whack", auth, async (req, res) => {
     const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
     const prevBest = (games.whack && games.whack.date === today) ? (games.whack.best || games.whack.score || 0) : null;
     const already = games.whack && games.whack.date === today;
-    const coins = already ? 0 : (score >= 22 ? 30 : score >= 14 ? 20 : score >= 7 ? 12 : 6);
+    const coins = already ? 0 : (score >= 20 ? 30 : score >= 13 ? 20 : score >= 6 ? 12 : 6);
     games.whack = { date: today, score, best: Math.max(score, prevBest || 0), coins: already ? (games.whack.coins || 0) : coins };
     await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
       [JSON.stringify(games), coins, req.user.id]);
