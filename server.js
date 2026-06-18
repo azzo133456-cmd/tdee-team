@@ -1480,7 +1480,7 @@ app.post("/api/game/bingo/claim", auth, async (req, res) => {
 /* ---------- 小遊戲：團隊魔王戰（每週，群組合作；唯讀 daily_stats，不動既有競賽） ----------
    全隊本週的「達標健康行為」累積成傷害，打掉魔王血量；打倒後每位成員可各領一次幣。*/
 const BOSS_NAMES = ["甜食魔王 🍰", "油炸怪獸 🍟", "手搖惡魔 🧋", "宵夜巨獸 🌙", "懶散史萊姆 🫠", "碳水巨龍 🐲", "拖延幽靈 👻"];
-const BOSS_REWARD = 40;
+const BOSS_REWARD = 120;
 async function bossForGroup(g) {
   const mem = await pool.query("SELECT user_id FROM group_members WHERE group_id=$1", [g.id]);
   const ids = mem.rows.map(m => m.user_id);
