@@ -113,6 +113,11 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
+  // 遊戲改成「點開遊戲分頁才載入」(lazy)，不在開 App 時連發 9 個請求拖慢入口
+}
+let gamesTabLoaded=false;
+function loadAllGames(){
+  if(gamesTabLoaded) return; gamesTabLoaded=true;
   loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame(); loadG2048Game(); loadJumpGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
@@ -535,7 +540,7 @@ function renderJumpGame(g){
     `<div style="text-align:center;margin-top:8px;"><button onclick="startJump()" id="jumpBtn" style="width:auto;padding:12px 24px;">🐾 開始(點畫面跳)</button></div>`;
 }
 function jumpStop(){ if(jumpState&&jumpState.raf) cancelAnimationFrame(jumpState.raf); }
-function jumpFlap(){ if(jumpState&&!jumpState.over){ jumpState.started=true; jumpState.vy=-5.6; } }   // 第一次點擊才開始
+function jumpFlap(){ if(jumpState&&!jumpState.over){ jumpState.started=true; jumpState.vy=-5.2; } }   // 第一次點擊才開始
 function startJump(){
   jumpStop();
   const cv=document.getElementById("jumpCanvas"); if(!cv) return;
@@ -551,9 +556,9 @@ function jumpLoop(){
   const ctx=s.ctx,W=s.W,H=s.H; s.t++;
   let dead=false;
   if(s.started){
-    s.vy+=0.30; s.y+=s.vy;                                  // 放寬：重力較輕
-    s.spawnT++; if(s.spawnT>=104){ s.spawnT=0; const gap=132, gapY=40+Math.random()*(H-80-gap); s.pipes.push({x:W,gapY,gap,passed:false}); }
-    s.pipes.forEach(p=>p.x-=1.9);                            // 放寬：障礙較慢
+    s.vy+=0.26; s.y+=s.vy;                                  // 更輕的重力
+    s.spawnT++; if(s.spawnT>=116){ s.spawnT=0; const gap=144, gapY=40+Math.random()*(H-80-gap); s.pipes.push({x:W,gapY,gap,passed:false}); }
+    s.pipes.forEach(p=>p.x-=1.7);                            // 障礙更慢、間隔更寬、縫隙更大
     s.pipes=s.pipes.filter(p=>p.x>-40);
     s.pipes.forEach(p=>{ if(!p.passed && p.x+34<s.x){ p.passed=true; s.score++; } });
     dead = s.y<14 || s.y>H-14;

@@ -631,6 +631,7 @@ function toggleTips(){ localStorage.setItem("tdee_tips", localStorage.getItem("t
 function showTab(name){
   ["overview","food","exercise","records","games"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
+  if(name==="games" && typeof loadAllGames==="function") loadAllGames();   // 進遊戲分頁才載入(lazy)，整個 session 只載一次
   window.scrollTo(0,0);
 }
 
