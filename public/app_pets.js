@@ -116,9 +116,11 @@ async function loadPet(){
   loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
+let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
 async function loadCalorieGame(){
   const card=document.getElementById("gameCard"); if(!card) return;
-  try{ const g=await api("/api/game/calorie"); renderCalorieGame(g); }
+  if(calorieLoaded) return;                  // 已載入過就不重畫
+  try{ const g=await api("/api/game/calorie"); renderCalorieGame(g); calorieLoaded=true; }
   catch(e){ card.style.display="none"; }   // 沒寵物等情況：隱藏整張卡
 }
 function renderCalorieGame(g){
@@ -157,7 +159,8 @@ async function playCalorieGame(){
 /* ---------- 小遊戲：健康知識測驗（每日一題） ---------- */
 async function loadQuizGame(){
   const card=document.getElementById("quizCard"); if(!card) return;
-  try{ const g=await api("/api/game/quiz"); renderQuizGame(g); }
+  if(quizLoaded) return;
+  try{ const g=await api("/api/game/quiz"); renderQuizGame(g); quizLoaded=true; }
   catch(e){ card.style.display="none"; }
 }
 function renderQuizGame(g){

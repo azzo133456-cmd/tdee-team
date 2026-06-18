@@ -1306,7 +1306,7 @@ app.get("/api/game/calorie", auth, async (req, res) => {
     const games = await readGames(req.user.id);
     if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
     const today = twToday();
-    const food = GAME_FOODS[dailyGameIndex(today, GAME_FOODS.length)];
+    const food = GAME_FOODS[dailyGameIndex(today + "#" + req.user.id, GAME_FOODS.length)];
     const g = games.calorie;
     const played = g && g.date === today;
     res.json({ name: food.n, emoji: food.e, played, result: played ? g : null });
@@ -1322,7 +1322,7 @@ app.post("/api/game/calorie", auth, async (req, res) => {
     if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
     const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
     if (games.calorie && games.calorie.date === today) return res.status(400).json({ error: "今天已經玩過囉，明天再來～" });
-    const food = GAME_FOODS[dailyGameIndex(today, GAME_FOODS.length)];
+    const food = GAME_FOODS[dailyGameIndex(today + "#" + req.user.id, GAME_FOODS.length)];
     const answer = food.k;
     const errPct = Math.abs(guess - answer) / Math.max(1, answer);
     // 越接近獎越多：±10%→20、±25%→12、±50%→6、其餘 2
@@ -1393,7 +1393,7 @@ app.get("/api/game/quiz", auth, async (req, res) => {
     const games = await readGames(req.user.id);
     if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
     const today = twToday();
-    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz", QUIZ_BANK.length)];
+    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz#" + req.user.id, QUIZ_BANK.length)];
     const g = games.quiz;
     const played = g && g.date === today;
     res.json({ q: item.q, options: item.o, played, result: played ? g : null });
@@ -1403,7 +1403,7 @@ app.post("/api/game/quiz", auth, async (req, res) => {
   try {
     const choice = Math.round(+req.body.choice);
     const today = twToday();
-    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz", QUIZ_BANK.length)];
+    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz#" + req.user.id, QUIZ_BANK.length)];
     if (!(choice >= 0 && choice < item.o.length)) return res.status(400).json({ error: "選項不合法" });
     const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
     if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
@@ -1423,14 +1423,14 @@ app.post("/api/game/quiz", auth, async (req, res) => {
 function bingoWeekStart() { const t = twToday(); const d = new Date(t + "T00:00:00"); const dow = (d.getDay() + 6) % 7; return addDays(t, -dow); }
 const BINGO_CELLS = [
   { label: "記飲食 1 天", k: c => c.logged >= 1 },
-  { label: "記飲食 3 天", k: c => c.logged >= 3 },
-  { label: "記飲食 5 天", k: c => c.logged >= 5 },
-  { label: "熱量達標 3 天", k: c => c.kcal >= 3 },
-  { label: "蛋白達標 3 天", k: c => c.protein >= 3 },
-  { label: "運動 2 天", k: c => c.exercise >= 2 },
-  { label: "運動 4 天", k: c => c.exercise >= 4 },
-  { label: "喝水達標 3 天", k: c => c.water >= 3 },
-  { label: "量體重 3 天", k: c => c.weight >= 3 },
+  { label: "記飲食 2 天", k: c => c.logged >= 2 },
+  { label: "記飲食 4 天", k: c => c.logged >= 4 },
+  { label: "熱量達標 2 天", k: c => c.kcal >= 2 },
+  { label: "蛋白達標 2 天", k: c => c.protein >= 2 },
+  { label: "運動 1 天", k: c => c.exercise >= 1 },
+  { label: "運動 3 天", k: c => c.exercise >= 3 },
+  { label: "喝水達標 2 天", k: c => c.water >= 2 },
+  { label: "量體重 2 天", k: c => c.weight >= 2 },
 ];
 const BINGO_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
 const BINGO_LINE_COIN = 18, BINGO_FULL_BONUS = 36;
@@ -1491,7 +1491,7 @@ async function bossForGroup(g) {
     [ids, ws, twToday()]);
   let damage = 0;
   st.rows.forEach(r => { damage += (r.logged ? 1 : 0) + (r.kcal_hit ? 1 : 0) + (r.protein_hit ? 1 : 0) + (r.exercised ? 1 : 0) + (r.water_hit ? 1 : 0); });
-  const hp = ids.length * 21;                                   // 每人約 60% 達標即可打倒
+  const hp = ids.length * 14;                                   // 放寬：每人約 40% 達標即可打倒
   const bossName = BOSS_NAMES[dailyGameIndex(g.id + ":" + ws, BOSS_NAMES.length)];
   return { groupId: g.id, name: g.name, bossName, hp, damage, defeated: damage >= hp, members: ids.length, week: ws };
 }
