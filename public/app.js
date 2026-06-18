@@ -322,6 +322,9 @@ function planContext(){
       }else etaText="趨勢與目標相反";
     }
   }
+  // 經期相位（女性有記錄才有）：解讀體重/身體組成時把水分變因納入
+  const cyc=(typeof cyclePhase==="function")?cyclePhase():null;
+  const cycleSummary = cyc ? { day:cyc.day, phase:cyc.phase, highWater:!!cyc.highWater } : null;
   // 身體組成趨勢（脂肪量/瘦體重），給教練與覆盤參考「掉的是脂肪還是肌肉」
   const bc=bodyComp();
   const bodyCompSummary = bc.ok ? {
@@ -334,7 +337,7 @@ function planContext(){
     weight:curW, targetWeight:tgtW, bfNow, bfDelta,
     dailyDeficitTarget, weeklyTargetKg, weeklyObservedKg,
     dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText,
-    bodyComp:bodyCompSummary
+    bodyComp:bodyCompSummary, cycle:cycleSummary
   };
 }
 // 依資料自動判斷減重計畫的階段
@@ -1091,13 +1094,14 @@ function cyclePhase(){
   const day=Math.floor((new Date(todayStr())-new Date(last))/86400000)+1;  // 開始日當第 1 天
   if(day<1) return null;
   // 概略相位：1-5 月經期、6-13 濾泡期、14-15 排卵、16-28 黃體期(易水腫)、>28 可能下次將至
-  let phase, note;
-  if(day<=5){ phase="月經期"; note="這幾天體重可能偏高（水分），屬正常，別過度節食。"; }
+  let phase, note, highWater=false;
+  if(day<=5){ phase="月經期"; note="這幾天體重可能偏高（水分），屬正常，別過度節食。"; highWater=true; }
   else if(day<=13){ phase="濾泡期"; note="水分通常較穩定，是看減重趨勢的好時機。"; }
   else if(day<=15){ phase="排卵期"; note="體重可能小幅波動，正常。"; }
-  else if(day<=28){ phase="黃體期"; note="⚠️ 易水分滯留、體重偏高 0.5–2kg，是水不是脂肪，別慌。"; }
+  else if(day<=28){ phase="黃體期"; note="⚠️ 易水分滯留、體重偏高 0.5–2kg，是水不是脂肪，別慌。"; highWater=true; }
   else { phase="週期偏長"; note="已超過 28 天，下次經期可能將至；記得記錄開始日。"; }
-  return {day, phase, note, last};
+  // highWater=易水分滯留期（黃體/月經）→ 解讀體重/身體組成時要把水分變因考慮進去
+  return {day, phase, note, last, highWater};
 }
 function renderPeriod(){
   const card=document.getElementById("cardPeriod"); if(!card) return;
@@ -2304,11 +2308,13 @@ function bodyComp(){
 // 概覽的「減脂品質／肌肉守恆」面板：用脂肪量 vs 瘦體重趨勢解讀「掉的是脂肪還是肌肉」
 function renderBodyComp(){
   const card=document.getElementById("bodyCompCard"); if(!card) return;
-  const box=document.getElementById("bodyCompBox");
+  const box=document.getElementById("bodyCompBox"); if(!box) return;
   const bc=bodyComp();
   if(!bc.ok){
     // 上鎖：體脂資料不夠就不顯示判讀，只給一句引導（避免拿稀疏 BIA 亂判）
     const bfDays=(store.records||[]).filter(r=>r.body_fat!=null).length;
+    // 完全沒記過體脂、又不是減脂目標 → 直接隱藏整張卡，避免對沒在追體脂的人造成雜訊
+    if(bfDays===0 && val("goal")!=="cut"){ card.style.display="none"; return; }
     card.style.display="";
     box.innerHTML=`<div class="hint">記錄體脂後，這裡會分析「你掉的是脂肪還是肌肉」。需要約 2 週、且體脂量測夠規律（目前 ${bfDays} 筆）。<br>建議固定早上空腹、同一台體脂計量，趨勢才準。</div>`;
     return;
@@ -2330,6 +2336,11 @@ function renderBodyComp(){
   if(bc.wD<-0.2){
     const fatPart=Math.min(100,Math.max(0,Math.round(bc.fatD/bc.wD*100)));
     html+=`<div class="hint" style="margin-top:8px;">近 ${bc.spanWk} 週共變化 ${bc.wD}kg：其中脂肪 ${bc.fatD}kg、瘦組織 ${bc.leanD}kg。<b>${fatPart>=75?"七成以上是脂肪，品質好 👍":fatPart>=50?"約一半是脂肪，還可更好":"脂肪佔比偏低，留意肌肉流失"}</b></div>`;
+  }
+  // 經期相位提醒：易水腫期時，提醒這幾天的數據受水分影響（女性有記經期才會出現）
+  const cyc=(typeof cyclePhase==="function")?cyclePhase():null;
+  if(cyc && cyc.highWater){
+    html+=`<div class="hint" style="margin-top:8px;color:var(--warm)">🩸 目前第 ${cyc.day} 天（${cyc.phase}）：易水分滯留，這幾天體重與瘦體重讀數可能偏高，屬正常水分，判讀以整段趨勢為準。</div>`;
   }
   html+=`<div class="hint tip" style="margin-top:8px;">脂肪量＝體重×體脂%、瘦體重＝體重×(1−體脂%)，皆取 28 天平滑趨勢。體脂計受水分影響大，只看長期趨勢、別看單日。</div>`;
   box.innerHTML=html;

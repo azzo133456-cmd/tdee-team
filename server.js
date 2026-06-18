@@ -951,6 +951,13 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
         if (p.weeklyObservedKg != null) parts.push("實際觀察到每週體重變化 " + p.weeklyObservedKg + " kg" + (p.weeklyObservedKg < 0 ? "（下降中，方向正確）" : p.weeklyObservedKg > 0 ? "（上升中，與減重目標相反）" : "（持平）"));
         if (p.etaText) parts.push("依目前速度預計達標：" + p.etaText);
       }
+      // 經期相位（女性）：解讀體重/停滯時把水分變因考慮進去
+      const cyc = p.cycle;
+      if (cyc) {
+        parts.push("生理週期：目前第 " + cyc.day + " 天（" + cyc.phase + "）");
+        if (cyc.highWater)
+          parts.push("⚠️ 目前處於易水分滯留期（" + cyc.phase + "），體重可能偏高 0.5–2kg 是水不是脂肪——若這幾天體重沒掉或上升，請解讀為『正常的週期性水腫』，不要因此建議加大赤字或讓她氣餒，提醒過了這期通常會回落");
+      }
       // 身體組成趨勢（脂肪量 vs 瘦體重）：讓 AI 判斷「掉的是脂肪還是肌肉」，避免一味叫人少吃
       const bc = p.bodyComp;
       if (bc) {
