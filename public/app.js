@@ -322,12 +322,19 @@ function planContext(){
       }else etaText="趨勢與目標相反";
     }
   }
+  // 身體組成趨勢（脂肪量/瘦體重），給教練與覆盤參考「掉的是脂肪還是肌肉」
+  const bc=bodyComp();
+  const bodyCompSummary = bc.ok ? {
+    fatWk:bc.fatWk, leanWk:bc.leanWk, wWk:bc.wWk, spanWk:bc.spanWk,
+    fatNow:bc.fatNow, leanNow:bc.leanNow, quality:bc.quality.key, qualityLabel:bc.quality.label
+  } : null;
   return {
     goal, tdee:base.tdee||null, tdeeSource:base.src||"", tdeeIsReal, dataDays:R.days||0,
     target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
     weight:curW, targetWeight:tgtW, bfNow, bfDelta,
     dailyDeficitTarget, weeklyTargetKg, weeklyObservedKg,
-    dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText
+    dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText,
+    bodyComp:bodyCompSummary
   };
 }
 // 依資料自動判斷減重計畫的階段
@@ -2258,7 +2265,75 @@ function calcReal(records, exercises){
   return out;
 }
 
+/* ---------- 身體組成：脂肪量 vs 瘦體重趨勢（解讀「掉的是脂肪還是肌肉」） ----------
+   用體脂拆出 脂肪量=體重×體脂%、瘦體重=體重×(1−體脂%)，各自做 28 天 EMA 平滑再取週斜率。
+   ⚠️ BIA 體脂雜訊大、且受水分影響（水多→體脂讀偏低→瘦體重被灌高），所以只看長期平滑趨勢、且資料要夠密才判讀。*/
+function bodyComp(){
+  const recs=(store.records||[]).filter(r=>r.weight!=null && r.body_fat!=null).slice(-28);
+  const out={ok:false, days:recs.length};
+  // 上鎖：體脂紀錄要夠密（≥8 筆且跨距≥14 天）才判讀，否則拿稀疏 BIA 亂判會誤導
+  if(recs.length<8) return out;
+  const t0=new Date(recs[0].date).getTime();
+  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
+  if(xs[xs.length-1]-xs[0] < 14) return out;
+  const ema=(arr)=>{const o=[];let e=arr[0];for(let i=0;i<arr.length;i++){e=i===0?arr[0]:0.3*arr[i]+0.7*e;o.push(e);}return o;};
+  const fat=ema(recs.map(r=>+r.weight*(+r.body_fat)/100));
+  const lean=ema(recs.map(r=>+r.weight*(1-(+r.body_fat)/100)));
+  const wt=ema(recs.map(r=>+r.weight));
+  const slopeWk=(ys)=>{const n=xs.length,mx=avg(xs),my=avg(ys);let num=0,den=0;for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}return den?(num/den)*7:0;};
+  const fatWk=slopeWk(fat), leanWk=slopeWk(lean), wWk=slopeWk(wt);
+  const spanWk=Math.max(1,(xs[xs.length-1]-xs[0])/7);
+  out.ok=true; out.days=recs.length; out.spanWk=+spanWk.toFixed(1);
+  out.fatWk=+fatWk.toFixed(2); out.leanWk=+leanWk.toFixed(2); out.wWk=+wWk.toFixed(2);
+  out.fatD=+(fatWk*spanWk).toFixed(1); out.leanD=+(leanWk*spanWk).toFixed(1); out.wD=+(wWk*spanWk).toFixed(1);
+  out.fatNow=+fat[fat.length-1].toFixed(1); out.leanNow=+lean[lean.length-1].toFixed(1);
+  // 判讀（噪音地板 0.05kg/週；真肌肉流失很慢，短期「瘦體重掉」多為水分，所以門檻設保守）
+  const F=0.05;
+  let key,label,note,col;
+  if(wWk>-0.05 && fatWk<-F && leanWk>=-0.03){ key="recomp"; label="💪 增肌減脂"; col="var(--green)"; note="體重幾乎沒動，但脂肪在降、瘦體重保住甚至增加——是好結果，別誤判為停滯。"; }
+  else if(fatWk<-F && leanWk>=-0.05){ key="good"; label="✅ 高品質減脂"; col="var(--green)"; note="掉的主要是脂肪，肌肉守得住。維持目前的赤字＋蛋白＋重訓就好。"; }
+  else if(wWk<-F && leanWk<=-0.10 && fatWk<-F){ key="muscle"; label="⚠️ 有掉到肌肉"; col="var(--warm)"; note="體重在降，但瘦體重也明顯下滑——可能赤字太大／蛋白不足／重訓不夠。別再砍熱量，先補蛋白＋重訓。"; }
+  else if(fatWk>=-0.03 && leanWk<=-F){ key="bad"; label="🚨 掉的不是脂肪"; col="#b5564e"; note="脂肪沒怎麼降、瘦體重卻在掉——掉的多是肌肉/水。立刻停止再減，回維持熱量、加蛋白與重訓。"; }
+  else if(fatWk>F){ key="fatup"; label="📈 脂肪量上升"; col=(val("goal")==="bulk")?"var(--sub)":"#b5564e"; note=(val("goal")==="bulk")?"增肌期脂肪小幅上升正常，但留意上升速度別太快。":"脂肪量在增加，檢查是否熱量超出。"; }
+  else { key="flat"; label="平穩／變化不明顯"; col="var(--sub)"; note="近期身體組成變化不大，或資料雜訊較高，持續記錄會更清楚。"; }
+  out.quality={key,label,note,col};
+  return out;
+}
+
 /* ---------- 渲染 ---------- */
+// 概覽的「減脂品質／肌肉守恆」面板：用脂肪量 vs 瘦體重趨勢解讀「掉的是脂肪還是肌肉」
+function renderBodyComp(){
+  const card=document.getElementById("bodyCompCard"); if(!card) return;
+  const box=document.getElementById("bodyCompBox");
+  const bc=bodyComp();
+  if(!bc.ok){
+    // 上鎖：體脂資料不夠就不顯示判讀，只給一句引導（避免拿稀疏 BIA 亂判）
+    const bfDays=(store.records||[]).filter(r=>r.body_fat!=null).length;
+    card.style.display="";
+    box.innerHTML=`<div class="hint">記錄體脂後，這裡會分析「你掉的是脂肪還是肌肉」。需要約 2 週、且體脂量測夠規律（目前 ${bfDays} 筆）。<br>建議固定早上空腹、同一台體脂計量，趨勢才準。</div>`;
+    return;
+  }
+  card.style.display="";
+  const q=bc.quality;
+  const sign=(v)=>v>0?"+"+v:""+v;
+  const col=(v,goodNeg)=>{ if(Math.abs(v)<0.05) return "var(--sub)"; const good=goodNeg?v<0:v>0; return good?"var(--green)":"#b5564e"; };
+  // 脂肪：降為好(綠)；瘦體重：升/持平為好，掉為紅
+  const stat=(v,k,c)=>`<div><div class="v" style="color:${c}">${v}</div><div class="k">${k}</div></div>`;
+  let html=`<div style="font-weight:600;margin-bottom:4px;color:${q.col}">${q.label}</div>`+
+    `<div class="hint" style="color:var(--ink);line-height:1.6;">${q.note}</div>`+
+    `<div class="stat-row" style="margin-top:8px;">`+
+      stat((bc.fatWk>0?"+":"")+bc.fatWk+"kg/週", "脂肪量趨勢", col(bc.fatWk,true))+
+      stat((bc.leanWk>0?"+":"")+bc.leanWk+"kg/週", "瘦體重(肌肉)趨勢", bc.leanWk<-0.05?"#b5564e":(bc.leanWk>0.05?"var(--green)":"var(--sub)"))+
+      stat(bc.fatNow+"kg", "目前脂肪量", "var(--sub)")+
+      stat(bc.leanNow+"kg", "目前瘦體重", "var(--sub)")+`</div>`;
+  // 近 N 週體重變化的「脂肪/肌肉」拆解
+  if(bc.wD<-0.2){
+    const fatPart=Math.min(100,Math.max(0,Math.round(bc.fatD/bc.wD*100)));
+    html+=`<div class="hint" style="margin-top:8px;">近 ${bc.spanWk} 週共變化 ${bc.wD}kg：其中脂肪 ${bc.fatD}kg、瘦組織 ${bc.leanD}kg。<b>${fatPart>=75?"七成以上是脂肪，品質好 👍":fatPart>=50?"約一半是脂肪，還可更好":"脂肪佔比偏低，留意肌肉流失"}</b></div>`;
+  }
+  html+=`<div class="hint tip" style="margin-top:8px;">脂肪量＝體重×體脂%、瘦體重＝體重×(1−體脂%)，皆取 28 天平滑趨勢。體脂計受水分影響大，只看長期趨勢、別看單日。</div>`;
+  box.innerHTML=html;
+}
 function renderTable(){
   const recs=store.records, tb=document.querySelector("#tbl tbody"); tb.innerHTML="";
   if(recs.length===0){ show("tblEmpty"); document.getElementById("tbl").style.display="none"; return; }
@@ -2481,11 +2556,11 @@ function renderEta(){
   set("etaOut", `${y}/${m}/${d}`);
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); renderReport(); renderDashboard(); } }
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
-  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderReviews,renderReport,renderReal,renderPoints,drawChart,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
+  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderBodyComp,renderReviews,renderReport,renderReal,renderPoints,drawChart,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
   for(const fn of parts){ try{ fn(); }catch(e){ console.error("render 區塊出錯：",fn.name,e); } }
 }
 

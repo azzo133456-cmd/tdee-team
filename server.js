@@ -951,6 +951,13 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
         if (p.weeklyObservedKg != null) parts.push("實際觀察到每週體重變化 " + p.weeklyObservedKg + " kg" + (p.weeklyObservedKg < 0 ? "（下降中，方向正確）" : p.weeklyObservedKg > 0 ? "（上升中，與減重目標相反）" : "（持平）"));
         if (p.etaText) parts.push("依目前速度預計達標：" + p.etaText);
       }
+      // 身體組成趨勢（脂肪量 vs 瘦體重）：讓 AI 判斷「掉的是脂肪還是肌肉」，避免一味叫人少吃
+      const bc = p.bodyComp;
+      if (bc) {
+        parts.push("身體組成趨勢（近約 " + bc.spanWk + " 週、已平滑）：脂肪量每週 " + bc.fatWk + " kg、瘦體重(肌肉)每週 " + bc.leanWk + " kg → 判讀：" + (bc.qualityLabel || bc.quality));
+        if (bc.quality === "muscle" || bc.quality === "bad")
+          parts.push("⚠️ 瘦體重(肌肉)正在流失，是代謝下降的警訊——請『不要』建議再減熱量，改成：吃夠蛋白、加強重訓、必要時回維持熱量(diet break)把肌肉與代謝守住");
+      }
       return "【減重計畫脈絡】" + parts.join("；") + "。";
     })();
     let prompt;
