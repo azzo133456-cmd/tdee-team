@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame(); loadG2048Game();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
@@ -431,6 +431,91 @@ async function endWhack(){
     if(box) box.innerHTML=`<div style="text-align:center;font-weight:800;font-size:18px;color:var(--green);margin:8px 0;">⏰ 時間到！得 ${score} 分${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}</div>`+
       `<div style="text-align:center;font-size:13px;">今天最佳 ${r.best} 分</div>`+
       `<div style="text-align:center;margin-top:10px;"><button onclick="startWhack()" style="width:auto;padding:10px 22px;">再玩一次</button></div>`;
+    if(typeof renderPet==="function") renderPet();
+  }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：2048 食物版 ---------- */
+let g2State=null, g2Touch=null;
+const G2_FACE={2:"🍚",4:"🥚",8:"🍎",16:"🍌",32:"🍗",64:"🥦",128:"🍕",256:"🍔",512:"🍰",1024:"🍱",2048:"🏆"};
+const G2_BG={0:"var(--soft)",2:"#efe6d8",4:"#ecd9b8",8:"#f0b27a",16:"#e8825e",32:"#e26a4a",64:"#d9534f",128:"#f4c95d",256:"#f1c40f",512:"#7fb08a",1024:"#5b8aa6",2048:"#9b7cb6"};
+async function loadG2048Game(){
+  const card=document.getElementById("g2Card"); if(!card) return;
+  try{ const g=await api("/api/game/g2048"); renderG2048Game(g); }
+  catch(e){ card.style.display="none"; }
+}
+function renderG2048Game(g){
+  const card=document.getElementById("g2Card"), box=document.getElementById("g2Box");
+  if(!card||!box) return; card.style.display="";
+  const last=(g.played&&g.result)?`<div class="hint" style="text-align:center;">今天最高方塊 ${g.result.best}、已得 🦴${g.result.coins}（可再玩練習）</div>`
+    :`<div class="hint" style="text-align:center;">滑動或按方向鍵合併相同食物，目標 🏆2048！每天首次結束依最高方塊發幣。</div>`;
+  box.innerHTML=last+`<div style="text-align:center;margin-top:8px;"><button onclick="startG2048()" style="width:auto;padding:12px 24px;">🍎 開始遊戲</button></div>`;
+}
+function g2Spawn(){
+  const g=g2State.grid, empty=[]; for(let i=0;i<16;i++) if(!g[i]) empty.push(i);
+  if(!empty.length) return;
+  g[empty[Math.floor(Math.random()*empty.length)]]=Math.random()<0.9?2:4;
+}
+function startG2048(){
+  g2State={grid:Array(16).fill(0),score:0,over:false};
+  g2Spawn(); g2Spawn(); g2Draw();
+}
+function g2Slide(line){
+  let arr=line.filter(v=>v), sc=0;
+  for(let i=0;i<arr.length-1;i++){ if(arr[i]===arr[i+1]){ arr[i]*=2; sc+=arr[i]; arr.splice(i+1,1); } }
+  while(arr.length<4) arr.push(0);
+  return {res:arr, sc, chg:arr.some((v,i)=>v!==line[i])};
+}
+function g2Move(dir){
+  if(!g2State||g2State.over) return;
+  const g=g2State.grid; let moved=false, gained=0;
+  for(let i=0;i<4;i++){
+    let line;
+    if(dir==='l') line=[g[i*4],g[i*4+1],g[i*4+2],g[i*4+3]];
+    else if(dir==='r') line=[g[i*4+3],g[i*4+2],g[i*4+1],g[i*4]];
+    else if(dir==='u') line=[g[i],g[i+4],g[i+8],g[i+12]];
+    else line=[g[i+12],g[i+8],g[i+4],g[i]];
+    const {res,sc,chg}=g2Slide(line); gained+=sc; if(chg)moved=true;
+    for(let k=0;k<4;k++){
+      let idx; if(dir==='l') idx=i*4+k; else if(dir==='r') idx=i*4+(3-k); else if(dir==='u') idx=i+4*k; else idx=i+4*(3-k);
+      g[idx]=res[k];
+    }
+  }
+  if(moved){ g2State.score+=gained; g2Spawn(); g2Draw(); if(g2Over()) g2End(); }
+}
+function g2Over(){
+  const g=g2State.grid;
+  for(let i=0;i<16;i++) if(!g[i]) return false;
+  for(let i=0;i<4;i++) for(let j=0;j<4;j++){ const v=g[i*4+j]; if(j<3&&v===g[i*4+j+1]) return false; if(i<3&&v===g[(i+1)*4+j]) return false; }
+  return true;
+}
+function g2Draw(){
+  const box=document.getElementById("g2Box"); if(!box||!g2State) return;
+  const best=Math.max(...g2State.grid);
+  const cells=g2State.grid.map(v=>{
+    const face=v?(G2_FACE[v]||v):"";
+    return `<div style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:8px;background:${G2_BG[v]||'#9b7cb6'};font-size:22px;line-height:1;">${face}${v?`<span style=\"font-size:9px;color:#5a4a3a;\">${v}</span>`:""}</div>`;
+  }).join("");
+  const btn=(d,t)=>`<button onclick="g2Move('${d}')" style="width:auto;padding:10px 0;font-size:18px;">${t}</button>`;
+  box.innerHTML=`<div style="text-align:center;font-size:13px;font-weight:700;margin-bottom:6px;">分數 ${g2State.score}　最高 ${best}</div>`+
+    `<div id="g2Grid" ontouchstart="g2TS(event)" ontouchend="g2TE(event)" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:280px;margin:0 auto;touch-action:none;">${cells}</div>`+
+    `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:280px;margin:10px auto 0;">${btn('u','⬆️')}${btn('d','⬇️')}${btn('l','⬅️')}${btn('r','➡️')}</div>`;
+}
+function g2TS(e){ const t=e.touches[0]; g2Touch={x:t.clientX,y:t.clientY}; }
+function g2TE(e){
+  if(!g2Touch) return; const t=e.changedTouches[0];
+  const dx=t.clientX-g2Touch.x, dy=t.clientY-g2Touch.y; g2Touch=null;
+  if(Math.max(Math.abs(dx),Math.abs(dy))<24) return;
+  if(Math.abs(dx)>Math.abs(dy)) g2Move(dx>0?'r':'l'); else g2Move(dy>0?'d':'u');
+}
+async function g2End(){
+  if(!g2State||g2State.over) return; g2State.over=true;
+  const best=Math.max(...g2State.grid), score=g2State.score;
+  try{
+    const r=await api("/api/game/g2048",{method:"POST",body:JSON.stringify({best,score})});
+    if(r.pet) petData=r.pet;
+    const box=document.getElementById("g2Box");
+    if(box) box.innerHTML+=`<div style="text-align:center;margin-top:10px;font-weight:800;color:var(--green)">遊戲結束！最高方塊 ${best}${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}</div>`+
+      `<div style="text-align:center;margin-top:8px;"><button onclick="startG2048()" style="width:auto;padding:10px 22px;">再玩一次</button></div>`;
     if(typeof renderPet==="function") renderPet();
   }catch(e){ alert(e.message); }
 }
