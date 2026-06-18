@@ -1551,6 +1551,41 @@ app.post("/api/game/boss/claim", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
+/* ---------- 小遊戲：每日免費轉盤 ---------- */
+const SPIN_WHEEL = [
+  { coins: 5, w: 8 }, { coins: 10, w: 7 }, { coins: 20, w: 5 }, { coins: 5, w: 8 },
+  { coins: 15, w: 5 }, { coins: 30, w: 3 }, { coins: 10, w: 7 }, { coins: 120, w: 1, jackpot: true },
+];
+const spinSegments = () => SPIN_WHEEL.map(s => ({ coins: s.coins, jackpot: !!s.jackpot }));
+app.get("/api/game/spin", auth, async (req, res) => {
+  try {
+    const games = await readGames(req.user.id);
+    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const today = twToday();
+    const g = games.spin;
+    const played = g && g.date === today;
+    res.json({ segments: spinSegments(), played, result: played ? g : null });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/game/spin", auth, async (req, res) => {
+  try {
+    const today = twToday();
+    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+    if (games.spin && games.spin.date === today) return res.status(400).json({ error: "今天已經轉過囉，明天再來～" });
+    const tot = SPIN_WHEEL.reduce((a, s) => a + s.w, 0);
+    let rr = Math.random() * tot, idx = 0;
+    for (let i = 0; i < SPIN_WHEEL.length; i++) { rr -= SPIN_WHEEL[i].w; if (rr <= 0) { idx = i; break; } }
+    const coins = SPIN_WHEEL[idx].coins, jackpot = !!SPIN_WHEEL[idx].jackpot;
+    games.spin = { date: today, index: idx, coins, jackpot };
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), coins, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ index: idx, coins, jackpot, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 // 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
 app.post("/api/pet/gacha", auth, async (req, res) => {
   try {

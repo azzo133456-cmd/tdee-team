@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
@@ -263,6 +263,60 @@ async function claimBoss(groupId){
     if(typeof renderPet==="function") renderPet();
     alert(`討伐成功！領到 🦴${r.reward} 🏆`);
   }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：每日免費轉盤 ---------- */
+let spinSeg=[];
+async function loadSpinGame(){
+  const card=document.getElementById("spinCard"); if(!card) return;
+  try{ const g=await api("/api/game/spin"); renderSpinGame(g); }
+  catch(e){ card.style.display="none"; }
+}
+function spinWheelSvg(segments, rotation){
+  const cx=110,cy=110,r=100,n=segments.length,step=360/n;
+  const colors=["#f4c95d","#e8825e","#7fb08a","#5b8aa6","#c98b5e","#9b7cb6","#8aa6c9","#d08bb0"];
+  let paths="";
+  for(let i=0;i<n;i++){
+    const a0=(i*step-90)*Math.PI/180,a1=((i+1)*step-90)*Math.PI/180;
+    const x0=(cx+r*Math.cos(a0)).toFixed(1),y0=(cy+r*Math.sin(a0)).toFixed(1),x1=(cx+r*Math.cos(a1)).toFixed(1),y1=(cy+r*Math.sin(a1)).toFixed(1);
+    paths+=`<path d="M${cx},${cy} L${x0},${y0} A${r},${r} 0 0 1 ${x1},${y1} Z" fill="${colors[i%colors.length]}" stroke="#fff" stroke-width="2"/>`;
+    const am=((i+0.5)*step-90)*Math.PI/180,tx=(cx+r*0.64*Math.cos(am)).toFixed(1),ty=(cy+r*0.64*Math.sin(am)).toFixed(1);
+    paths+=`<text x="${tx}" y="${ty}" font-size="15" font-weight="800" fill="#3a2f25" text-anchor="middle" dominant-baseline="middle">${segments[i].jackpot?'★'+segments[i].coins:segments[i].coins}</text>`;
+  }
+  return `<svg viewBox="0 0 220 226" style="max-width:240px;display:block;margin:0 auto;">`+
+    `<g id="wheelG" style="transform-origin:110px 110px;transform:rotate(${rotation}deg);transition:transform 3.4s cubic-bezier(.16,.7,.18,1);">${paths}</g>`+
+    `<circle cx="110" cy="110" r="13" fill="#fff" stroke="#ddd" stroke-width="2"/>`+
+    `<polygon points="110,4 102,22 118,22" fill="#b5564e"/>`+
+    `</svg>`;
+}
+function segRotation(i,n){ const step=360/n; return 360*6 - (i*step + step/2); }
+function renderSpinGame(g){
+  const card=document.getElementById("spinCard"), box=document.getElementById("spinBox");
+  if(!card||!box) return;
+  card.style.display=""; spinSeg=g.segments;
+  if(g.played && g.result){
+    box.innerHTML=spinWheelSvg(g.segments, segRotation(g.result.index,g.segments.length))+
+      `<div style="text-align:center;margin-top:8px;font-weight:700;color:var(--green)">今天轉到 +🦴${g.result.coins}${g.result.jackpot?' ★大獎!':''}</div>`+
+      `<div class="hint tip" style="text-align:center;margin-top:4px;">明天再免費轉一次 🎡</div>`;
+    return;
+  }
+  box.innerHTML=spinWheelSvg(g.segments, 0)+
+    `<div style="text-align:center;margin-top:10px;"><button onclick="spinWheel()" id="spinBtn" style="width:auto;padding:12px 28px;">🎡 免費轉一次</button></div>`+
+    `<div id="spinResult" style="text-align:center;margin-top:8px;font-weight:700;"></div>`;
+}
+async function spinWheel(){
+  const btn=document.getElementById("spinBtn"); if(btn){ btn.disabled=true; btn.style.opacity=".5"; }
+  try{
+    const r=await api("/api/game/spin",{method:"POST",body:JSON.stringify({})});
+    if(r.pet) petData=r.pet;
+    const wg=document.getElementById("wheelG");
+    if(wg) wg.style.transform="rotate("+segRotation(r.index,spinSeg.length)+"deg)";
+    setTimeout(()=>{
+      const res=document.getElementById("spinResult");
+      if(res) res.innerHTML=`🎉 轉到 +🦴${r.coins}${r.jackpot?' ★大獎!🏆':''}！<div class="hint tip" style="margin-top:4px;">明天再免費轉一次</div>`;
+      if(btn) btn.style.display="none";
+      if(typeof renderPet==="function") renderPet();
+    },3500);
+  }catch(e){ if(btn){ btn.disabled=false; btn.style.opacity="1"; } alert(e.message); }
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
 function petDailyTasks(){
