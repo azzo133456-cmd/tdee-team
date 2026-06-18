@@ -1116,13 +1116,30 @@ function renderPeriod(){
   if(btn) btn.textContent=on?"🩸 取消這天":"🩸 記錄這天";
   const ph=cyclePhase(), pill=document.getElementById("periodPill");
   if(pill) pill.textContent=ph?("第 "+ph.day+" 天·"+ph.phase):"";
+  // 相位配色：月經#紅 / 濾泡#綠 / 排卵#accent / 黃體#warm / 偏長#sub
+  const phaseCol={"月經期":"#b5564e","濾泡期":"var(--green)","排卵期":"var(--accent)","黃體期":"var(--warm)","週期偏長":"var(--sub)"}[ph&&ph.phase]||"var(--sub)";
   const st=document.getElementById("periodStatus");
-  if(st) st.innerHTML=ph?`目前<b>週期第 ${ph.day} 天</b>（${ph.phase}，起算 ${ph.last}）<br>${ph.note}`:`還沒記錄任何經期開始日。選好「經期第一天」再按記錄；要補過去的就把日期往前選。`;
+  if(st){
+    st.innerHTML = ph
+      ? `<div style="background:var(--soft);border-radius:12px;padding:10px 14px;border-left:4px solid ${phaseCol};">`+
+          `<div style="display:flex;align-items:baseline;gap:8px;">`+
+            `<span style="font-size:22px;font-weight:800;color:${phaseCol};line-height:1;">第 ${ph.day} 天</span>`+
+            `<span style="font-size:14px;font-weight:700;color:${phaseCol};">${ph.phase}</span>`+
+          `</div>`+
+          `<div style="font-size:12px;color:var(--ink);line-height:1.5;margin-top:5px;">${ph.note}</div>`+
+          `<div style="font-size:11px;color:var(--sub);margin-top:3px;">起算日：${ph.last}</div>`+
+        `</div>`
+      : `<div style="background:var(--soft);border-radius:12px;padding:12px 14px;color:var(--sub);font-size:13px;line-height:1.6;">還沒記錄經期。選好「經期第一天」按記錄即可；過去的月份把日期往前選就能補。</div>`;
+  }
   const list=document.getElementById("periodList");
   if(list){
     if(ds.length){
-      list.innerHTML = `<div class="hint" style="margin-bottom:4px;">已記錄的經期開始日（點一下帶入上方日期，可再按「取消這天」刪除）：</div>`+
-        ds.slice(-12).reverse().map(d=>`<span class="pill" style="margin:2px 4px 2px 0;cursor:pointer;${d===cur?"outline:2px solid var(--accent);":""}" onclick="pickPeriodDate('${d}')" title="點擊帶入日期">${d}</span>`).join("");
+      list.innerHTML = `<div style="font-size:12px;color:var(--sub);margin-bottom:6px;">已記錄 ${ds.length} 次（點一下帶入日期，再按「取消這天」可刪）</div>`+
+        `<div style="display:flex;flex-wrap:wrap;gap:6px;">`+
+        ds.slice().reverse().map(d=>{
+          const sel=d===cur;
+          return `<span onclick="pickPeriodDate('${d}')" title="點擊帶入日期" style="cursor:pointer;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid ${sel?'var(--accent)':'var(--line)'};background:${sel?'var(--soft)':'#fff'};color:${sel?'var(--accent)':'var(--ink)'};font-weight:${sel?'700':'400'};">🩸 ${d.slice(5).replace('-','/')}</span>`;
+        }).join("")+`</div>`;
     }else list.innerHTML="";
   }
 }
