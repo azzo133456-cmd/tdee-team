@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame();
+  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
@@ -317,6 +317,63 @@ async function spinWheel(){
       if(typeof renderPet==="function") renderPet();
     },3500);
   }catch(e){ if(btn){ btn.disabled=false; btn.style.opacity="1"; } alert(e.message); }
+}
+/* ---------- 小遊戲：記憶翻牌配對 ---------- */
+let memState=null;
+async function loadMemoryGame(){
+  const card=document.getElementById("memCard"); if(!card) return;
+  try{ const g=await api("/api/game/memory"); renderMemoryGame(g); }
+  catch(e){ card.style.display="none"; }
+}
+function renderMemoryGame(g){
+  const card=document.getElementById("memCard"), box=document.getElementById("memBox");
+  if(!card||!box) return; card.style.display="";
+  const last=(g.played&&g.result)?`<div class="hint" style="text-align:center;">今天已完成：${g.result.moves} 步、得 🦴${g.result.coins}（可再玩，但今天獎勵已領）</div>`
+    :`<div class="hint" style="text-align:center;">翻牌找一對，步數越少獎越多（每天首次完成發幣）。</div>`;
+  box.innerHTML=last+`<div style="text-align:center;margin-top:8px;"><button onclick="startMemory()" style="width:auto;padding:12px 24px;">🃏 開始遊戲</button></div>`;
+}
+function memShuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function startMemory(){
+  const pool=["🍎","🍌","🍗","🥚","🍚","🥦","🍓","🐱","🐶","🐰","🐻","🦊","🐯","🐸","🍕","🍩"];
+  const picks=memShuffle(pool).slice(0,8);
+  const cards=memShuffle(picks.concat(picks)).map(e=>({e,open:false,done:false}));
+  memState={cards,flipped:[],moves:0,matched:0,busy:false};
+  drawMemory();
+}
+function drawMemory(){
+  const box=document.getElementById("memBox"); if(!box||!memState) return;
+  const grid=memState.cards.map((c,i)=>{
+    const show=c.open||c.done;
+    return `<div onclick="flipMemory(${i})" style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:26px;border-radius:10px;cursor:pointer;user-select:none;background:${show?'#fff':'var(--accent)'};border:1px solid var(--line);${c.done?'opacity:.45;':''}">${show?c.e:''}</div>`;
+  }).join("");
+  box.innerHTML=`<div style="text-align:center;font-size:13px;margin-bottom:6px;">步數 ${memState.moves}　配對 ${memState.matched}/8</div>`+
+    `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:300px;margin:0 auto;">${grid}</div>`;
+}
+function flipMemory(i){
+  if(!memState||memState.busy) return;
+  const c=memState.cards[i]; if(!c||c.open||c.done) return;
+  c.open=true; memState.flipped.push(i); drawMemory();
+  if(memState.flipped.length===2){
+    memState.moves++; memState.busy=true;
+    const [a,b]=memState.flipped;
+    if(memState.cards[a].e===memState.cards[b].e){
+      memState.cards[a].done=memState.cards[b].done=true; memState.matched++; memState.flipped=[]; memState.busy=false; drawMemory();
+      if(memState.matched===8) finishMemory();
+    }else{
+      setTimeout(()=>{ if(!memState) return; memState.cards[a].open=memState.cards[b].open=false; memState.flipped=[]; memState.busy=false; drawMemory(); },800);
+    }
+  }
+}
+async function finishMemory(){
+  const moves=memState.moves;
+  try{
+    const r=await api("/api/game/memory",{method:"POST",body:JSON.stringify({moves})});
+    if(r.pet) petData=r.pet;
+    const box=document.getElementById("memBox");
+    if(box) box.innerHTML+=`<div style="text-align:center;margin-top:10px;font-weight:800;color:var(--green)">🎉 完成！${moves} 步${r.already?'（今天獎勵已領，純練習）':' +🦴'+r.coins}</div>`+
+      `<div style="text-align:center;margin-top:8px;"><button onclick="startMemory()" style="width:auto;padding:10px 22px;">再玩一次</button></div>`;
+    if(typeof renderPet==="function") renderPet();
+  }catch(e){ alert(e.message); }
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
 function petDailyTasks(){
