@@ -1108,27 +1108,30 @@ function renderPeriod(){
   const isF=(store.profile&&store.profile.sex||val("sex"))==="f";
   card.style.display=isF?"":"none";
   if(!isF) return;
-  const ds=periodDates(), cur=val("rDate")||todayStr(), on=ds.includes(cur);
+  // 經期卡有自己的日期欄（可自由往前補記，不再借用體重日期）
+  const dInp=document.getElementById("periodDate");
+  if(dInp){ if(!dInp.value) dInp.value=todayStr(); dInp.max=todayStr(); }
+  const ds=periodDates(), cur=(dInp&&dInp.value)||todayStr(), on=ds.includes(cur);
   const btn=document.getElementById("periodBtn");
-  if(btn) btn.textContent=on?"🩸 取消「經期開始」("+cur.slice(5)+")":"🩸 記錄「經期開始」("+cur.slice(5)+")";
+  if(btn) btn.textContent=on?"🩸 取消這天":"🩸 記錄這天";
   const ph=cyclePhase(), pill=document.getElementById("periodPill");
   if(pill) pill.textContent=ph?("第 "+ph.day+" 天·"+ph.phase):"";
   const st=document.getElementById("periodStatus");
-  if(st) st.innerHTML=ph?`目前<b>週期第 ${ph.day} 天</b>（${ph.phase}，起算 ${ph.last}）<br>${ph.note}`:`還沒記錄任何經期開始日。把上方日期設成經期第一天再按下方按鈕。`;
+  if(st) st.innerHTML=ph?`目前<b>週期第 ${ph.day} 天</b>（${ph.phase}，起算 ${ph.last}）<br>${ph.note}`:`還沒記錄任何經期開始日。選好「經期第一天」再按記錄；要補過去的就把日期往前選。`;
   const list=document.getElementById("periodList");
   if(list){
     if(ds.length){
-      list.innerHTML = `<div class="hint" style="margin-bottom:4px;">已記錄的經期開始日（點一下把它帶入上方日期，再按按鈕即可取消）：</div>`+
+      list.innerHTML = `<div class="hint" style="margin-bottom:4px;">已記錄的經期開始日（點一下帶入上方日期，可再按「取消這天」刪除）：</div>`+
         ds.slice(-12).reverse().map(d=>`<span class="pill" style="margin:2px 4px 2px 0;cursor:pointer;${d===cur?"outline:2px solid var(--accent);":""}" onclick="pickPeriodDate('${d}')" title="點擊帶入日期">${d}</span>`).join("");
     }else list.innerHTML="";
   }
 }
-// 點已記錄的日期：只把它帶入上方日期欄並重繪（不直接刪，避免誤刪）；要取消請再按一次按鈕
+// 點已記錄的日期：帶入經期卡的日期欄並重繪（不直接刪，避免誤刪）；要取消請按「取消這天」
 function pickPeriodDate(d){
-  const inp=document.getElementById("rDate"); if(inp){ inp.value=d; }
+  const inp=document.getElementById("periodDate"); if(inp){ inp.value=d; }
   renderPeriod();
 }
-async function togglePeriod(){ await togglePeriodDate(val("rDate")||todayStr()); }
+async function togglePeriod(){ const dInp=document.getElementById("periodDate"); await togglePeriodDate((dInp&&dInp.value)||todayStr()); }
 async function togglePeriodDate(date){
   // 取消（刪除）既有日期時跳確認，避免誤刪
   if(periodDates().includes(date) && !confirm(`取消「${date}」的經期開始記錄？`)) return;
@@ -2638,7 +2641,7 @@ async function boot(){
   document.getElementById("loginView").classList.add("hidden");
   document.getElementById("appView").classList.remove("hidden");
   document.getElementById("rDate").value=todayStr();
-  document.getElementById("rDate").addEventListener("change",()=>{ if(typeof renderPeriod==="function") renderPeriod(); });
+  { const pd=document.getElementById("periodDate"); if(pd) pd.addEventListener("change",()=>{ if(typeof renderPeriod==="function") renderPeriod(); }); }
   document.getElementById("exDate").value=todayStr();
   document.getElementById("foodDate").value=todayStr();
   // 先用上次的本機快取「秒畫」（即使伺服器回應慢，畫面也立刻有資料），再背景抓最新覆蓋

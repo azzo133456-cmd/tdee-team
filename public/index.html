@@ -436,8 +436,11 @@
       <h2 class="ch" data-ck="period" onclick="toggleCard(this)">🩸 經期記錄 <span class="pill" id="periodPill"></span><span class="caret">▾</span></h2>
       <div class="cardbody">
         <div class="hint" id="periodStatus" style="margin-bottom:8px;"></div>
-        <button class="ghost" onclick="togglePeriod()" id="periodBtn">🩸 記錄「經期開始」（依上方日期）</button>
-        <div class="hint tip">點一下把上方日期記為「經期開始」，再點一下取消。只記「開始日」即可，系統會自動算週期天數並提醒水分浮動期，讓你不會被體重起伏嚇到。</div>
+        <div class="row" style="align-items:flex-end;gap:8px;">
+          <div style="flex:1;"><label>經期開始日（只記每次第一天）</label><input id="periodDate" type="date"></div>
+          <button class="ghost" onclick="togglePeriod()" id="periodBtn" style="flex:0 0 auto;white-space:nowrap;">🩸 記錄</button>
+        </div>
+        <div class="hint tip">只要記「每次月經來的<b>第一天</b>」就好，系統會自動算週期天數與相位。<b>要補上個月／更早的，把日期往前選</b>再按記錄即可。</div>
         <div id="periodList" style="margin-top:8px;"></div>
       </div>
     </div>
