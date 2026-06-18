@@ -1327,10 +1327,10 @@ app.post("/api/game/calorie", auth, async (req, res) => {
     const errPct = Math.abs(guess - answer) / Math.max(1, answer);
     // 越接近獎越多：±10%→20、±25%→12、±50%→6、其餘 2
     let coins, rank;
-    if (errPct <= 0.10) { coins = 20; rank = "神準 🎯"; }
-    else if (errPct <= 0.25) { coins = 12; rank = "很接近 👍"; }
-    else if (errPct <= 0.50) { coins = 6; rank = "有概念 🙂"; }
-    else { coins = 2; rank = "再接再厲 💪"; }
+    if (errPct <= 0.10) { coins = 35; rank = "神準 🎯"; }
+    else if (errPct <= 0.25) { coins = 20; rank = "很接近 👍"; }
+    else if (errPct <= 0.50) { coins = 10; rank = "有概念 🙂"; }
+    else { coins = 3; rank = "再接再厲 💪"; }
     games.calorie = { date: today, guess, answer, coins, rank, name: food.n };
     await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
       [JSON.stringify(games), coins, req.user.id]);
@@ -1410,7 +1410,7 @@ app.post("/api/game/quiz", auth, async (req, res) => {
     const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
     if (games.quiz && games.quiz.date === today) return res.status(400).json({ error: "今天已經答過囉，明天再來～" });
     const correct = choice === item.a;
-    const coins = correct ? 12 : 2;
+    const coins = correct ? 22 : 3;
     games.quiz = { date: today, choice, answer: item.a, correct, coins };
     await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
       [JSON.stringify(games), coins, req.user.id]);
@@ -1433,7 +1433,7 @@ const BINGO_CELLS = [
   { label: "量體重 3 天", k: c => c.weight >= 3 },
 ];
 const BINGO_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-const BINGO_LINE_COIN = 15, BINGO_FULL_BONUS = 30;
+const BINGO_LINE_COIN = 18, BINGO_FULL_BONUS = 36;
 async function bingoStatus(userId) {
   const ws = bingoWeekStart();
   const st = await pool.query(

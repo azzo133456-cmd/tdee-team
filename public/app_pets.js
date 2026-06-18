@@ -211,7 +211,7 @@ function renderBingoGame(g){
   if(g.claimable>0){
     html+=`<button onclick="claimBingo()" style="margin-top:8px;">🦴 領取連線獎勵 +${g.claimable}</button>`;
   }else{
-    html+=`<div class="hint tip" style="margin-top:8px;">完成更多行為連成新線就能領獎；集滿 9 格再加碼 +${30}。</div>`;
+    html+=`<div class="hint tip" style="margin-top:8px;">完成更多行為連成新線就能領獎；集滿 9 格再加碼 +🦴36。</div>`;
   }
   box.innerHTML=html;
 }
