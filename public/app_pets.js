@@ -535,32 +535,39 @@ function renderJumpGame(g){
     `<div style="text-align:center;margin-top:8px;"><button onclick="startJump()" id="jumpBtn" style="width:auto;padding:12px 24px;">🐾 開始(點畫面跳)</button></div>`;
 }
 function jumpStop(){ if(jumpState&&jumpState.raf) cancelAnimationFrame(jumpState.raf); }
-function jumpFlap(){ if(jumpState&&!jumpState.over) jumpState.vy=-6.4; }
+function jumpFlap(){ if(jumpState&&!jumpState.over){ jumpState.started=true; jumpState.vy=-5.6; } }   // 第一次點擊才開始
 function startJump(){
   jumpStop();
   const cv=document.getElementById("jumpCanvas"); if(!cv) return;
   const ctx=cv.getContext("2d");
   const art=(typeof petArtUrl==="function"&&petData)?petArtUrl(petData.species,petData.breed,petData.stageIdx):null;
   let img=null; if(art){ img=new Image(); img.src=art; }
-  jumpState={ctx,W:cv.width,H:cv.height,x:64,y:cv.height/2,vy:0,pipes:[],spawnT:70,score:0,over:false,img,emoji:(petData&&petData.emoji)||"🐾",raf:null};
+  jumpState={ctx,W:cv.width,H:cv.height,x:64,y:cv.height/2,vy:0,pipes:[],spawnT:0,score:0,over:false,started:false,t:0,img,emoji:(petData&&petData.emoji)||"🐾",raf:null};
   const btn=document.getElementById("jumpBtn"); if(btn) btn.textContent="🐾 點畫面跳！";
   jumpLoop();
 }
 function jumpLoop(){
   const s=jumpState; if(!s||s.over) return;
-  const ctx=s.ctx,W=s.W,H=s.H;
-  s.vy+=0.42; s.y+=s.vy;
-  s.spawnT++; if(s.spawnT>=92){ s.spawnT=0; const gap=112, gapY=40+Math.random()*(H-80-gap); s.pipes.push({x:W,gapY,gap,passed:false}); }
-  s.pipes.forEach(p=>p.x-=2.2); s.pipes=s.pipes.filter(p=>p.x>-40);
-  s.pipes.forEach(p=>{ if(!p.passed && p.x+34<s.x){ p.passed=true; s.score++; } });
-  let dead = s.y<14 || s.y>H-14;
-  for(const p of s.pipes){ if(s.x+15>p.x && s.x-15<p.x+34 && (s.y-15<p.gapY || s.y+15>p.gapY+p.gap)) dead=true; }
+  const ctx=s.ctx,W=s.W,H=s.H; s.t++;
+  let dead=false;
+  if(s.started){
+    s.vy+=0.30; s.y+=s.vy;                                  // 放寬：重力較輕
+    s.spawnT++; if(s.spawnT>=104){ s.spawnT=0; const gap=132, gapY=40+Math.random()*(H-80-gap); s.pipes.push({x:W,gapY,gap,passed:false}); }
+    s.pipes.forEach(p=>p.x-=1.9);                            // 放寬：障礙較慢
+    s.pipes=s.pipes.filter(p=>p.x>-40);
+    s.pipes.forEach(p=>{ if(!p.passed && p.x+34<s.x){ p.passed=true; s.score++; } });
+    dead = s.y<14 || s.y>H-14;
+    for(const p of s.pipes){ if(s.x+14>p.x && s.x-14<p.x+34 && (s.y-14<p.gapY || s.y+14>p.gapY+p.gap)) dead=true; }
+  }else{
+    s.y=H/2 + Math.sin(s.t/12)*8;                            // 開始前：原地上下浮著等你點
+  }
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle="#cfe3ee"; ctx.fillRect(0,0,W,H);
   ctx.fillStyle="#7fb08a"; s.pipes.forEach(p=>{ ctx.fillRect(p.x,0,34,p.gapY); ctx.fillRect(p.x,p.gapY+p.gap,34,H-(p.gapY+p.gap)); });
   if(s.img&&s.img.complete&&s.img.naturalWidth) ctx.drawImage(s.img,s.x-18,s.y-18,36,36);
   else { ctx.font="30px serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(s.emoji,s.x,s.y); }
   ctx.fillStyle="#3a2f25"; ctx.font="bold 22px sans-serif"; ctx.textAlign="left"; ctx.textBaseline="alphabetic"; ctx.fillText(s.score,12,30);
+  if(!s.started){ ctx.fillStyle="#3a2f25"; ctx.font="bold 16px sans-serif"; ctx.textAlign="center"; ctx.fillText("點一下出發！",W/2,H/2-50); }
   if(dead){ jumpEnd(); return; }
   s.raf=requestAnimationFrame(jumpLoop);
 }
