@@ -198,6 +198,7 @@ async function initDb() {
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS checkin_streak INT DEFAULT 0;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS gacha_pets JSONB DEFAULT '[]'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS racers JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS games JSONB DEFAULT '{}'::jsonb;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS last_allclear DATE;
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS streak_shields INT DEFAULT 0;
     -- 索引：加速常用查詢（資料變多時明顯有感）
@@ -1260,6 +1261,70 @@ app.post("/api/pet/checkin", auth, async (req, res) => {
     res.json({ reward, streak, day, big: day >= 7, usedShield, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
+/* ---------- 小遊戲：熱量猜謎（每日一題，伺服器發幣防作弊） ----------
+   每天全體同一題（依日期決定），猜越接近正解、骨頭幣越多；一天只能玩一次。*/
+const GAME_FOODS = [
+  { n: "白飯一碗", k: 280, e: "🍚" }, { n: "滷肉飯", k: 500, e: "🍚" }, { n: "雞腿便當", k: 800, e: "🍱" },
+  { n: "珍珠奶茶(中杯,全糖)", k: 550, e: "🧋" }, { n: "茶葉蛋", k: 75, e: "🥚" }, { n: "鮪魚御飯糰", k: 190, e: "🍙" },
+  { n: "香蕉一根", k: 105, e: "🍌" }, { n: "蘋果一顆", k: 95, e: "🍎" }, { n: "水煮蛋一顆", k: 70, e: "🥚" },
+  { n: "雞胸肉 100g", k: 165, e: "🍗" }, { n: "無糖豆漿(400ml)", k: 150, e: "🥛" }, { n: "牛肉麵", k: 600, e: "🍜" },
+  { n: "蛋餅", k: 250, e: "🫓" }, { n: "鐵板麵", k: 500, e: "🍝" }, { n: "鹹酥雞(小份)", k: 600, e: "🍗" },
+  { n: "大麥克", k: 525, e: "🍔" }, { n: "中薯", k: 340, e: "🍟" }, { n: "可樂(330ml)", k: 140, e: "🥤" },
+  { n: "泡麵一包", k: 450, e: "🍜" }, { n: "吐司一片", k: 75, e: "🍞" }, { n: "美式咖啡(無糖)", k: 5, e: "☕" },
+  { n: "拿鐵(中杯)", k: 150, e: "☕" }, { n: "蔥抓餅", k: 350, e: "🫓" }, { n: "小籠包(一籠8顆)", k: 500, e: "🥟" },
+  { n: "水餃10顆", k: 420, e: "🥟" }, { n: "烤地瓜(中)", k: 130, e: "🍠" }, { n: "雞排(一片)", k: 550, e: "🍗" },
+  { n: "握壽司6貫", k: 350, e: "🍣" }, { n: "甜甜圈", k: 250, e: "🍩" }, { n: "蛋塔", k: 230, e: "🥧" },
+  { n: "燙青菜(無醬)", k: 50, e: "🥬" }, { n: "滷雞腿", k: 250, e: "🍗" }, { n: "炒飯", k: 600, e: "🍚" },
+  { n: "鍋貼10個", k: 560, e: "🥟" }, { n: "鮭魚生魚片6片", k: 130, e: "🐟" }, { n: "燕麥40g(乾)", k: 150, e: "🥣" },
+  { n: "菠蘿麵包", k: 320, e: "🍞" }, { n: "關東煮黑輪", k: 80, e: "🍢" }, { n: "焗烤義大利麵", k: 700, e: "🍝" },
+  { n: "地瓜球(一份)", k: 350, e: "🟤" },
+];
+// 依日期決定今天第幾題（全體同步，且每天不同）
+function dailyGameIndex(dateStr, len) { let h = 0; for (const c of dateStr) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % len; }
+async function readGames(userId) {
+  const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
+  if (!r.rowCount) return null;
+  return (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+}
+// 取得今天的題目（不洩漏答案，除非已玩過）
+app.get("/api/game/calorie", auth, async (req, res) => {
+  try {
+    const games = await readGames(req.user.id);
+    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const today = twToday();
+    const food = GAME_FOODS[dailyGameIndex(today, GAME_FOODS.length)];
+    const g = games.calorie;
+    const played = g && g.date === today;
+    res.json({ name: food.n, emoji: food.e, played, result: played ? g : null });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 送出猜測：算分、發幣、記錄今天已玩
+app.post("/api/game/calorie", auth, async (req, res) => {
+  try {
+    const guess = Math.round(+req.body.guess);
+    if (!isFinite(guess) || guess < 0 || guess > 5000) return res.status(400).json({ error: "請輸入合理的數字（0~5000）" });
+    const today = twToday();
+    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+    if (games.calorie && games.calorie.date === today) return res.status(400).json({ error: "今天已經玩過囉，明天再來～" });
+    const food = GAME_FOODS[dailyGameIndex(today, GAME_FOODS.length)];
+    const answer = food.k;
+    const errPct = Math.abs(guess - answer) / Math.max(1, answer);
+    // 越接近獎越多：±10%→20、±25%→12、±50%→6、其餘 2
+    let coins, rank;
+    if (errPct <= 0.10) { coins = 20; rank = "神準 🎯"; }
+    else if (errPct <= 0.25) { coins = 12; rank = "很接近 👍"; }
+    else if (errPct <= 0.50) { coins = 6; rank = "有概念 🙂"; }
+    else { coins = 2; rank = "再接再厲 💪"; }
+    games.calorie = { date: today, guess, answer, coins, rank, name: food.n };
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), coins, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ guess, answer, coins, rank, name: food.n, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 // 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
 app.post("/api/pet/gacha", auth, async (req, res) => {
   try {

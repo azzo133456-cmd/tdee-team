@@ -113,6 +113,46 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
+  loadCalorieGame();
+}
+/* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
+async function loadCalorieGame(){
+  const card=document.getElementById("gameCard"); if(!card) return;
+  try{ const g=await api("/api/game/calorie"); renderCalorieGame(g); }
+  catch(e){ card.style.display="none"; }   // 沒寵物等情況：隱藏整張卡
+}
+function renderCalorieGame(g){
+  const card=document.getElementById("gameCard"), box=document.getElementById("gameBox");
+  if(!card||!box) return;
+  card.style.display="";
+  if(g.played && g.result){
+    const r=g.result;
+    box.innerHTML=`<div style="font-weight:600;">${g.emoji||"🍽️"} ${g.name}</div>`+
+      `<div class="hint" style="margin-top:6px;">你猜 <b>${r.guess}</b> kcal｜正解 <b>${r.answer}</b> kcal</div>`+
+      `<div style="margin-top:4px;font-weight:700;color:var(--green)">${r.rank}　+🦴${r.coins}</div>`+
+      `<div class="hint tip" style="margin-top:6px;">明天再來挑戰新題目 🎯</div>`;
+    return;
+  }
+  box.innerHTML=`<div style="font-weight:600;">${g.emoji||"🍽️"} ${g.name}</div>`+
+    `<div class="hint" style="margin:6px 0;">猜猜這份大約多少大卡？越接近、骨頭幣越多（一天一次）。</div>`+
+    `<div class="row" style="gap:8px;align-items:flex-end;">`+
+      `<div style="flex:1;"><input id="calGuess" type="number" inputmode="numeric" placeholder="例如 500"></div>`+
+      `<button onclick="playCalorieGame()" style="flex:0 0 auto;width:auto;padding:13px 18px;white-space:nowrap;">猜！</button>`+
+    `</div>`;
+}
+async function playCalorieGame(){
+  const el=document.getElementById("calGuess"); if(!el) return;
+  const v=el.value; if(v===""){ alert("先輸入一個數字"); return; }
+  try{
+    const r=await api("/api/game/calorie",{method:"POST",body:JSON.stringify({guess:+v})});
+    if(r.pet) petData=r.pet;
+    const box=document.getElementById("gameBox");
+    if(box) box.innerHTML=`<div style="font-weight:600;">${r.name}</div>`+
+      `<div class="hint" style="margin-top:6px;">你猜 <b>${r.guess}</b> kcal｜正解 <b>${r.answer}</b> kcal</div>`+
+      `<div style="margin-top:6px;font-size:18px;font-weight:800;color:var(--green)">${r.rank}　+🦴${r.coins}</div>`+
+      `<div class="hint tip" style="margin-top:6px;">明天再來挑戰新題目 🎯</div>`;
+    if(typeof renderPet==="function") renderPet();   // 更新骨頭幣顯示
+  }catch(e){ alert(e.message); }
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
 function petDailyTasks(){
