@@ -1325,6 +1325,61 @@ app.post("/api/game/calorie", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
+/* ---------- 小遊戲：健康知識測驗（每日一題，答對發幣） ---------- */
+const QUIZ_BANK = [
+  { q: "1 公斤脂肪大約等於多少大卡？", o: ["3500", "7700", "10000"], a: 1, w: "約 7700 kcal，這也是我們反推 TDEE 的依據。" },
+  { q: "蛋白質每公克提供多少大卡？", o: ["4", "7", "9"], a: 0, w: "蛋白質與碳水都是 4 kcal/g、脂肪 9、酒精 7。" },
+  { q: "脂肪每公克提供多少大卡？", o: ["4", "7", "9"], a: 2, w: "脂肪最高，9 kcal/g，所以油類熱量密度很高。" },
+  { q: "減重初期體重快速下降，主要掉的是？", o: ["脂肪", "水分與肝醣", "肌肉"], a: 1, w: "前一兩週多是肝醣與結合水，不是脂肪，別被嚇到。" },
+  { q: "減脂期蛋白質建議攝取量（每公斤體重）？", o: ["0.8g", "1.6~2.2g", "3.5g 以上"], a: 1, w: "赤字期要吃夠蛋白保留肌肉，約 1.6~2.2g/kg。" },
+  { q: "TDEE 指的是？", o: ["基礎代謝率", "每日總消耗熱量", "目標攝取量"], a: 1, w: "TDEE＝每日總消耗；BMR 才是基礎代謝率。" },
+  { q: "減脂最關鍵的條件是？", o: ["熱量赤字", "不吃澱粉", "只吃水煮"], a: 0, w: "長期熱量赤字才會掉脂肪，方法可以很多元。" },
+  { q: "同樣重量，肌肉和脂肪哪個體積小？", o: ["肌肉", "脂肪", "一樣"], a: 0, w: "肌肉密度高、體積小，所以增肌減脂後體重沒變也會更精實。" },
+  { q: "女性黃體期體重常微幅上升，主因是？", o: ["長脂肪", "水分滯留", "長肌肉"], a: 1, w: "賀爾蒙造成水分滯留，是水不是脂肪，過了就回落。" },
+  { q: "酒精每公克提供多少大卡？", o: ["0", "4", "7"], a: 2, w: "酒精 7 kcal/g，僅次於脂肪，且是『空熱量』。" },
+  { q: "吃太鹹隔天體重上升，通常是因為？", o: ["脂肪增加", "水分滯留", "肌肉增加"], a: 1, w: "鈉會讓身體留住水分，體重短暫上升。" },
+  { q: "增肌期蛋白質大約超過多少幫助就有限？", o: ["1.6g/kg", "4g/kg", "6g/kg"], a: 0, w: "研究顯示約 1.6g/kg 接近上限，再多效益遞減。" },
+  { q: "下列何者是『空熱量』食物的特徵？", o: ["高熱量低營養", "低熱量高營養", "高蛋白"], a: 0, w: "如含糖飲料、酒：熱量高但缺乏營養素。" },
+  { q: "維持/增加肌肉，除了蛋白質還最需要？", o: ["有氧運動", "阻力(重量)訓練", "斷食"], a: 1, w: "重訓給肌肉成長/保留的訊號，光靠蛋白不夠。" },
+  { q: "一碗白飯（約一碗）大約多少大卡？", o: ["100", "280", "500"], a: 1, w: "約 280 kcal，是常見的熱量參考基準。" },
+  { q: "膳食纖維主要的好處是？", o: ["增加熱量", "增加飽足感與腸道健康", "提高血糖"], a: 1, w: "纖維增加飽足、穩血糖、顧腸道，減脂期很有用。" },
+  { q: "停滯期(代謝適應)時，較好的做法是？", o: ["再大砍熱量", "回維持熱量休息1-2週", "完全不吃"], a: 1, w: "diet break 讓代謝回升，往往比硬砍更有效。" },
+  { q: "一顆雞蛋大約含多少蛋白質？", o: ["1g", "6~7g", "20g"], a: 1, w: "一顆約 6~7g 蛋白質，是方便的優質蛋白來源。" },
+  { q: "高 GI 食物的特性是？", o: ["快速升血糖", "完全沒熱量", "一定會變胖"], a: 0, w: "升糖快、較易餓；搭配蛋白纖維可減緩。" },
+  { q: "運動後肌肉痠痛幾天體重微升，常因？", o: ["長脂肪", "肌肉發炎與水分", "代謝變慢"], a: 1, w: "修復過程的發炎與儲水，屬正常,會回落。" },
+];
+// 取得今天的知識題（不洩漏答案，除非已玩過）
+app.get("/api/game/quiz", auth, async (req, res) => {
+  try {
+    const games = await readGames(req.user.id);
+    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const today = twToday();
+    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz", QUIZ_BANK.length)];
+    const g = games.quiz;
+    const played = g && g.date === today;
+    res.json({ q: item.q, options: item.o, played, result: played ? g : null });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+app.post("/api/game/quiz", auth, async (req, res) => {
+  try {
+    const choice = Math.round(+req.body.choice);
+    const today = twToday();
+    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz", QUIZ_BANK.length)];
+    if (!(choice >= 0 && choice < item.o.length)) return res.status(400).json({ error: "選項不合法" });
+    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+    if (games.quiz && games.quiz.date === today) return res.status(400).json({ error: "今天已經答過囉，明天再來～" });
+    const correct = choice === item.a;
+    const coins = correct ? 12 : 2;
+    games.quiz = { date: today, choice, answer: item.a, correct, coins };
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), coins, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ correct, answer: item.a, why: item.w, coins, options: item.o, pet: state });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+
 // 扭蛋：花幣抽 1 或 10 發（伺服器端隨機）；重複飾品/寵物退幣
 app.post("/api/pet/gacha", auth, async (req, res) => {
   try {

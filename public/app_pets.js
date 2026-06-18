@@ -113,7 +113,7 @@ async function loadPet(){
   }
   catch(e){ petData=null; }
   renderPet(); renderDailyTasks();
-  loadCalorieGame();
+  loadCalorieGame(); loadQuizGame();
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 async function loadCalorieGame(){
@@ -152,6 +152,39 @@ async function playCalorieGame(){
       `<div style="margin-top:6px;font-size:18px;font-weight:800;color:var(--green)">${r.rank}　+🦴${r.coins}</div>`+
       `<div class="hint tip" style="margin-top:6px;">明天再來挑戰新題目 🎯</div>`;
     if(typeof renderPet==="function") renderPet();   // 更新骨頭幣顯示
+  }catch(e){ alert(e.message); }
+}
+/* ---------- 小遊戲：健康知識測驗（每日一題） ---------- */
+async function loadQuizGame(){
+  const card=document.getElementById("quizCard"); if(!card) return;
+  try{ const g=await api("/api/game/quiz"); renderQuizGame(g); }
+  catch(e){ card.style.display="none"; }
+}
+function renderQuizGame(g){
+  const card=document.getElementById("quizCard"), box=document.getElementById("quizBox");
+  if(!card||!box) return;
+  card.style.display="";
+  if(g.played && g.result){
+    const r=g.result;
+    box.innerHTML=`<div style="font-weight:600;">${g.q}</div>`+
+      `<div style="margin-top:6px;font-weight:700;color:${r.correct?'var(--green)':'#b5564e'}">${r.correct?'答對了 ✅':'答錯了 ❌'}　+🦴${r.coins}</div>`+
+      `<div class="hint" style="margin-top:4px;">正解：${g.options?g.options[r.answer]:""}</div>`+
+      `<div class="hint tip" style="margin-top:6px;">明天再來一題 🧠</div>`;
+    return;
+  }
+  box.innerHTML=`<div style="font-weight:600;margin-bottom:8px;">${g.q}</div>`+
+    g.options.map((o,i)=>`<button class="ghost" style="display:block;width:100%;text-align:left;margin:6px 0;" onclick="playQuizGame(${i})">${String.fromCharCode(65+i)}. ${o}</button>`).join("");
+}
+async function playQuizGame(choice){
+  try{
+    const r=await api("/api/game/quiz",{method:"POST",body:JSON.stringify({choice})});
+    if(r.pet) petData=r.pet;
+    const box=document.getElementById("quizBox");
+    if(box) box.innerHTML=`<div style="font-size:18px;font-weight:800;color:${r.correct?'var(--green)':'#b5564e'}">${r.correct?'答對了 ✅':'答錯了 ❌'}　+🦴${r.coins}</div>`+
+      `<div class="hint" style="margin-top:6px;">正解：${r.options[r.answer]}</div>`+
+      `<div class="hint" style="color:var(--ink);line-height:1.6;margin-top:4px;">${r.why}</div>`+
+      `<div class="hint tip" style="margin-top:6px;">明天再來一題 🧠</div>`;
+    if(typeof renderPet==="function") renderPet();
   }catch(e){ alert(e.message); }
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
