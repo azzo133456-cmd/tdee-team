@@ -1165,12 +1165,15 @@ function renderReviews(){
   const list=store.reviews||[];
   const pill=document.getElementById("reviewCount"); if(pill) pill.textContent=list.length?list.length+" 篇":"";
   if(!list.length){ box.innerHTML='<div class="empty">還沒有覆盤。每週一開 App 會自動產生上週點評，或按上方按鈕手動產生。</div>'; return; }
-  box.innerHTML=list.map(r=>{
+  // 依週次新到舊排序，最新一週預設展開、其餘收合
+  const sorted=list.slice().sort((a,b)=>b.week_start.localeCompare(a.week_start));
+  box.innerHTML=sorted.map((r,i)=>{
     const ws=r.week_start.slice(0,10), we=addDaysIso(ws,6);
     const acts=(r.actions||[]).length?`<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7;">`+r.actions.map(a=>`<li>${a}</li>`).join("")+`</ul>`:"";
-    return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;">`+
-      `<div style="font-weight:600;font-size:13px;color:var(--accent);margin-bottom:4px;">${ws.slice(5)} ~ ${we.slice(5)} 那週</div>`+
-      `<div class="hint" style="color:var(--ink);line-height:1.6;">${(r.summary||"").replace(/\n/g,"<br>")}</div>${acts}</div>`;
+    return `<details ${i===0?"open":""} style="border:1px solid var(--line);border-radius:10px;padding:0 12px;margin-bottom:8px;">`+
+      `<summary style="cursor:pointer;padding:10px 0;font-weight:600;font-size:13px;color:var(--accent);">${ws.slice(5)} ~ ${we.slice(5)} 那週</summary>`+
+      `<div style="padding-bottom:10px;">`+
+      `<div class="hint" style="color:var(--ink);line-height:1.6;">${(r.summary||"").replace(/\n/g,"<br>")}</div>${acts}</div></details>`;
   }).join("");
 }
 
