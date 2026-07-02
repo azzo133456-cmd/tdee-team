@@ -156,11 +156,15 @@ async function loadDexGame(){
   } else {
     mineHtml=`<div class="hint" style="text-align:center;">寵物資料載入中…</div>`;
   }
-  // 排行榜（比誰收集多／培養等級高）
-  let boardHtml=`<div class="hint" style="text-align:center;">載入排行中…</div>`;
+  // 里程碑獎幣 + 排行榜（比誰收集多／培養等級高）
+  let claimHtml="", boardHtml="";
   try{
     const r=await api("/api/dex/board");
     const list=r.board||[];
+    if(r.me){
+      if(r.me.claimable>0) claimHtml=`<div style="text-align:center;margin:10px 0;"><button class="ghost sm" onclick="claimDexReward()" style="border-color:var(--accent);color:var(--accent);font-weight:700;">🦴 領取里程碑獎勵 +${r.me.claimable}</button></div>`;
+      else claimHtml=`<div class="hint" style="text-align:center;margin:8px 0;font-size:11px;">收集更多種類或把寵物養更大，就能解鎖里程碑 🦴 獎勵</div>`;
+    }
     if(list.length){
       boardHtml=`<div style="font-weight:600;font-size:13px;margin:12px 0 6px;">🏆 圖鑑排行（全體）</div>`+
         `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:var(--sub);font-weight:500;">`+
@@ -172,9 +176,18 @@ async function loadDexGame(){
             `<td style="text-align:right;">${b.species}</td>`+
             `<td style="text-align:right;color:var(--accent);">Lv.${b.level}</td></tr>`;
         }).join("")+`</tbody></table>`;
-    } else boardHtml="";
-  }catch(e){ boardHtml=""; }
-  box.innerHTML=mineHtml+boardHtml;
+    }
+  }catch(e){ }
+  box.innerHTML=mineHtml+claimHtml+boardHtml;
+}
+async function claimDexReward(){
+  try{
+    const r=await api("/api/dex/claim",{method:"POST",body:JSON.stringify({})});
+    if(r.pet) petData=r.pet;
+    if(typeof renderPet==="function") renderPet();
+    petToast(`領到 ${r.coins} 🦴 里程碑獎勵！`);
+    loadDexGame();
+  }catch(e){ alert(e.message||"領取失敗"); }
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容

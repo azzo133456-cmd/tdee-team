@@ -1239,19 +1239,55 @@ app.get("/api/pet", auth, async (req, res) => {
     res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, racerArts: CUSTOM_RACERS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-// 寵物圖鑑排行：比「收集種類數」＋「綜合培養等級」（各物種養到的最高階段總和）。只讀 pets 表，輕量。
+// 圖鑑里程碑獎幣（claim-once 累積制，防刷）：培養等級要真的養(健康習慣)才會漲；收集種類多來自扭蛋(花幣)，獎勵皆遠低於取得成本，無法形成刷幣迴圈。
+const DEX_SPECIES_TIERS = [[3, 15], [5, 25], [8, 40], [12, 60], [16, 80], [20, 110], [25, 150]];
+const DEX_LEVEL_TIERS = [[5, 20], [10, 45], [20, 90], [30, 140], [45, 210], [60, 300]];
+function dexMilestoneCoins(species, level) {
+  let c = 0;
+  for (const [n, v] of DEX_SPECIES_TIERS) if (species >= n) c += v;
+  for (const [n, v] of DEX_LEVEL_TIERS) if (level >= n) c += v;
+  return c;
+}
+function dexStats(row) {
+  const species = petUnlockedSet(row).size;   // 收集種類（扭蛋∪養過∪出戰）
+  const dex = Array.isArray(row.dex) ? row.dex : [];
+  const level = dex.reduce((a, d) => a + Math.max(0, +(d && d.maxStage) || 0), 0);   // 綜合培養等級＝各物種最高階段總和
+  return { species, level };
+}
+// 寵物圖鑑排行：比「收集種類數」＋「綜合培養等級」。只讀 pets 表，輕量。
 app.get("/api/dex/board", auth, async (req, res) => {
   try {
     const q = await pool.query(
-      "SELECT p.user_id, u.username, u.avatar, u.fx, p.gacha_pets, p.flock, p.species, p.breed, p.dex FROM pets p JOIN users u ON u.id=p.user_id");
+      "SELECT p.user_id, u.username, u.avatar, u.fx, p.gacha_pets, p.flock, p.species, p.breed, p.dex, p.games FROM pets p JOIN users u ON u.id=p.user_id");
+    let me = null;
     const board = q.rows.map((row) => {
-      const species = petUnlockedSet(row).size;   // 收集種類（扭蛋∪養過∪出戰）
-      const dex = Array.isArray(row.dex) ? row.dex : [];
-      const level = dex.reduce((a, d) => a + Math.max(0, +(d && d.maxStage) || 0), 0);   // 綜合培養等級＝各物種最高階段總和
+      const { species, level } = dexStats(row);
+      if (row.user_id === req.user.id) {
+        const games = (row.games && typeof row.games === "object") ? row.games : {};
+        me = { species, level, claimable: Math.max(0, dexMilestoneCoins(species, level) - (games.dexClaimed || 0)) };
+      }
       return { name: row.username, avatar: row.avatar || "", fx: row.fx || "fx0", species, level, mine: row.user_id === req.user.id };
     }).filter((b) => b.species > 0 || b.level > 0)
       .sort((a, b) => b.species - a.species || b.level - a.level || a.name.localeCompare(b.name));
-    res.json({ board });
+    res.json({ board, me });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 領取圖鑑里程碑獎幣（達到新門檻才有得領；累積制、發過不重發）
+app.post("/api/dex/claim", auth, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT gacha_pets, flock, species, breed, dex, games FROM pets WHERE user_id=$1", [req.user.id]);
+    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來" });
+    const row = r.rows[0];
+    const { species, level } = dexStats(row);
+    const games = (row.games && typeof row.games === "object") ? row.games : {};
+    const total = dexMilestoneCoins(species, level);
+    const delta = total - (games.dexClaimed || 0);
+    if (delta <= 0) return res.status(400).json({ error: "目前沒有可領的里程碑獎勵，繼續收集或把寵物養大吧！" });
+    games.dexClaimed = total;
+    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(games), delta, req.user.id]);
+    const { state } = await computePet(req.user.id);
+    res.json({ coins: delta, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
