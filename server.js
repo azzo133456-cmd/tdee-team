@@ -1239,6 +1239,21 @@ app.get("/api/pet", auth, async (req, res) => {
     res.json({ pet: state, species: PET_SPECIES, artKeys: ART_KEYS, racerArts: CUSTOM_RACERS, rareKeys: Object.keys(PET_RARITY), stageNames: PET_STAGE_NAMES, stageExp: PET_STAGE_EXP, shop: PET_SHOP, feed: PET_FEED, gacha, shieldCost: SHIELD_COST });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
+// 寵物圖鑑排行：比「收集種類數」＋「綜合培養等級」（各物種養到的最高階段總和）。只讀 pets 表，輕量。
+app.get("/api/dex/board", auth, async (req, res) => {
+  try {
+    const q = await pool.query(
+      "SELECT p.user_id, u.username, u.avatar, u.fx, p.gacha_pets, p.flock, p.species, p.breed, p.dex FROM pets p JOIN users u ON u.id=p.user_id");
+    const board = q.rows.map((row) => {
+      const species = petUnlockedSet(row).size;   // 收集種類（扭蛋∪養過∪出戰）
+      const dex = Array.isArray(row.dex) ? row.dex : [];
+      const level = dex.reduce((a, d) => a + Math.max(0, +(d && d.maxStage) || 0), 0);   // 綜合培養等級＝各物種最高階段總和
+      return { name: row.username, avatar: row.avatar || "", fx: row.fx || "fx0", species, level, mine: row.user_id === req.user.id };
+    }).filter((b) => b.species > 0 || b.level > 0)
+      .sort((a, b) => b.species - a.species || b.level - a.level || a.name.localeCompare(b.name));
+    res.json({ board });
+  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
 // 每日簽到：連續天數越多獎勵越大（第7天大獎）；一天只能領一次
 app.post("/api/pet/checkin", auth, async (req, res) => {
   try {

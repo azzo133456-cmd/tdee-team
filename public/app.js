@@ -632,6 +632,7 @@ function showTab(name){
   ["overview","food","exercise","records","games"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
   if(name==="games" && typeof loadAllGames==="function") loadAllGames();   // 進遊戲分頁才載入(lazy)，整個 session 只載一次
+  if(name==="games" && typeof loadDexGame==="function") loadDexGame();      // 圖鑑每次進來都刷新(反映最新扭蛋/培養)
   window.scrollTo(0,0);
 }
 

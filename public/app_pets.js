@@ -118,7 +118,63 @@ async function loadPet(){
 let gamesTabLoaded=false;
 function loadAllGames(){
   if(gamesTabLoaded) return; gamesTabLoaded=true;
-  loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame(); loadG2048Game(); loadJumpGame();
+  loadDexGame(); loadCalorieGame(); loadQuizGame(); loadBingoGame(); loadBossGame(); loadSpinGame(); loadMemoryGame(); loadWhackGame(); loadG2048Game(); loadJumpGame();
+}
+/* ---------- 寵物圖鑑：展示我抽到/養過的寵物 + 收集/培養排行 ---------- */
+const DEX_STAGE_LABEL=["蛋","幼體","成長期","成體","進化體"];
+async function loadDexGame(){
+  const box=document.getElementById("dexBox"); if(!box) return;
+  // 我的收藏來自已載入的 petData；若還沒好，稍後由 renderPet 流程觸發
+  const p=petData;
+  const sp=(petMeta&&petMeta.species)||{};
+  let mineHtml="";
+  if(p){
+    // 收集種類（已解鎖：扭蛋∪養過∪出戰）
+    const keys=Array.from(new Set((p.unlockedPets||[]).concat(p.gachaPets||[])));
+    // 每隻的展示階段：養過的用最高階段，只抽到沒養的用「成長期」預覽
+    const stageByKey={};
+    (p.collection||[]).forEach(c=>{ const k=c.breed?c.species+":"+c.breed:c.species; stageByKey[k]=Math.max(stageByKey[k]||0,c.stageIdx||0); });
+    (p.dex||[]).forEach(d=>{ if(stageByKey[d.species]==null) stageByKey[d.species]=d.maxStage||0; });
+    const level=(p.dex||[]).reduce((a,d)=>a+Math.max(0,d.maxStage||0),0);
+    const cells=keys.map(k=>{
+      const i=k.indexOf(":"), species=i<0?k:k.slice(0,i), breed=i<0?null:k.slice(i+1);
+      const meta=sp[species]; if(!meta) return "";
+      const st=stageByKey[k]!=null?stageByKey[k]:2;   // 沒養過的預覽成長期
+      const raised=stageByKey[k]!=null;
+      const glyph=petGlyph({species,breed,stageIdx:st,emoji:(meta.stages||[])[st]},44);
+      return `<div style="width:64px;text-align:center;padding:4px 2px;border:1px solid var(--line);border-radius:10px;${raised?"":"opacity:.72;"}">`+
+        `<div style="height:46px;display:flex;align-items:center;justify-content:center;line-height:0;">${glyph}</div>`+
+        `<div style="font-size:10px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${meta.label}</div>`+
+        `<div style="font-size:9px;color:${raised?"var(--accent)":"var(--sub)"};">${raised?DEX_STAGE_LABEL[st]:"未養"}</div></div>`;
+    }).filter(Boolean).join("");
+    mineHtml=`<div style="display:flex;gap:14px;justify-content:center;margin-bottom:8px;">`+
+        `<div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--accent);">${keys.length}</div><div style="font-size:11px;color:var(--sub);">收集種類</div></div>`+
+        `<div style="text-align:center;"><div style="font-size:22px;font-weight:700;color:var(--accent);">Lv.${level}</div><div style="font-size:11px;color:var(--sub);">綜合培養等級</div></div></div>`+
+      (cells?`<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">${cells}</div>`
+            :`<div class="hint" style="text-align:center;">還沒收集到寵物，去扭蛋或養一隻吧！</div>`)+
+      `<div class="hint" style="margin-top:6px;font-size:11px;">培養等級＝每個物種養到的最高階段總和（蛋0・幼體1・成長2・成體3・進化4）。把牠們養大就會上升！</div>`;
+  } else {
+    mineHtml=`<div class="hint" style="text-align:center;">寵物資料載入中…</div>`;
+  }
+  // 排行榜（比誰收集多／培養等級高）
+  let boardHtml=`<div class="hint" style="text-align:center;">載入排行中…</div>`;
+  try{
+    const r=await api("/api/dex/board");
+    const list=r.board||[];
+    if(list.length){
+      boardHtml=`<div style="font-weight:600;font-size:13px;margin:12px 0 6px;">🏆 圖鑑排行（全體）</div>`+
+        `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="color:var(--sub);font-weight:500;">`+
+        `<th style="text-align:left;padding:4px 2px;">#</th><th style="text-align:left;">玩家</th><th style="text-align:right;">種類</th><th style="text-align:right;">培養Lv</th></tr></thead><tbody>`+
+        list.map((b,i)=>{ const medal=["🥇","🥈","🥉"][i]||(i+1);
+          return `<tr style="border-top:1px solid var(--line);${b.mine?"background:rgba(120,170,120,.12);font-weight:600;":""}">`+
+            `<td style="padding:5px 2px;">${medal}</td>`+
+            `<td><span class="namefx ${b.fx||""}" style="position:relative;">${b.avatar?b.avatar+" ":""}${b.name}${b.mine?" (我)":""}</span></td>`+
+            `<td style="text-align:right;">${b.species}</td>`+
+            `<td style="text-align:right;color:var(--accent);">Lv.${b.level}</td></tr>`;
+        }).join("")+`</tbody></table>`;
+    } else boardHtml="";
+  }catch(e){ boardHtml=""; }
+  box.innerHTML=mineHtml+boardHtml;
 }
 /* ---------- 小遊戲：熱量猜謎（每日一題） ---------- */
 let calorieLoaded=false, quizLoaded=false;   // 載入一次就好，避免背景重繪洗掉作答中的內容
