@@ -599,10 +599,13 @@ function renderFood(){
         .map(([v,t])=>`<option value="${v}"${v===lv?" selected":""}>${t}</option>`).join("");
       sugarSel=`<select onchange="setSugar(${i},this.value)" style="padding:5px 4px;font-size:12px;width:64px">${opts}</select>`;
     }
+    const canRename=!!FOODS_DYN[it.n];   // 拍標示/AI/自訂等動態建立的食物才給改名（內建食物不動）
+    const renameBtn=canRename?`<span class="x" title="改商品名稱" onclick="renameFood(${i})" style="color:var(--accent)">✏️</span>`:"";
     return `<div class="foodrow"><span class="nm">${it.n} ${densityTags(it.base)}<br><span style="color:var(--sub);font-size:11px">${portionHint(it.n,it.g)}</span></span>`+
       sugarSel+
       `<input type="number" inputmode="decimal" value="${it.g}" onchange="setGram(${i},this.value)" style="width:62px;padding:6px 8px;text-align:right;font-size:14px"><span style="color:var(--sub);font-size:12px">g</span>`+
       `<span class="kc" style="min-width:54px;text-align:right">${Math.round(m.k)}</span>`+
+      renameBtn+
       `<span class="x" onclick="rmFood(${i})">✕</span></div>`;
   }).join("");
   const tot=foodCart.reduce((a,b)=>{const m=cartMacros(b);return {k:a.k+m.k,p:a.p+m.p,f:a.f+m.f,c:a.c+m.c};},{k:0,p:0,f:0,c:0});
@@ -613,6 +616,28 @@ function renderFood(){
   }else{ el.style.display="none"; sb.style.display="none"; }
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
+// 改商品名稱（拍標示/AI/自訂食物）：同步更新動態食物表、購物車、最愛與共享庫
+function renameFood(i){
+  const it=foodCart[i]; if(!it) return;
+  const prefix=/^✨\s*/.test(it.n)?"✨ ":"";   // 保留 AI 標記
+  const cur=it.n.replace(/^✨\s*/,"");
+  const inp=(prompt("商品名稱改成：",cur)||"").trim();
+  if(!inp) return;
+  const finalName=prefix+inp;
+  if(finalName===it.n) return;
+  if(FOODS[finalName]||FOODS_TW[finalName]||FOODS_DYN[finalName]){ if(!confirm("已有同名項目，仍要改成這個名稱？（會共用同一筆資料）")) return; }
+  const oldName=it.n;
+  // 搬移動態食物資料（營養/份量）
+  if(FOODS_DYN[oldName]){ FOODS_DYN[finalName]=FOODS_DYN[oldName]; delete FOODS_DYN[oldName]; }
+  if(SERVINGS[oldName]!=null){ SERVINGS[finalName]=SERVINGS[oldName]; delete SERVINGS[oldName]; }
+  // 更新購物車所有同名項
+  foodCart.forEach(x=>{ if(x.n===oldName) x.n=finalName; });
+  // 更新最愛
+  if(store.favorites){ let changed=false; store.favorites.forEach(f=>{ if(f.n===oldName){ f.n=finalName; changed=true; } }); if(changed){ saveFavs(); if(typeof renderFavs==="function") renderFavs(); } }
+  // 非 AI 暫存項（拍標示/自訂）用新名稱重新上傳共享庫
+  if(!prefix && FOODS_DYN[finalName]) shareFood(finalName,FOODS_DYN[finalName],SERVINGS[finalName]||100,"food");
+  renderFood();
+}
 function selDate(){ return val("foodDate")||todayStr(); }
 const CARD_STATE = (()=>{ try{ return JSON.parse(localStorage.getItem("tdee_cardstate")||"{}"); }catch(e){ return {}; } })();
 function toggleCard(h){
@@ -827,7 +852,7 @@ async function onLabelPick(ev){
       const serv=it.serving>0?it.serving:100;
       registerFood(name,[it.kcal,it.protein,it.fat,it.carb],serv); added++;
     });
-    h.innerHTML=`已建立 <b>${added}</b> 項食物（共讀 ${items.length} 張），都已加入下方清單與共享庫，可逐筆改克數。`+
+    h.innerHTML=`已建立 <b>${added}</b> 項食物（共讀 ${items.length} 張），都已加入下方清單與共享庫，可逐筆改克數，名稱不對按 <b>✏️</b> 改。`+
       (files.length>6?`（一次最多 6 張，多的略過）`:"");
   }catch(e){
     h.innerHTML=`批次辨識失敗：${e.message} <button class="ghost sm" onclick="document.getElementById('labelInput').click()">🔁 重選</button>`;
@@ -845,7 +870,7 @@ async function runLabel(){
     registerFood(name,[r.kcal,r.protein,r.fat,r.carb],serv);   // per100g，預設份量=一份
     saveBarcode(name,r.kcal,r.protein,r.fat,r.carb);           // 若是掃碼後拍標示，存回條碼庫
     h.innerHTML=`已加入「<b>${name}</b>」：每100g ${r.kcal}kcal／蛋${r.protein} 脂${r.fat} 碳${r.carb}。`+
-      `下方清單已帶入 <b>${serv}g</b>${r.serving>0?"（=標示一份）":"（預設值，請改成你吃的克數）"}，可直接調整。`;
+      `下方清單已帶入 <b>${serv}g</b>${r.serving>0?"（=標示一份）":"（預設值，請改成你吃的克數）"}，可直接調整。名稱不對可按 <b>✏️</b> 改。`;
   }catch(e){
     h.innerHTML=`辨識失敗：${e.message} <button class="ghost sm" onclick="runLabel()">🔁 再試一次</button>（也可按✏️自訂食物手動填）`;
   }
