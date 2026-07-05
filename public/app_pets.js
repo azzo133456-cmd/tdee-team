@@ -172,7 +172,7 @@ async function loadDexGame(){
         list.map((b,i)=>{ const medal=["🥇","🥈","🥉"][i]||(i+1);
           return `<tr style="border-top:1px solid var(--line);${b.mine?"background:rgba(120,170,120,.12);font-weight:600;":""}">`+
             `<td style="padding:5px 2px;">${medal}</td>`+
-            `<td><span class="namefx ${b.fx||""}" style="position:relative;">${b.avatar?b.avatar+" ":""}${b.name}${b.mine?" (我)":""}</span></td>`+
+            `<td>${b.avatar?`<img src="${b.avatar}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;">`:""}<span class="namefx ${b.fx||""}" style="position:relative;">${b.name}${b.mine?" (我)":""}</span></td>`+
             `<td style="text-align:right;">${b.species}</td>`+
             `<td style="text-align:right;color:var(--accent);">Lv.${b.level}</td></tr>`;
         }).join("")+`</tbody></table>`;
