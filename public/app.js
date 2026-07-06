@@ -1210,8 +1210,6 @@ const PERIOD_LABEL={day:"每日",week:"每週",month:"每月"};
 // 計算自己近 35 天的隱私安全統計並上傳（flag 由本機算，體重只供算個人%）
 async function syncDailyStats(){
   const t=goalTargets();
-  const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
-  const waterGoal=Math.round(w*45/50)*50;
   const rows=[];
   // 涵蓋所有有資料的日期（與積分計算同範圍，讓排行榜分數一致），上限 366 天
   const dates=new Set();
@@ -1226,6 +1224,7 @@ async function syncDailyStats(){
     const logged=nut.k>0;
     const exercised=exsDay.length>0;
     const water=rec&&rec.water_ml?+rec.water_ml:0;
+    const waterGoal=waterGoalFor(ds);   // 依當天體重動態計算
     rows.push({ date:ds, logged,
       kcal_hit: !!(t && logged && nut.k<=t.kcal),
       protein_hit: !!(t && logged && nut.p>=t.protein),
@@ -1418,8 +1417,6 @@ function chooseSkin(id){ try{ localStorage.setItem("tdee_skin",id); }catch(e){} 
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
 function computePoints(){
   const t=goalTargets();
-  const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
-  const waterGoal=Math.round(w*45/50)*50;
   const dates=new Set();
   (store.records||[]).forEach(r=>dates.add(r.date.slice(0,10)));
   Object.keys(store.mealAgg||{}).forEach(d=>dates.add(d));
@@ -1434,7 +1431,7 @@ function computePoints(){
     if(t&&logged&&nut.k<=t.kcal) activity+=1;
     if(t&&logged&&nut.p>=t.protein) activity+=1;
     if(exercised) activity+=1;
-    if(water>=waterGoal) activity+=1;
+    if(water>=waterGoalFor(ds)) activity+=1;
   });
   let trophies=0, trophyPts=0;
   (myGroups||[]).forEach(g=>{ const me=(g.members||[]).find(m=>m.me); if(me){ trophies+=me.trophies||0; trophyPts+=me.trophyPts||0; } });
@@ -1871,10 +1868,21 @@ async function setWaterCustom(){
   try{ await api("/api/water",{method:"POST",body:JSON.stringify({date,water_ml:v})}); await reload(); }
   catch(e){ alert(e.message); }
 }
+// 某日的有效體重：今天以輸入/最新體重即時反映；過去日用「當天或之前最近」的體重紀錄；都沒有才退回輸入值/60。
+// → 飲水目標會隨體重變化(每天用當天實際體重算)，減重時目標跟著調整。
+function bodyWeightFor(date){
+  const inp=+val("weight");
+  if(date && date===todayStr() && inp>0) return inp;
+  const recs=(store.records||[]).filter(r=>r.weight!=null);   // store.records 依日期升冪
+  if(date){ const le=recs.filter(r=>r.date.slice(0,10)<=date); if(le.length) return +le[le.length-1].weight; }
+  if(recs.length) return +recs[recs.length-1].weight;
+  return inp>0?inp:60;
+}
+function waterGoalFor(date){ return Math.round(bodyWeightFor(date)*45/50)*50; }
 function renderWater(date){
-  const cur=waterFor(date), w=+val("weight")||60, goal=Math.round(w*45/50)*50;
+  const cur=waterFor(date), goal=waterGoalFor(date);
   set("waterOut", cur.toLocaleString()+" ml");
-  set("waterGoal", `目標約 ${goal.toLocaleString()} ml（體重×45）　${cur>=goal?"✅ 已達標":"還差 "+(goal-cur).toLocaleString()+" ml"}`);
+  set("waterGoal", `目標約 ${goal.toLocaleString()} ml（當天體重×45）　${cur>=goal?"✅ 已達標":"還差 "+(goal-cur).toLocaleString()+" ml"}`);
   document.getElementById("waterBar").style.width=Math.min(100,goal?cur/goal*100:0)+"%";
 }
 function poopFor(date){ const r=store.records.find(x=>x.date.slice(0,10)===date); return r&&r.poop?+r.poop:0; }
@@ -2412,8 +2420,7 @@ function renderDashboard(){
   if(typeof renderDailyTasks==="function") renderDailyTasks();   // 概覽的今日任務卡（即時反映打勾）
   const box=document.getElementById("dashBox"); if(!box) return;
   const d=todayStr(), t=goalTargets(), nut=dayNutrition(d), burn=burnByDate(d);
-  const w=+val("weight")|| (store.records&&store.records.length? +store.records[store.records.length-1].weight||60 : 60);
-  const waterGoal=Math.round(w*45/50)*50, water=waterFor(d);
+  const waterGoal=waterGoalFor(d), water=waterFor(d);
   const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
   let html="";
   if(t){
