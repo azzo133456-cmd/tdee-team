@@ -1868,15 +1868,13 @@ async function setWaterCustom(){
   try{ await api("/api/water",{method:"POST",body:JSON.stringify({date,water_ml:v})}); await reload(); }
   catch(e){ alert(e.message); }
 }
-// 某日的有效體重：今天以輸入/最新體重即時反映；過去日用「當天或之前最近」的體重紀錄；都沒有才退回輸入值/60。
-// → 飲水目標會隨體重變化(每天用當天實際體重算)，減重時目標跟著調整。
+// 某日的有效體重：用「當天或之前最近一次」的體重紀錄(每日量測的真實體重)；還沒有紀錄才退回個人資料體重/60。
+// → 飲水目標隨實際體重變化：減重(每天記體重)時目標會跟著下降。#weight 是個人資料的固定體重(算TDEE用)，不拿來當每日飲水基準。
 function bodyWeightFor(date){
-  const inp=+val("weight");
-  if(date && date===todayStr() && inp>0) return inp;
   const recs=(store.records||[]).filter(r=>r.weight!=null);   // store.records 依日期升冪
   if(date){ const le=recs.filter(r=>r.date.slice(0,10)<=date); if(le.length) return +le[le.length-1].weight; }
-  if(recs.length) return +recs[recs.length-1].weight;
-  return inp>0?inp:60;
+  if(recs.length) return +recs[recs.length-1].weight;   // 該日之前沒有，就用最新一次量測
+  return +val("weight")||60;   // 完全沒有體重紀錄才退回個人資料體重
 }
 function waterGoalFor(date){ return Math.round(bodyWeightFor(date)*45/50)*50; }
 function renderWater(date){
