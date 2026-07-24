@@ -662,7 +662,29 @@ function showTab(name){
   window.scrollTo(0,0);
 }
 
-/* ---------- 買菜月結（現金流法） ---------- */
+/* ---------- 買菜月結（現金流法，僅 zen 顯示） ---------- */
+function isZen(){ return ((session&&session.username)||"").trim().toLowerCase()==="zen"; }
+function applyGroceryVisibility(){ const nav=document.querySelector('.bottomnav .nav[data-tab="grocery"]'); if(nav) nav.style.display=isZen()?"":"none"; }
+function seedGroceryZen(){
+  if(!isZen()) return;
+  if(localStorage.getItem("grocery_seeded_v1")) return;
+  const g=store.grocery||{buys:[],meals:[]};
+  if((g.buys&&g.buys.length)||(g.meals&&g.meals.length)){ localStorage.setItem("grocery_seeded_v1","1"); return; }
+  const uid=()=>Date.now()+""+Math.random();
+  const buys=[
+    {date:"2026-06-29",amount:2465,note:"雞腿8kg、雞柳3kg、蒜仁200g、辣椒100g"},
+    {date:"2026-06-29",amount:3295,note:"蒜泥21罐、辣味噌160g、燒肉醬350ml、海帶140g、白胡椒粉2罐、芝麻油1罐、四季豆14包"},
+    {date:"2026-06-29",amount:1252,note:"裙帶菜1.5包、餛飩2盒、蝦仁907g、橄欖油1L、雞蛋豆腐3盒"},
+    {date:"2026-07-15",amount:666,note:"胡椒粉、四季豆"},
+  ];
+  const meals=[["2026-06-30","中午"],["2026-07-02","中午"],["2026-07-04","一餐"],["2026-07-06","一餐"],["2026-07-07","一餐"],["2026-07-08","一餐"],["2026-07-09","一餐"],["2026-07-15","一餐"]];
+  store.grocery={
+    buys: buys.map(b=>({id:uid(),date:b.date,note:b.note,amount:b.amount})),
+    meals: meals.map(m=>({id:uid(),date:m[0],note:m[1],people:2})),
+  };
+  localStorage.setItem("grocery_seeded_v1","1");
+  saveGrocery();
+}
 function saveGrocery(){ api("/api/grocery",{method:"PUT",body:JSON.stringify(store.grocery||{buys:[],meals:[]})}).catch(()=>{}); }
 function addGBuy(){
   const date=val("gBuyDate")||todayStr(), amount=Math.round(+val("gBuyAmount")||0), note=(val("gBuyNote")||"").trim();
@@ -683,6 +705,7 @@ function delGBuy(id){ if(!store.grocery) return; store.grocery.buys=(store.groce
 function delGMeal(id){ if(!store.grocery) return; store.grocery.meals=(store.grocery.meals||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
 function gMonth(d){ return (d||"").slice(0,7); }
 function renderGrocery(){
+  seedGroceryZen();
   const g=store.grocery||{buys:[],meals:[]};
   const buys=g.buys||[], meals=g.meals||[];
   // 預設日期為今天
@@ -2753,6 +2776,8 @@ function applyStoreData(data){
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
   store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[];
+  if(typeof applyGroceryVisibility==="function") applyGroceryVisibility();
+  if(typeof seedGroceryZen==="function") seedGroceryZen();
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
   (store.sharedFoods||[]).forEach(s=>{
     if(FOODS[s.name]) return;  // 不覆蓋內建
