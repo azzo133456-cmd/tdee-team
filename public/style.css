@@ -178,3 +178,7 @@
 .gdet>summary::-webkit-details-marker{display:none;}
 .gdet>summary::after{content:"▾"; margin-left:auto; color:var(--sub); transition:transform .2s;}
 .gdet:not([open])>summary::after{transform:rotate(-90deg);}
+.subgrid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;}
+.subcell{background:var(--soft); border-radius:10px; padding:10px 6px; text-align:center;}
+.subnum{font-size:18px; font-weight:700; color:var(--accent);}
+.sublab{font-size:12px; color:var(--sub); margin-top:2px; line-height:1.3;}

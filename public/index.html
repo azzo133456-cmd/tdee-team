@@ -659,6 +659,17 @@
     </div>
 
     <div class="card">
+      <h2>🏢 公司補給 <span class="pill">平日有煮 +200</span></h2>
+      <div id="gSubsidyBox"></div>
+      <div class="row" style="margin-top:10px">
+        <label>申請日期<input type="date" id="gSetDate"></label>
+        <label>領到金額<input type="number" id="gSetAmount" inputmode="numeric" placeholder="例：2000"></label>
+      </div>
+      <label>備註（可空）<input type="text" id="gSetNote" placeholder="例：7月申請/公司匯款"></label>
+      <button class="primary" onclick="addGSettle()">＋ 記一筆已申請現金</button>
+    </div>
+
+    <div class="card">
       <h2 class="ch" data-ck="gList" onclick="toggleCard(this)">📋 明細（進貨 / 煮餐） <span class="caret">▾</span></h2>
       <div class="cardbody"><div id="gDetailBox"></div></div>
     </div>

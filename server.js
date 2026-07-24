@@ -458,6 +458,12 @@ app.put("/api/grocery", auth, async (req, res) => {
         note: String(x.note || "").slice(0, 120),
         people: Math.max(1, Math.min(50, Math.round(+x.people || 1))),
       })),
+      settles: (Array.isArray(b.settles) ? b.settles : []).slice(0, 2000).map((x) => ({
+        id: String(x.id || Date.now() + "" + Math.random()).slice(0, 40),
+        date: String(x.date || "").slice(0, 10),
+        note: String(x.note || "").slice(0, 200),
+        amount: Math.round(+x.amount || 0),
+      })),
     };
     await pool.query("UPDATE users SET grocery=$1 WHERE id=$2", [JSON.stringify(clean), req.user.id]);
     res.json({ ok: true });

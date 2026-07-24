@@ -703,6 +703,17 @@ function addGMeal(){
 }
 function delGBuy(id){ if(!store.grocery) return; store.grocery.buys=(store.grocery.buys||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
 function delGMeal(id){ if(!store.grocery) return; store.grocery.meals=(store.grocery.meals||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
+const SUBSIDY_PER_DAY=200;
+function isWeekday(dstr){ const d=new Date(dstr+"T00:00:00"); const w=d.getDay(); return w>=1&&w<=5; }   // 週一~五
+function addGSettle(){
+  const date=val("gSetDate")||todayStr(), amount=Math.round(+val("gSetAmount")||0), note=(val("gSetNote")||"").trim();
+  if(!amount){ alert("請輸入領到的金額"); return; }
+  store.grocery=store.grocery||{buys:[],meals:[],settles:[]}; store.grocery.settles=store.grocery.settles||[];
+  store.grocery.settles.push({id:Date.now()+""+Math.random(),date,amount,note});
+  set("gSetAmount",""); set("gSetNote","");
+  saveGrocery(); renderGrocery();
+}
+function delGSettle(id){ if(!store.grocery) return; store.grocery.settles=(store.grocery.settles||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
 function gMonth(d){ return (d||"").slice(0,7); }
 function renderGrocery(){
   seedGroceryZen();
@@ -732,6 +743,27 @@ function renderGrocery(){
     sb.innerHTML=`<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">餐數</th><th style="text-align:right">每餐</th><th style="text-align:right">每人</th></tr></thead><tbody>${rows}</tbody></table>`+
       `<div class="hint" style="margin-top:8px">全期累計：進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b></div>`;
   }
+  // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
+  const settles=g.settles||[];
+  const cookWeekdays=new Set(); meals.forEach(x=>{ if(x.date&&isWeekday(x.date)) cookWeekdays.add(x.date); });
+  const accrued=cookWeekdays.size*SUBSIDY_PER_DAY;
+  const claimed=settles.reduce((a,s)=>a+(+s.amount||0),0);
+  const balance=accrued-claimed;
+  const sbx=document.getElementById("gSubsidyBox");
+  if(sbx){
+    const setList=settles.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    const setRows=setList.length?setList.map(s=>`<div class="grow"><span class="gd">${s.date}</span><span class="gn">${s.note||"申請現金"}</span><span class="ga">$${(+s.amount||0).toLocaleString()}</span><span class="x" onclick="delGSettle('${s.id}')">✕</span></div>`).join(""):`<div class="hint">尚未記錄任何申請</div>`;
+    const balColor=balance>0?"var(--green)":(balance<0?"#b5564e":"var(--sub)");
+    const balLabel=balance>0?"還沒領（可申請）":(balance<0?"多領了⚠️":"已結清");
+    sbx.innerHTML=
+      `<div class="subgrid">`+
+        `<div class="subcell"><div class="subnum">$${accrued.toLocaleString()}</div><div class="sublab">累計補給<br><span class="hint">平日煮 ${cookWeekdays.size} 天×200</span></div></div>`+
+        `<div class="subcell"><div class="subnum">$${claimed.toLocaleString()}</div><div class="sublab">已申請現金</div></div>`+
+        `<div class="subcell"><div class="subnum" style="color:${balColor}">$${balance.toLocaleString()}</div><div class="sublab">${balLabel}</div></div>`+
+      `</div>`+
+      `<details class="gdet" style="margin-top:10px"><summary class="ghd">🧾 申請紀錄（${setList.length}）</summary>${setRows}</details>`;
+  }
+  if(!val("gSetDate")) set("gSetDate",todayStr());
   // 明細
   const db=document.getElementById("gDetailBox");
   const bList=buys.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
@@ -2776,7 +2808,7 @@ function applyStoreData(data){
   store = data;
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
-  store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[];
+  store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[]; store.grocery.settles=store.grocery.settles||[];
   if(typeof applyGroceryVisibility==="function") applyGroceryVisibility();
   if(typeof seedGroceryZen==="function") seedGroceryZen();
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
