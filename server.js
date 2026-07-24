@@ -6,10 +6,19 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
 
-// VAPID（可用環境變數覆蓋；預設後備供個人/好友用）
-const VAPID_PUBLIC = process.env.VAPID_PUBLIC || "BAK-aviDC-bVVVdhF97BpF7mRA4YFvOp2okXmsABmvFw7-Iwxa7mQe5VZVsWFOBRrm_J6TKOJ0yDH3OM7zpuQGs";
-const VAPID_PRIVATE = process.env.VAPID_PRIVATE || "0nre8o9aIi2AWjH_0wFuKALy8U-V8j6ZUD4GcFvQuNs";
-try { webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:tdee@example.com", VAPID_PUBLIC, VAPID_PRIVATE); } catch (e) { console.error("VAPID 設定失敗", e.message); }
+// Push notifications are optional. Keys must always be supplied through the environment.
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE;
+const PUSH_ENABLED = Boolean(VAPID_PUBLIC && VAPID_PRIVATE);
+if (PUSH_ENABLED) {
+  try {
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:tdee@example.com", VAPID_PUBLIC, VAPID_PRIVATE);
+  } catch (e) {
+    console.error("VAPID 設定失敗", e.message);
+  }
+} else {
+  console.warn("Push notifications are disabled: VAPID_PUBLIC and VAPID_PRIVATE are required.");
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { Pool } = pg;
@@ -46,6 +55,7 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS fx TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS racer TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS skin TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS grocery JSONB DEFAULT '{"buys":[],"meals":[]}'::jsonb;
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -226,7 +236,12 @@ app.use(express.static(join(__dirname, "public"), {
 
 /* ---------- 密碼雜湊 ---------- */
 function hashPw(password, salt) {
-  return crypto.scryptSync(password, salt, 64).toString("hex");
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey.toString("hex"));
+    });
+  });
 }
 function newToken() {
   return crypto.randomBytes(24).toString("hex");
@@ -256,7 +271,7 @@ app.post("/api/register", async (req, res) => {
     const exists = await pool.query("SELECT 1 FROM users WHERE username=$1", [username]);
     if (exists.rowCount > 0) return res.status(409).json({ error: "這個帳號已被註冊" });
     const salt = crypto.randomBytes(16).toString("hex");
-    const hash = hashPw(password, salt);
+    const hash = await hashPw(password, salt);
     const token = newToken();
     const u = await pool.query(
       "INSERT INTO users(username,salt,hash,token) VALUES($1,$2,$3,$4) RETURNING id,username,profile",
@@ -276,7 +291,7 @@ app.post("/api/login", async (req, res) => {
     const u = await pool.query("SELECT * FROM users WHERE username=$1", [username]);
     if (u.rowCount === 0) return res.status(401).json({ error: "帳號或密碼錯誤" });
     const user = u.rows[0];
-    const hash = hashPw(password, user.salt);
+    const hash = await hashPw(password, user.salt);
     const ok =
       hash.length === user.hash.length &&
       crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(user.hash));
@@ -420,6 +435,31 @@ app.put("/api/favorites", auth, async (req, res) => {
   try {
     const favs = Array.isArray(req.body) ? req.body : [];
     await pool.query("UPDATE users SET favorites=$1 WHERE id=$2", [JSON.stringify(favs), req.user.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 買菜月結（現金流法，僅個人私有） ---------- */
+app.put("/api/grocery", auth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const clean = {
+      buys: (Array.isArray(b.buys) ? b.buys : []).slice(0, 2000).map((x) => ({
+        id: String(x.id || Date.now() + "" + Math.random()).slice(0, 40),
+        date: String(x.date || "").slice(0, 10),
+        note: String(x.note || "").slice(0, 300),
+        amount: Math.round(+x.amount || 0),
+      })),
+      meals: (Array.isArray(b.meals) ? b.meals : []).slice(0, 5000).map((x) => ({
+        id: String(x.id || Date.now() + "" + Math.random()).slice(0, 40),
+        date: String(x.date || "").slice(0, 10),
+        note: String(x.note || "").slice(0, 120),
+        people: Math.max(1, Math.min(50, Math.round(+x.people || 1))),
+      })),
+    };
+    await pool.query("UPDATE users SET grocery=$1 WHERE id=$2", [JSON.stringify(clean), req.user.id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
@@ -1066,8 +1106,13 @@ app.post("/api/review", auth, async (req, res) => {
 });
 
 /* ---------- 推播通知（PWA） ---------- */
-app.get("/api/push/key", (req, res) => res.json({ key: VAPID_PUBLIC }));
-app.post("/api/push/subscribe", auth, async (req, res) => {
+function requirePushEnabled(req, res, next) {
+  if (!PUSH_ENABLED) return res.status(503).json({ error: "推播服務尚未設定" });
+  next();
+}
+
+app.get("/api/push/key", requirePushEnabled, (req, res) => res.json({ key: VAPID_PUBLIC }));
+app.post("/api/push/subscribe", auth, requirePushEnabled, async (req, res) => {
   try {
     const sub = req.body.sub;
     if (!sub || !sub.endpoint) return res.status(400).json({ error: "缺少訂閱" });
@@ -1093,11 +1138,12 @@ app.post("/api/push/prefs", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 // 測試推播（讓使用者按一下確認有收到）
-app.post("/api/push/test", auth, async (req, res) => {
+app.post("/api/push/test", auth, requirePushEnabled, async (req, res) => {
   try { await sendToUser(req.user.id, "🔔 測試通知", "推播設定成功！之後會在這裡提醒你喝水/記錄/競賽。"); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: "伺服器錯誤" }); }
 });
 async function sendToUser(userId, title, body) {
+  if (!PUSH_ENABLED) return;
   const subs = await pool.query("SELECT endpoint, sub FROM push_subs WHERE user_id=$1", [userId]);
   const payload = JSON.stringify({ title, body });
   for (const row of subs.rows) {
@@ -2581,7 +2627,7 @@ app.get("/api/me/all", auth, async (req, res) => {
       // 同餐點照片：不撈 thumb(base64)，只回 has_thumb，縮圖改由 /api/plate/thumbs 按需載入
       pool.query("SELECT id,name,items,kcal,(thumb IS NOT NULL) AS has_thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
     ]);
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null });
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null, grocery: req.user.grocery || { buys: [], meals: [] } });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }

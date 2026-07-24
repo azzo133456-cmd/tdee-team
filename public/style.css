@@ -163,3 +163,14 @@
   #petToast.show{opacity:1; transform:translateX(-50%) translateY(0);}
   /* 食物計算機：存餐列（選餐別＋加入）有東西時固定在畫面底部，捲清單也看得到要存哪一餐 */
   #mealAddBox.on{position:sticky; bottom:8px; z-index:20; background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-top:10px; box-shadow:0 6px 20px rgba(0,0,0,.10);}
+
+/* 買菜月結 */
+.gtbl{width:100%; border-collapse:collapse; font-size:13px;}
+.gtbl th{font-size:11px; color:var(--sub); font-weight:600; padding:4px 6px; border-bottom:1px solid var(--line); white-space:nowrap;}
+.gtbl td{padding:6px 6px; border-bottom:1px solid var(--line); white-space:nowrap;}
+.ghd{font-size:12px; font-weight:600; color:var(--sub); margin:4px 0 6px;}
+.grow{display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line);}
+.grow .gd{font-size:11px; color:var(--sub); flex:0 0 74px;}
+.grow .gn{flex:1; font-size:13px; word-break:break-all;}
+.grow .ga{font-weight:600; color:var(--warm); white-space:nowrap;}
+.grow .x{color:#b5564e; cursor:pointer; flex:0 0 auto; padding:0 4px;}

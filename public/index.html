@@ -622,6 +622,48 @@
     </div>
   </div>
 
+  <!-- 買菜月結 -->
+  <div class="tabpage hidden" id="page-grocery">
+    <div class="card">
+      <h2>🧾 買菜月結 <span class="pill">現金流法</span></h2>
+      <div class="hint">記進貨金額 + 記煮了幾餐，系統幫你算每月「總花費 ÷ 餐數 = 平均每餐」。前期囤貨會偏高，之後會慢慢降到真實成本。</div>
+    </div>
+
+    <div class="card">
+      <h2 class="ch" data-ck="gBuy" onclick="toggleCard(this)">🛒 記一筆進貨 <span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="row">
+          <label>日期<input type="date" id="gBuyDate"></label>
+          <label>金額<input type="number" id="gBuyAmount" inputmode="numeric" placeholder="例：2465"></label>
+        </div>
+        <label>買了什麼<input type="text" id="gBuyNote" placeholder="例：雞腿8kg、雞柳3kg、蒜仁200g"></label>
+        <button class="primary" onclick="addGBuy()">＋ 加入進貨</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="ch" data-ck="gMeal" onclick="toggleCard(this)">🍳 記一餐 <span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="row">
+          <label>日期<input type="date" id="gMealDate"></label>
+          <label>幾人份<input type="number" id="gMealPeople" inputmode="numeric" value="2" min="1"></label>
+        </div>
+        <label>備註（可空）<input type="text" id="gMealNote" placeholder="例：中午 / 晚餐"></label>
+        <button class="primary" onclick="addGMeal()">＋ 加入一餐</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📊 月結總表</h2>
+      <div id="gSummaryBox"><div class="hint">還沒有資料，先在上面記一筆吧。</div></div>
+    </div>
+
+    <div class="card">
+      <h2 class="ch" data-ck="gList" onclick="toggleCard(this)">📋 明細（進貨 / 煮餐） <span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="gDetailBox"></div></div>
+    </div>
+  </div>
+
   <!-- 底部導覽 -->
   <div class="bottomnav">
     <div class="nav on" data-tab="overview" onclick="showTab('overview')">📊<span>概覽</span></div>
@@ -629,6 +671,7 @@
     <div class="nav" data-tab="exercise" onclick="showTab('exercise')">🏃<span>運動</span></div>
     <div class="nav" data-tab="records" onclick="showTab('records')">📝<span>紀錄</span></div>
     <div class="nav" data-tab="games" onclick="showTab('games')">🎮<span>遊戲</span></div>
+    <div class="nav" data-tab="grocery" onclick="showTab('grocery')">🧾<span>月結</span></div>
   </div>
 </div>
 

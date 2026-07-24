@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "audit": "node tools/audit_foods.mjs"
+    "audit": "node tools/audit_foods.mjs",
+    "check": "node --check server.js && node --check public/app.js && node --check public/app_pets.js"
   },
   "engines": {
     "node": ">=18"

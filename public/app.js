@@ -654,11 +654,68 @@ function applyTips(){
 }
 function toggleTips(){ localStorage.setItem("tdee_tips", localStorage.getItem("tdee_tips")==="1"?"0":"1"); applyTips(); }
 function showTab(name){
-  ["overview","food","exercise","records","games"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
+  ["overview","food","exercise","records","games","grocery"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
   if(name==="games" && typeof loadAllGames==="function") loadAllGames();   // 進遊戲分頁才載入(lazy)，整個 session 只載一次
   if(name==="games" && typeof loadDexGame==="function") loadDexGame();      // 圖鑑每次進來都刷新(反映最新扭蛋/培養)
+  if(name==="grocery" && typeof renderGrocery==="function") renderGrocery();
   window.scrollTo(0,0);
+}
+
+/* ---------- 買菜月結（現金流法） ---------- */
+function saveGrocery(){ api("/api/grocery",{method:"PUT",body:JSON.stringify(store.grocery||{buys:[],meals:[]})}).catch(()=>{}); }
+function addGBuy(){
+  const date=val("gBuyDate")||todayStr(), amount=Math.round(+val("gBuyAmount")||0), note=(val("gBuyNote")||"").trim();
+  if(!amount){ alert("請輸入進貨金額"); return; }
+  store.grocery=store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[];
+  store.grocery.buys.push({id:Date.now()+""+Math.random(),date,note,amount});
+  set("gBuyAmount",""); set("gBuyNote","");
+  saveGrocery(); renderGrocery();
+}
+function addGMeal(){
+  const date=val("gMealDate")||todayStr(), people=Math.max(1,Math.round(+val("gMealPeople")||1)), note=(val("gMealNote")||"").trim();
+  store.grocery=store.grocery||{buys:[],meals:[]}; store.grocery.meals=store.grocery.meals||[];
+  store.grocery.meals.push({id:Date.now()+""+Math.random(),date,people,note});
+  set("gMealNote","");
+  saveGrocery(); renderGrocery();
+}
+function delGBuy(id){ if(!store.grocery) return; store.grocery.buys=(store.grocery.buys||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
+function delGMeal(id){ if(!store.grocery) return; store.grocery.meals=(store.grocery.meals||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
+function gMonth(d){ return (d||"").slice(0,7); }
+function renderGrocery(){
+  const g=store.grocery||{buys:[],meals:[]};
+  const buys=g.buys||[], meals=g.meals||[];
+  // 預設日期為今天
+  if(!val("gBuyDate")) set("gBuyDate",todayStr());
+  if(!val("gMealDate")) set("gMealDate",todayStr());
+  // 依月份彙整
+  const months={};
+  buys.forEach(b=>{ const m=gMonth(b.date); if(!m) return; (months[m]=months[m]||{buy:0,mealCnt:0,people:0}).buy+=+b.amount||0; });
+  meals.forEach(x=>{ const m=gMonth(x.date); if(!m) return; const o=months[m]=months[m]||{buy:0,mealCnt:0,people:0}; o.mealCnt+=1; o.people+=+x.people||0; });
+  const keys=Object.keys(months).sort((a,b)=>b.localeCompare(a));
+  const sb=document.getElementById("gSummaryBox");
+  if(!keys.length){ sb.innerHTML=`<div class="hint">還沒有資料，先在上面記一筆吧。</div>`; }
+  else{
+    let totBuy=0, totMeal=0;
+    const rows=keys.map(m=>{
+      const o=months[m]; totBuy+=o.buy; totMeal+=o.mealCnt;
+      const avg=o.mealCnt?Math.round(o.buy/o.mealCnt):0;
+      const avgP=o.people?Math.round(o.buy/o.people):0;
+      return `<tr><td>${m}</td><td style="text-align:right">$${o.buy.toLocaleString()}</td><td style="text-align:right">${o.mealCnt}</td>`+
+        `<td style="text-align:right;font-weight:600;color:var(--accent)">$${avg.toLocaleString()}</td>`+
+        `<td style="text-align:right">$${avgP.toLocaleString()}</td></tr>`;
+    }).join("");
+    const gAvg=totMeal?Math.round(totBuy/totMeal):0;
+    sb.innerHTML=`<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">餐數</th><th style="text-align:right">每餐</th><th style="text-align:right">每人</th></tr></thead><tbody>${rows}</tbody></table>`+
+      `<div class="hint" style="margin-top:8px">全期累計：進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b></div>`;
+  }
+  // 明細
+  const db=document.getElementById("gDetailBox");
+  const bList=buys.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const mList=meals.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const buyRows=bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">$${(+b.amount||0).toLocaleString()}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`;
+  const mealRows=mList.length?mList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"一餐"}　<span class="pill">${x.people||1}人</span></span><span class="x" onclick="delGMeal('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無煮餐紀錄</div>`;
+  db.innerHTML=`<div class="ghd">🛒 進貨（${bList.length}）</div>${buyRows}<div class="ghd" style="margin-top:12px">🍳 煮餐（${mList.length}）</div>${mealRows}`;
 }
 
 /* ---------- 我的最愛 ---------- */
@@ -2695,6 +2752,7 @@ function applyStoreData(data){
   store = data;
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
+  store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[];
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
   (store.sharedFoods||[]).forEach(s=>{
     if(FOODS[s.name]) return;  // 不覆蓋內建
