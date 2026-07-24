@@ -738,7 +738,8 @@ function renderGrocery(){
   const mList=meals.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const buyRows=bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">$${(+b.amount||0).toLocaleString()}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`;
   const mealRows=mList.length?mList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"一餐"}　<span class="pill">${x.people||1}人</span></span><span class="x" onclick="delGMeal('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無煮餐紀錄</div>`;
-  db.innerHTML=`<div class="ghd">🛒 進貨（${bList.length}）</div>${buyRows}<div class="ghd" style="margin-top:12px">🍳 煮餐（${mList.length}）</div>${mealRows}`;
+  db.innerHTML=`<details class="gdet" open><summary class="ghd">🛒 進貨（${bList.length}）</summary>${buyRows}</details>`+
+    `<details class="gdet" open style="margin-top:12px"><summary class="ghd">🍳 煮餐（${mList.length}）</summary>${mealRows}</details>`;
 }
 
 /* ---------- 我的最愛 ---------- */
