@@ -625,13 +625,14 @@
   <!-- 買菜月結 -->
   <div class="tabpage hidden" id="page-grocery">
     <div class="card">
-      <h2>🧾 買菜月結 <span class="pill">現金流法</span></h2>
-      <div class="hint">記進貨金額 + 記煮了幾餐，系統幫你算每月「總花費 ÷ 餐數 = 平均每餐」。前期囤貨會偏高，之後會慢慢降到真實成本。</div>
-    </div>
-
-    <div class="card">
-      <h2 class="ch" data-ck="gBuy" onclick="toggleCard(this)">🛒 記一筆進貨 <span class="caret">▾</span></h2>
-      <div class="cardbody">
+      <h2>🧾 買菜月結</h2>
+      <div class="gtypebar">
+        <button class="gtypebtn on" data-gt="buy" onclick="setGType('buy')">🛒 進貨</button>
+        <button class="gtypebtn" data-gt="meal" onclick="setGType('meal')">🍳 煮餐</button>
+        <button class="gtypebtn" data-gt="extra" onclick="setGType('extra')">🍽️ 外食</button>
+        <button class="gtypebtn" data-gt="settle" onclick="setGType('settle')">🏢 申請補給</button>
+      </div>
+      <div id="gForm-buy" class="gform">
         <div class="row">
           <label>日期<input type="date" id="gBuyDate"></label>
           <label>金額<input type="number" id="gBuyAmount" inputmode="numeric" placeholder="例：2465"></label>
@@ -639,11 +640,7 @@
         <label>買了什麼<input type="text" id="gBuyNote" placeholder="例：雞腿8kg、雞柳3kg、蒜仁200g"></label>
         <button class="primary" onclick="addGBuy()">＋ 加入進貨</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h2 class="ch" data-ck="gMeal" onclick="toggleCard(this)">🍳 記一餐 <span class="caret">▾</span></h2>
-      <div class="cardbody">
+      <div id="gForm-meal" class="gform hidden">
         <div class="row">
           <label>日期<input type="date" id="gMealDate"></label>
           <label>幾人份<input type="number" id="gMealPeople" inputmode="numeric" value="2" min="1"></label>
@@ -651,11 +648,7 @@
         <label>備註（可空）<input type="text" id="gMealNote" placeholder="例：中午 / 晚餐"></label>
         <button class="primary" onclick="addGMeal()">＋ 加入一餐</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h2 class="ch" data-ck="gExtra" onclick="toggleCard(this)">🍽️ 額外伙食費 <span class="pill">外食/大餐</span><span class="caret">▾</span></h2>
-      <div class="cardbody">
+      <div id="gForm-extra" class="gform hidden">
         <div class="row">
           <label>日期<input type="date" id="gExtraDate"></label>
           <label>金額<input type="number" id="gExtraAmount" inputmode="numeric" placeholder="例：850"></label>
@@ -663,26 +656,28 @@
         <label>備註（可空）<input type="text" id="gExtraNote" placeholder="例：週末聚餐/生日大餐"></label>
         <button class="primary" onclick="addGExtra()">＋ 加入額外伙食費</button>
       </div>
+      <div id="gForm-settle" class="gform hidden">
+        <div class="row">
+          <label>申請日期<input type="date" id="gSetDate"></label>
+          <label>領到金額<input type="number" id="gSetAmount" inputmode="numeric" placeholder="例：2000"></label>
+        </div>
+        <label>備註（可空）<input type="text" id="gSetNote" placeholder="例：7月申請/公司匯款"></label>
+        <button class="primary" onclick="addGSettle()">＋ 記一筆已申請現金</button>
+      </div>
     </div>
 
     <div class="card">
       <h2>📊 月結總表</h2>
-      <div id="gSummaryBox"><div class="hint">還沒有資料，先在上面記一筆吧。</div></div>
+      <div id="gSummaryBox"><div class="hint">還沒有資料，先記一筆吧。</div></div>
     </div>
 
     <div class="card">
       <h2>🏢 公司補給 <span class="pill">平日有煮 +200</span></h2>
       <div id="gSubsidyBox"></div>
-      <div class="row" style="margin-top:10px">
-        <label>申請日期<input type="date" id="gSetDate"></label>
-        <label>領到金額<input type="number" id="gSetAmount" inputmode="numeric" placeholder="例：2000"></label>
-      </div>
-      <label>備註（可空）<input type="text" id="gSetNote" placeholder="例：7月申請/公司匯款"></label>
-      <button class="primary" onclick="addGSettle()">＋ 記一筆已申請現金</button>
     </div>
 
     <div class="card">
-      <h2 class="ch" data-ck="gList" onclick="toggleCard(this)">📋 明細（進貨 / 煮餐） <span class="caret">▾</span></h2>
+      <h2 class="ch" data-ck="gList" onclick="toggleCard(this)">📋 明細 <span class="caret">▾</span></h2>
       <div class="cardbody"><div id="gDetailBox"></div></div>
     </div>
   </div>

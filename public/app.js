@@ -663,6 +663,12 @@ function showTab(name){
 }
 
 /* ---------- 買菜月結（現金流法，僅 zen 顯示） ---------- */
+function setGType(t){
+  ["buy","meal","extra","settle"].forEach(k=>{
+    document.getElementById("gForm-"+k).classList.toggle("hidden", k!==t);
+  });
+  document.querySelectorAll(".gtypebtn").forEach(b=>b.classList.toggle("on", b.dataset.gt===t));
+}
 function isZen(){ return ((session&&session.username)||"").trim().toLowerCase()==="zen"; }
 function applyGroceryVisibility(){ const nav=document.querySelector('.bottomnav .nav[data-tab="grocery"]'); if(nav) nav.style.display=isZen()?"":"none"; }
 function seedGroceryZen(){
@@ -753,8 +759,7 @@ function renderGrocery(){
     }).join("");
     const totAll=totBuy+totExtra;
     const gAvg=totMeal?Math.round(totBuy/totMeal):0;
-    sb.innerHTML=`<div class="hint" style="margin-bottom:6px">「每餐/每人」只算自煮進貨；外食獨立列，不計入均價。月總花費＝進貨＋外食。</div>`+
-      `<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">月總計</th><th style="text-align:right">餐數</th><th style="text-align:right">自煮每餐</th><th style="text-align:right">自煮每人</th></tr></thead><tbody>${rows}</tbody></table>`+
+    sb.innerHTML=`<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">月總計</th><th style="text-align:right">餐數</th><th style="text-align:right">自煮每餐</th><th style="text-align:right">自煮每人</th></tr></thead><tbody>${rows}</tbody></table>`+
       `<div class="hint" style="margin-top:8px">全期累計：自煮進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b>　（外食累計另計 $${totExtra.toLocaleString()}，全部合計 $${totAll.toLocaleString()}）</div>`;
   }
   // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
