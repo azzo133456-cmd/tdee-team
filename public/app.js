@@ -744,17 +744,18 @@ function renderGrocery(){
     let totBuy=0, totExtra=0, totMeal=0;
     const rows=keys.map(m=>{
       const o=months[m]; const tot=o.buy+o.extra; totBuy+=o.buy; totExtra+=o.extra; totMeal+=o.mealCnt;
-      const avg=o.mealCnt?Math.round(tot/o.mealCnt):0;
-      const avgP=o.people?Math.round(tot/o.people):0;
+      // 平均每餐/每人只算自煮進貨，外食不併入（避免拉高/拉低自煮成本）
+      const avg=o.mealCnt?Math.round(o.buy/o.mealCnt):0;
+      const avgP=o.people?Math.round(o.buy/o.people):0;
       return `<tr><td>${m}</td><td style="text-align:right">$${o.buy.toLocaleString()}</td><td style="text-align:right">$${o.extra.toLocaleString()}</td><td style="text-align:right;font-weight:600">$${tot.toLocaleString()}</td><td style="text-align:right">${o.mealCnt}</td>`+
         `<td style="text-align:right;font-weight:600;color:var(--accent)">$${avg.toLocaleString()}</td>`+
         `<td style="text-align:right">$${avgP.toLocaleString()}</td></tr>`;
     }).join("");
     const totAll=totBuy+totExtra;
-    const gAvg=totMeal?Math.round(totAll/totMeal):0;
-    sb.innerHTML=`<div class="hint" style="margin-bottom:6px">總伙食費＝進貨＋額外伙食費（外食大餐）</div>`+
-      `<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">總計</th><th style="text-align:right">餐數</th><th style="text-align:right">每餐</th><th style="text-align:right">每人</th></tr></thead><tbody>${rows}</tbody></table>`+
-      `<div class="hint" style="margin-top:8px">全期累計：進貨 $${totBuy.toLocaleString()} ＋ 外食 $${totExtra.toLocaleString()} ＝ 總伙食費 $${totAll.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b></div>`;
+    const gAvg=totMeal?Math.round(totBuy/totMeal):0;
+    sb.innerHTML=`<div class="hint" style="margin-bottom:6px">「每餐/每人」只算自煮進貨；外食獨立列，不計入均價。月總花費＝進貨＋外食。</div>`+
+      `<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">月總計</th><th style="text-align:right">餐數</th><th style="text-align:right">自煮每餐</th><th style="text-align:right">自煮每人</th></tr></thead><tbody>${rows}</tbody></table>`+
+      `<div class="hint" style="margin-top:8px">全期累計：自煮進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b>　（外食累計另計 $${totExtra.toLocaleString()}，全部合計 $${totAll.toLocaleString()}）</div>`;
   }
   // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
   const settles=g.settles||[];
