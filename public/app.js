@@ -708,40 +708,53 @@ function isWeekday(dstr){ const d=new Date(dstr+"T00:00:00"); const w=d.getDay()
 function addGSettle(){
   const date=val("gSetDate")||todayStr(), amount=Math.round(+val("gSetAmount")||0), note=(val("gSetNote")||"").trim();
   if(!amount){ alert("請輸入領到的金額"); return; }
-  store.grocery=store.grocery||{buys:[],meals:[],settles:[]}; store.grocery.settles=store.grocery.settles||[];
+  store.grocery=store.grocery||{buys:[],meals:[],settles:[]}; store.grocery.settles=store.grocery.settles||[]; store.grocery.extras=store.grocery.extras||[];
   store.grocery.settles.push({id:Date.now()+""+Math.random(),date,amount,note});
   set("gSetAmount",""); set("gSetNote","");
   saveGrocery(); renderGrocery();
 }
 function delGSettle(id){ if(!store.grocery) return; store.grocery.settles=(store.grocery.settles||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
+function addGExtra(){
+  const date=val("gExtraDate")||todayStr(), amount=Math.round(+val("gExtraAmount")||0), note=(val("gExtraNote")||"").trim();
+  if(!amount){ alert("請輸入金額"); return; }
+  store.grocery=store.grocery||{buys:[],meals:[],settles:[],extras:[]}; store.grocery.extras=store.grocery.extras||[];
+  store.grocery.extras.push({id:Date.now()+""+Math.random(),date,note,amount});
+  set("gExtraAmount",""); set("gExtraNote","");
+  saveGrocery(); renderGrocery();
+}
+function delGExtra(id){ if(!store.grocery) return; store.grocery.extras=(store.grocery.extras||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
 function gMonth(d){ return (d||"").slice(0,7); }
 function renderGrocery(){
   seedGroceryZen();
   const g=store.grocery||{buys:[],meals:[]};
-  const buys=g.buys||[], meals=g.meals||[];
+  const buys=g.buys||[], meals=g.meals||[], extras=g.extras||[];
   // 預設日期為今天
   if(!val("gBuyDate")) set("gBuyDate",todayStr());
   if(!val("gMealDate")) set("gMealDate",todayStr());
-  // 依月份彙整
+  if(!val("gExtraDate")) set("gExtraDate",todayStr());
+  // 依月份彙整（進貨＋額外伙食費 = 當月總伙食費）
   const months={};
-  buys.forEach(b=>{ const m=gMonth(b.date); if(!m) return; (months[m]=months[m]||{buy:0,mealCnt:0,people:0}).buy+=+b.amount||0; });
-  meals.forEach(x=>{ const m=gMonth(x.date); if(!m) return; const o=months[m]=months[m]||{buy:0,mealCnt:0,people:0}; o.mealCnt+=1; o.people+=+x.people||0; });
+  buys.forEach(b=>{ const m=gMonth(b.date); if(!m) return; (months[m]=months[m]||{buy:0,extra:0,mealCnt:0,people:0}).buy+=+b.amount||0; });
+  extras.forEach(x=>{ const m=gMonth(x.date); if(!m) return; (months[m]=months[m]||{buy:0,extra:0,mealCnt:0,people:0}).extra+=+x.amount||0; });
+  meals.forEach(x=>{ const m=gMonth(x.date); if(!m) return; const o=months[m]=months[m]||{buy:0,extra:0,mealCnt:0,people:0}; o.mealCnt+=1; o.people+=+x.people||0; });
   const keys=Object.keys(months).sort((a,b)=>b.localeCompare(a));
   const sb=document.getElementById("gSummaryBox");
   if(!keys.length){ sb.innerHTML=`<div class="hint">還沒有資料，先在上面記一筆吧。</div>`; }
   else{
-    let totBuy=0, totMeal=0;
+    let totBuy=0, totExtra=0, totMeal=0;
     const rows=keys.map(m=>{
-      const o=months[m]; totBuy+=o.buy; totMeal+=o.mealCnt;
-      const avg=o.mealCnt?Math.round(o.buy/o.mealCnt):0;
-      const avgP=o.people?Math.round(o.buy/o.people):0;
-      return `<tr><td>${m}</td><td style="text-align:right">$${o.buy.toLocaleString()}</td><td style="text-align:right">${o.mealCnt}</td>`+
+      const o=months[m]; const tot=o.buy+o.extra; totBuy+=o.buy; totExtra+=o.extra; totMeal+=o.mealCnt;
+      const avg=o.mealCnt?Math.round(tot/o.mealCnt):0;
+      const avgP=o.people?Math.round(tot/o.people):0;
+      return `<tr><td>${m}</td><td style="text-align:right">$${o.buy.toLocaleString()}</td><td style="text-align:right">$${o.extra.toLocaleString()}</td><td style="text-align:right;font-weight:600">$${tot.toLocaleString()}</td><td style="text-align:right">${o.mealCnt}</td>`+
         `<td style="text-align:right;font-weight:600;color:var(--accent)">$${avg.toLocaleString()}</td>`+
         `<td style="text-align:right">$${avgP.toLocaleString()}</td></tr>`;
     }).join("");
-    const gAvg=totMeal?Math.round(totBuy/totMeal):0;
-    sb.innerHTML=`<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">餐數</th><th style="text-align:right">每餐</th><th style="text-align:right">每人</th></tr></thead><tbody>${rows}</tbody></table>`+
-      `<div class="hint" style="margin-top:8px">全期累計：進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b></div>`;
+    const totAll=totBuy+totExtra;
+    const gAvg=totMeal?Math.round(totAll/totMeal):0;
+    sb.innerHTML=`<div class="hint" style="margin-bottom:6px">總伙食費＝進貨＋額外伙食費（外食大餐）</div>`+
+      `<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">總計</th><th style="text-align:right">餐數</th><th style="text-align:right">每餐</th><th style="text-align:right">每人</th></tr></thead><tbody>${rows}</tbody></table>`+
+      `<div class="hint" style="margin-top:8px">全期累計：進貨 $${totBuy.toLocaleString()} ＋ 外食 $${totExtra.toLocaleString()} ＝ 總伙食費 $${totAll.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b></div>`;
   }
   // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
   const settles=g.settles||[];
@@ -768,10 +781,13 @@ function renderGrocery(){
   const db=document.getElementById("gDetailBox");
   const bList=buys.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const mList=meals.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const eList=extras.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const buyRows=bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">$${(+b.amount||0).toLocaleString()}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`;
   const mealRows=mList.length?mList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"一餐"}　<span class="pill">${x.people||1}人</span></span><span class="x" onclick="delGMeal('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無煮餐紀錄</div>`;
+  const extraRows=eList.length?eList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"（額外伙食費）"}</span><span class="ga">$${(+x.amount||0).toLocaleString()}</span><span class="x" onclick="delGExtra('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無額外伙食費</div>`;
   db.innerHTML=`<details class="gdet" open><summary class="ghd">🛒 進貨（${bList.length}）</summary>${buyRows}</details>`+
-    `<details class="gdet" open style="margin-top:12px"><summary class="ghd">🍳 煮餐（${mList.length}）</summary>${mealRows}</details>`;
+    `<details class="gdet" open style="margin-top:12px"><summary class="ghd">🍳 煮餐（${mList.length}）</summary>${mealRows}</details>`+
+    `<details class="gdet" open style="margin-top:12px"><summary class="ghd">🍽️ 額外伙食費（${eList.length}）</summary>${extraRows}</details>`;
 }
 
 /* ---------- 我的最愛 ---------- */
@@ -2808,7 +2824,7 @@ function applyStoreData(data){
   store = data;
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
   store.favorites = store.favorites||[]; store.meals = store.meals||[];
-  store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[]; store.grocery.settles=store.grocery.settles||[];
+  store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[]; store.grocery.settles=store.grocery.settles||[]; store.grocery.extras=store.grocery.extras||[];
   if(typeof applyGroceryVisibility==="function") applyGroceryVisibility();
   if(typeof seedGroceryZen==="function") seedGroceryZen();
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋

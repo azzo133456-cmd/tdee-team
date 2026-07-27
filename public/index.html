@@ -654,6 +654,18 @@
     </div>
 
     <div class="card">
+      <h2 class="ch" data-ck="gExtra" onclick="toggleCard(this)">🍽️ 額外伙食費 <span class="pill">外食/大餐</span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="row">
+          <label>日期<input type="date" id="gExtraDate"></label>
+          <label>金額<input type="number" id="gExtraAmount" inputmode="numeric" placeholder="例：850"></label>
+        </div>
+        <label>備註（可空）<input type="text" id="gExtraNote" placeholder="例：週末聚餐/生日大餐"></label>
+        <button class="primary" onclick="addGExtra()">＋ 加入額外伙食費</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>📊 月結總表</h2>
       <div id="gSummaryBox"><div class="hint">還沒有資料，先在上面記一筆吧。</div></div>
     </div>
