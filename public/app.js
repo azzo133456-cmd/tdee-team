@@ -759,7 +759,7 @@ function renderGrocery(){
     }).join("");
     const totAll=totBuy+totExtra;
     const gAvg=totMeal?Math.round(totBuy/totMeal):0;
-    sb.innerHTML=`<table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">月總計</th><th style="text-align:right">餐數</th><th style="text-align:right">自煮每餐</th><th style="text-align:right">自煮每人</th></tr></thead><tbody>${rows}</tbody></table>`+
+    sb.innerHTML=`<div class="gtblwrap"><table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">月總計</th><th style="text-align:right">餐數</th><th style="text-align:right">自煮每餐</th><th style="text-align:right">自煮每人</th></tr></thead><tbody>${rows}</tbody></table></div>`+
       `<div class="hint" style="margin-top:8px">全期累計：自煮進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b>　（外食累計另計 $${totExtra.toLocaleString()}，全部合計 $${totAll.toLocaleString()}）</div>`;
   }
   // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
@@ -783,17 +783,25 @@ function renderGrocery(){
       `<details class="gdet" style="margin-top:10px"><summary class="ghd">🧾 申請紀錄（${setList.length}）</summary>${setRows}</details>`;
   }
   if(!val("gSetDate")) set("gSetDate",todayStr());
-  // 明細
-  const db=document.getElementById("gDetailBox");
+  // 明細（快取各類清單，供 setGDetailType 切換時重繪）
   const bList=buys.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const mList=meals.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const eList=extras.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const buyRows=bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">$${(+b.amount||0).toLocaleString()}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`;
-  const mealRows=mList.length?mList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"一餐"}　<span class="pill">${x.people||1}人</span></span><span class="x" onclick="delGMeal('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無煮餐紀錄</div>`;
-  const extraRows=eList.length?eList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"（額外伙食費）"}</span><span class="ga">$${(+x.amount||0).toLocaleString()}</span><span class="x" onclick="delGExtra('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無額外伙食費</div>`;
-  db.innerHTML=`<details class="gdet" open><summary class="ghd">🛒 進貨（${bList.length}）</summary>${buyRows}</details>`+
-    `<details class="gdet" open style="margin-top:12px"><summary class="ghd">🍳 煮餐（${mList.length}）</summary>${mealRows}</details>`+
-    `<details class="gdet" open style="margin-top:12px"><summary class="ghd">🍽️ 額外伙食費（${eList.length}）</summary>${extraRows}</details>`;
+  GDETAIL_ROWS={
+    buy:{count:bList.length, html: bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">$${(+b.amount||0).toLocaleString()}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`},
+    meal:{count:mList.length, html: mList.length?mList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"一餐"}　<span class="pill">${x.people||1}人</span></span><span class="x" onclick="delGMeal('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無煮餐紀錄</div>`},
+    extra:{count:eList.length, html: eList.length?eList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"（額外伙食費）"}</span><span class="ga">$${(+x.amount||0).toLocaleString()}</span><span class="x" onclick="delGExtra('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無額外伙食費</div>`},
+  };
+  renderGDetail();
+}
+let GDETAIL_ROWS={buy:{count:0,html:""},meal:{count:0,html:""},extra:{count:0,html:""}};
+let gDetailType="buy";
+function setGDetailType(t){ gDetailType=t; renderGDetail(); }
+function renderGDetail(){
+  const db=document.getElementById("gDetailBox"); if(!db) return;
+  const labels={buy:"🛒 進貨",meal:"🍳 煮餐",extra:"🍽️ 外食"};
+  const bar=Object.keys(labels).map(k=>`<button class="gtypebtn${k===gDetailType?" on":""}" onclick="setGDetailType('${k}')">${labels[k]}（${GDETAIL_ROWS[k].count}）</button>`).join("");
+  db.innerHTML=`<div class="gtypebar">${bar}</div>${GDETAIL_ROWS[gDetailType].html}`;
 }
 
 /* ---------- 我的最愛 ---------- */

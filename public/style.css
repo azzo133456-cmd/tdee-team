@@ -186,3 +186,4 @@
 .gtypebtn{flex:1; min-width:70px; border:1px solid var(--line); background:var(--soft); color:var(--sub); border-radius:10px; padding:8px 4px; font-size:12px; cursor:pointer;}
 .gtypebtn.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;}
 .gform.hidden{display:none;}
+.gtblwrap{overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -2px;}
