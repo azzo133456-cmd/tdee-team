@@ -774,12 +774,24 @@ function renderGrocery(){
     const setRows=setList.length?setList.map(s=>`<div class="grow"><span class="gd">${s.date}</span><span class="gn">${s.note||"申請現金"}</span><span class="ga">$${(+s.amount||0).toLocaleString()}</span><span class="x" onclick="delGSettle('${s.id}')">✕</span></div>`).join(""):`<div class="hint">尚未記錄任何申請</div>`;
     const balColor=balance>0?"var(--green)":(balance<0?"#b5564e":"var(--sub)");
     const balLabel=balance>0?"還沒領（可申請）":(balance<0?"多領了⚠️":"已結清");
+    // 每月分解：累計依當月平日煮餐天數計算；已領按申請日期所在月份計算（跟現金流法一致，用實際入帳月）
+    const subMonths={};
+    cookWeekdays.forEach(d=>{ const m=gMonth(d); if(!m) return; (subMonths[m]=subMonths[m]||{accrued:0,claimed:0}).accrued+=SUBSIDY_PER_DAY; });
+    settles.forEach(s=>{ const m=gMonth(s.date); if(!m) return; (subMonths[m]=subMonths[m]||{accrued:0,claimed:0}).claimed+=(+s.amount||0); });
+    const subKeys=Object.keys(subMonths).sort((a,b)=>b.localeCompare(a));
+    const subRows=subKeys.map(m=>{
+      const o=subMonths[m], bal=o.accrued-o.claimed;
+      const c=bal>0?"var(--green)":(bal<0?"#b5564e":"var(--sub)");
+      return `<tr><td>${m}</td><td style="text-align:right">$${o.accrued.toLocaleString()}</td><td style="text-align:right">$${o.claimed.toLocaleString()}</td><td style="text-align:right;font-weight:600;color:${c}">$${bal.toLocaleString()}</td></tr>`;
+    }).join("");
+    const subTable=subKeys.length?`<div class="gtblwrap" style="margin-top:10px"><table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">補給</th><th style="text-align:right">已領</th><th style="text-align:right">結餘</th></tr></thead><tbody>${subRows}</tbody></table></div>`:"";
     sbx.innerHTML=
       `<div class="subgrid">`+
         `<div class="subcell"><div class="subnum">$${accrued.toLocaleString()}</div><div class="sublab">累計補給<br><span class="hint">平日煮 ${cookWeekdays.size} 天×200</span></div></div>`+
         `<div class="subcell"><div class="subnum">$${claimed.toLocaleString()}</div><div class="sublab">已申請現金</div></div>`+
         `<div class="subcell"><div class="subnum" style="color:${balColor}">$${balance.toLocaleString()}</div><div class="sublab">${balLabel}</div></div>`+
       `</div>`+
+      subTable+
       `<details class="gdet" style="margin-top:10px"><summary class="ghd">🧾 申請紀錄（${setList.length}）</summary>${setRows}</details>`;
   }
   if(!val("gSetDate")) set("gSetDate",todayStr());
