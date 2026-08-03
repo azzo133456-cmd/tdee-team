@@ -30,5 +30,6 @@
   "money2": { "label": "MONEY2", "stages": ["🥚", "🪙", "💰", "💵", "🤑"] },
   "money3": { "label": "MONEY3", "stages": ["🥚", "🪙", "💰", "💵", "🤑"] },
   "money4": { "label": "MONEY4", "stages": ["🥚", "🪙", "💰", "💵", "🤑"] },
-  "money5": { "label": "MONEY5", "stages": ["🥚", "🪙", "💰", "💵", "🤑"] }
+  "money5": { "label": "MONEY5", "stages": ["🥚", "🪙", "💰", "💵", "🤑"] },
+  "BIRD1": { "label": "雪丘", "stages": ["🥚", "🐦", "🕊️", "🐧", "👑"] }
 }
