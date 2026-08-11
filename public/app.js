@@ -253,12 +253,17 @@ function baseTDEE(){
   if(mode==="base") return {tdee:m.base, src:"基礎 TDEE(不含運動)"+tag, mode:"base", corrected:m.corrected};
   return {tdee:m.gross, src:"真實 TDEE(含運動)"+tag, mode:"gross", corrected:m.corrected};
 }
-function applyGoal(tdee){
+// 建議攝取的絕對下限。低於這條線很難吃滿微量營養素，且低熱量＋高訓練量正是內分泌
+// 失調的組合（見 EA 警示）；再兇的赤字設定也不該讓 App 建議吃到 1200 以下。
+const MIN_GOAL_KCAL=1200;
+function rawGoal(tdee){
   const goal=val("goal"), rate=+val("goalRate");
   if(goal==="cut") return Math.round(tdee*(1-rate));
   if(goal==="bulk") return Math.round(tdee*(1+rate*0.5));
   return tdee;
 }
+// 全 App 的建議攝取都走這裡，夾限才不會有的地方套、有的地方沒套
+function applyGoal(tdee){ return Math.max(MIN_GOAL_KCAL, rawGoal(tdee)); }
 // 取最近一筆體脂（優先用紀錄，其次用基本資料欄位），用來算瘦體重
 function latestBodyFat(){
   const bf=(store.records||[]).filter(r=>r.body_fat!=null);
@@ -267,7 +272,8 @@ function latestBodyFat(){
 }
 function goalTargets(){
   const base=baseTDEE(); if(!base.tdee) return null;
-  const target=applyGoal(base.tdee);
+  const raw=rawGoal(base.tdee), target=applyGoal(base.tdee);
+  const floored=target>raw;   // 下限有生效 → 要讓使用者知道為什麼跟他選的強度對不上
   const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||60 : 60);
   // 蛋白質依「目標 × 體脂」分級（實證：減脂赤字保肌肉需求最高，增肌夠用即可）
   //   有填體脂→用瘦體重(LBM)更準；否則退回體重。
@@ -294,7 +300,7 @@ function goalTargets(){
   const fatPct=style==="low"?0.40:style==="high"?0.18:0.25;
   const fatKcal=target*fatPct, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
-  return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style};
+  return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style, floored, raw};
 }
 /* ---------- 能量可用性 EA（女性專屬） ---------- */
 // EA =（攝取 − 運動消耗）/ 瘦體重(kg)，單位 kcal/kg LBM。
@@ -326,7 +332,7 @@ function planContext(){
   const base=baseTDEE();
   const t=goalTargets();
   const R=calcReal(store.records, store.exercises);
-  const goal=val("goal"), rate=+val("goalRate")||0;
+  const goal=val("goal");
   const wRecs=(store.records||[]).filter(r=>r.weight!=null);
   const curW=wRecs.length?+wRecs[wRecs.length-1].weight:(+val("weight")||null);
   const tgtW=+val("targetWeight")||null;
@@ -336,7 +342,9 @@ function planContext(){
   const bfDelta=bfRecs.length>=2?+(+bfRecs[bfRecs.length-1].body_fat-+bfRecs[0].body_fat).toFixed(1):null;
   const bfNow=bfRecs.length?+bfRecs[bfRecs.length-1].body_fat:null;
   // 目標每日赤字與每週應減公斤（減脂才有意義）
-  const dailyDeficitTarget = (goal==="cut" && base.tdee) ? Math.round(base.tdee*rate) : 0;
+  // 從「實際會建議的攝取量」反推赤字，而不是 tdee×rate：1200 下限生效時後者會高估赤字，
+  // 連帶讓每週應減公斤與預計達成日都太樂觀。
+  const dailyDeficitTarget = (goal==="cut" && base.tdee && t) ? Math.max(0, Math.round(base.tdee-t.kcal)) : 0;
   const weeklyTargetKg = dailyDeficitTarget ? +(dailyDeficitTarget*7/7700).toFixed(2) : null;
   const weeklyObservedKg = R.slopeWk!=null ? +R.slopeWk.toFixed(2) : null;  // 實測每週體重變化(負=下降)
   // 預計達成日
@@ -468,6 +476,8 @@ function calcGoal(){
   const styleName={low:"低碳",balanced:"均衡",high:"高碳"}[t.macroStyle]||"均衡";
   basis+=`　·　蛋白 ${t.proteinBasis}　·　${styleName}（脂肪${Math.round(t.fatPct*100)}%）`;
   if(base.corrected) basis+="　⚠️ 初期掉的多為水分，實測 TDEE 已向公式校正，避免高估；記滿約 2 週會更準。";
+  if(t.floored) basis+=`　⚠️ 照你選的強度算出來是 ${t.raw.toLocaleString()} kcal，已提高到下限 ${MIN_GOAL_KCAL.toLocaleString()}：`+
+    `吃更低不會瘦得更快，只會讓微量營養素吃不夠、恢復變差。想加大赤字請改成增加活動量，而不是再往下砍。`;
   set("goalBasis", basis);
   drawMacroBar("goalBar","goalLeg",protein,fat,carb);
   renderGoalEa(t);
