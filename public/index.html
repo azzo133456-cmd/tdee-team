@@ -391,20 +391,28 @@
   <!-- ===== 分頁：運動 ===== -->
   <div class="tabpage hidden" id="page-exercise">
     <div class="card">
-      <h2>🏃 有氧／一般運動 <span class="pill">熱量估算</span></h2>
-      <label>搜尋運動（打字即出現選單）</label>
-      <input id="exPick" placeholder="例如：跑步 / 飛輪" autocomplete="off" oninput="exSuggest()">
-      <div class="suggest" id="exSuggest"></div>
-      <div class="row">
-        <div><label>時間 (分鐘)</label><input id="exMin" type="number" inputmode="numeric" placeholder="30"></div>
-        <div><label>日期</label><input id="exDate" type="date"></div>
-      </div>
-      <div class="hint" id="exPreview"></div>
-      <button onclick="addExercise()">＋ 記錄這次運動</button>
+      <h2>🎯 本週運動建議</h2>
+      <div id="exRec"></div>
     </div>
 
     <div class="card">
-      <h2>💪 重訓紀錄 <span class="pill">組數×次數×重量</span></h2>
+      <h2 class="ch" data-ck="excardio" onclick="toggleCard(this)">🏃 有氧／一般運動 <span class="pill">熱量估算</span><span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <label>搜尋運動（打字即出現選單）</label>
+        <input id="exPick" placeholder="例如：跑步 / 飛輪" autocomplete="off" oninput="exSuggest()">
+        <div class="suggest" id="exSuggest"></div>
+        <div class="row">
+          <div><label>時間 (分鐘)</label><input id="exMin" type="number" inputmode="numeric" placeholder="30"></div>
+          <div><label>日期</label><input id="exDate" type="date"></div>
+        </div>
+        <div class="hint" id="exPreview"></div>
+        <button onclick="addExercise()">＋ 記錄這次運動</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="ch" data-ck="exstrength" onclick="toggleCard(this)">💪 重訓紀錄 <span class="pill">組數×次數×重量</span><span class="caret">▾</span></h2>
+      <div class="cardbody">
       <label>動作（打字選單，清單沒有的可直接自行輸入）</label>
       <input id="stPick" placeholder="例如：臥推 / 深蹲，或自訂動作名" autocomplete="off" oninput="stSuggest()">
       <div class="suggest" id="stSuggest"></div>
@@ -423,14 +431,15 @@
       <div id="stTrend"></div>
       <div id="stBalance"></div>
       <div id="stPR" style="margin-top:10px;"></div>
+      </div>
     </div>
 
     <div class="card">
-      <h2>📋 最近紀錄</h2>
-      <div class="foodlist" id="exItems"></div>
-      <h2 style="margin-top:18px;">本週運動建議</h2>
-      <div id="exRec"></div>
-      <div class="hint tip">消耗為 MET×體重估算，僅供參考。</div>
+      <h2 class="ch" data-ck="exrecent" onclick="toggleCard(this)">📋 最近紀錄<span class="caret">▾</span></h2>
+      <div class="cardbody">
+        <div class="foodlist" id="exItems"></div>
+        <div class="hint tip">消耗為 MET×體重估算，僅供參考。</div>
+      </div>
     </div>
   </div>
 
