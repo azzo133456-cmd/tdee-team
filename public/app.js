@@ -191,7 +191,7 @@ async function changeName(){
 }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","macroStyle"];
+const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","targetDate","macroStyle"];
 // 在伺服器的真實 profile 套進表單「之前」，絕不可儲存：否則會把空白/預設表單 PUT 上去，蓋掉雲端真資料。
 let profileReady=false;
 function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); profileReady=true; }
@@ -256,9 +256,50 @@ function baseTDEE(){
 // 建議攝取的絕對下限。低於這條線很難吃滿微量營養素，且低熱量＋高訓練量正是內分泌
 // 失調的組合（見 EA 警示）；再兇的赤字設定也不該讓 App 建議吃到 1200 以下。
 const MIN_GOAL_KCAL=1200;
+const MAX_WEEKLY_PCT=0.01;   // 每週最多減體重的 1%，超過就開始賠掉肌肉
+/* ---------- 目標日期 ----------
+   日期用來「決定赤字」，但永遠夾在安全範圍內：不破 1200 下限、不超過每週 1% 體重。
+   夾不住時不會硬壓熱量，而是誠實說「這個日期做不到」並給出最快的健康達成日，
+   讓使用者自己選擇延期或調整目標體重——這才是協助健康減重，而不是催進度。 */
+function currentWeight(){
+  const wr=(store.records||[]).filter(r=>r.weight!=null);
+  return wr.length ? +wr[wr.length-1].weight : (+val("weight")||null);
+}
+function datePlan(tdee){
+  const dateStr=val("targetDate");
+  if(!dateStr || val("goal")!=="cut" || !tdee) return null;
+  const cur=currentWeight(), tgt=+val("targetWeight");
+  if(!cur||!tgt||tgt>=cur) return null;
+  const needKg=cur-tgt;
+  const days=Math.round((new Date(dateStr)-new Date(todayStr()))/86400000);
+  // 兩道安全上限各自算，才知道擋住的是「速率太快」還是「熱量已到下限」——兩者的解法不同
+  const capByRate=Math.round(cur*MAX_WEEKLY_PCT*7700/7);
+  const capByFloor=Math.round(tdee-MIN_GOAL_KCAL);
+  const maxDeficit=Math.max(0, Math.min(capByRate, capByFloor));
+  const limitedBy = capByFloor<capByRate ? "floor" : "rate";
+  const fastestWeeks = maxDeficit>0 ? needKg/(maxDeficit*7/7700) : null;
+  const fastestDate = fastestWeeks!=null
+    ? new Date(new Date(todayStr()).getTime()+Math.ceil(fastestWeeks*7)*86400000).toISOString().slice(0,10) : null;
+  if(days<=0) return {status:"past", dateStr, needKg, maxDeficit, fastestDate};
+  const weeks=days/7;
+  const needRateWk=needKg/weeks;
+  const rawDeficit=Math.round(needRateWk*7700/7);
+  const deficit=Math.max(0, Math.min(rawDeficit, maxDeficit));
+  const status = rawDeficit>maxDeficit ? "tooFast"
+               : rawDeficit<=0 ? "reached" : "ok";
+  return {status, dateStr, days, weeks, needKg, needRateWk, pctBW:needRateWk/cur*100,
+          rawDeficit, maxDeficit, deficit, fastestDate, cur, tgt, capByRate, capByFloor, limitedBy,
+          nearRateCap: rawDeficit<=maxDeficit && needRateWk/cur*100>=0.85,
+          rawKcal:Math.round(tdee-rawDeficit)};
+}
 function rawGoal(tdee){
   const goal=val("goal"), rate=+val("goalRate");
-  if(goal==="cut") return Math.round(tdee*(1-rate));
+  if(goal==="cut"){
+    // 有設目標日就由日期決定赤字（已夾限），否則沿用使用者選的強度
+    const P=datePlan(tdee);
+    if(P && P.deficit!=null && P.status!=="past") return Math.round(tdee-P.deficit);
+    return Math.round(tdee*(1-rate));
+  }
   if(goal==="bulk") return Math.round(tdee*(1+rate*0.5));
   return tdee;
 }
@@ -319,6 +360,28 @@ function eaLevel(ea){
   if(ea<30) return {key:"low",  color:"#b5564e",      label:"偏低"};
   if(ea<45) return {key:"mid",  color:"var(--warm)",  label:"稍低"};
   return      {key:"ok",   color:"var(--green)", label:"充足"};
+}
+/* ---------- 飲食記錄可靠度 ----------
+   為什麼需要這個：反推 TDEE = 平均記錄攝取 + 赤字。漏記會讓「平均記錄攝取」偏低，
+   反推 TDEE 跟著被低估，建議攝取又是從它算出來的，於是被壓得更低，最後 EA 跳紅字——
+   一個純粹由漏記造成的假警報，而且會自我強化。所以 EA 示警前要先確認記錄是可信的。 */
+const LOW_DAY_KCAL=1000;      // 一整天記不到 1000 kcal，多半是漏記而非真的只吃這麼少
+function intakeReliability(){
+  const agg=store.mealAgg||{};
+  const since=new Date(Date.now()-28*86400000).toISOString().slice(0,10);
+  const days=Object.keys(agg).filter(d=>d>=since);
+  if(days.length<7) return {enough:false, days:days.length, lowDays:0, ratio:0, reliable:true};
+  const lowDays=days.filter(d=>agg[d].k>0 && agg[d].k<LOW_DAY_KCAL).length;
+  const ratio=lowDays/days.length;
+  // 四分之一以上的日子低到不合理 → 這份攝取資料不足以拿來嚇人
+  return {enough:true, days:days.length, lowDays, ratio, reliable:ratio<0.25,
+          avgK:Math.round(days.reduce((s,d)=>s+agg[d].k,0)/days.length)};
+}
+// 反推 TDEE 明顯低於公式 + 記錄不可靠 → 幾乎可以斷定是漏記把 TDEE 拉低了
+function tdeeLikelyUnderestimated(){
+  const m=tdeeModel(), rel=intakeReliability();
+  if(!m.rawGross||!m.formula||!rel.enough) return false;
+  return !rel.reliable && m.rawGross < m.formula*0.85;
 }
 function energyAvailability(intake, burn){
   const L=leanMassKg();
@@ -491,6 +554,23 @@ function renderGoalEa(t){
   const E=energyAvailability(t.kcal, t.base.mode==="base"?0:burn);
   if(!E){ box.innerHTML=""; return; }
   const L=E.level;
+  // 記錄不可靠時，低 EA 多半是漏記的產物 → 先請他補記錄，而不是叫他吃更多／少練
+  const rel=intakeReliability();
+  if(L.key==="low" && !rel.reliable){
+    const under=tdeeLikelyUnderestimated();
+    box.innerHTML=
+      `<div style="margin-top:12px;background:var(--soft);border-radius:12px;padding:10px 14px;border-left:4px solid var(--warm);">`+
+        `<div style="font-size:13px;font-weight:700;color:var(--warm);">📝 先確認飲食記錄有沒有漏</div>`+
+        `<div style="font-size:12px;color:var(--ink);line-height:1.6;margin-top:5px;">`+
+          `近 28 天有記錄的 ${rel.days} 天裡，有 <b>${rel.lowDays} 天</b>整天加起來不到 ${LOW_DAY_KCAL} kcal。`+
+          `這個量通常代表「有吃但沒記」，而不是真的只吃這些。`+
+          (under?`<br>而且你的實測 TDEE（${tdeeModel().rawGross.toLocaleString()}）明顯低於公式估算（${tdeeModel().formula.toLocaleString()}）——`+
+                 `<b>漏記會讓實測 TDEE 被低估，建議攝取跟著被壓低</b>，愈記愈少、建議也愈少。`:"")+
+          `<br>把飲料、調味油、零食也記進去之後，這張卡才有參考價值。`+
+        `</div>`+
+      `</div>`;
+    return;
+  }
   const note = L.key==="low"
     ? `⚠️ 低能量可用性：扣掉運動後身體剩下的能量不足以好好維持生理功能與修復，長期容易造成經期紊亂、內分泌失調、恢復變差與骨質流失。<b>建議把減脂強度調低一階，或減少有氧總量</b>——不是少吃就會瘦得更好。`
     : L.key==="mid"
@@ -1347,12 +1427,28 @@ async function maybeWeeklyReview(){
 // calcMifflin() 算 BMR 用的來源一致。表單尚未由 applyProfile 填入時才退回 profile。
 function isFemale(){ return (val("sex")||(store.profile&&store.profile.sex))==="f"; }
 function periodDates(){ const p=store.profile&&store.profile.periods; return Array.isArray(p)?p.slice().sort():[]; }
+// 個人平均週期長度：黃體期長度相對固定（約 14 天），變動的是濾泡期，所以排卵日要用
+// 「週期長度 − 14」推算，而不是寫死第 14 天。28 天的人排卵在第 14 天，27 天的人在第 13 天。
+const DEFAULT_CYCLE=28, LUTEAL_LEN=14;
+function cycleLength(){
+  const ds=periodDates();
+  if(ds.length<2) return {len:DEFAULT_CYCLE, est:true, n:ds.length};
+  const gaps=[];
+  for(let i=1;i<ds.length;i++){
+    const g=Math.round((new Date(ds[i])-new Date(ds[i-1]))/86400000);
+    if(g>=21&&g<=45) gaps.push(g);   // 濾掉補記錯誤造成的離譜間隔
+  }
+  if(!gaps.length) return {len:DEFAULT_CYCLE, est:true, n:ds.length};
+  const len=Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length);
+  return {len, est:false, n:gaps.length+1};
+}
 // 依「最近一次經期開始日」算目前是第幾天、處於哪個相位
 function cyclePhase(){
   const ds=periodDates(); if(!ds.length) return null;
   const last=ds[ds.length-1];
   const day=Math.floor((new Date(todayStr())-new Date(last))/86400000)+1;  // 開始日當第 1 天
   if(day<1) return null;
+  const CL=cycleLength(), len=CL.len, ovu=Math.max(10, len-LUTEAL_LEN);
   // 概略相位：1-5 月經期、6-13 濾泡期、14-15 排卵、16-28 黃體期(易水腫)、>28 可能下次將至
   // training=該相位的訓練安排建議；caution=該相位特有的風險提醒（沒有就 null）
   // 女性的身體是「週期系統」而非穩定系統，能量、恢復能力與受傷風險都隨相位變動，
@@ -1363,27 +1459,30 @@ function cyclePhase(){
     note="這幾天體重可能偏高（水分），屬正常，別過度節食。";
     training="雌激素低、容易疲勞不適：以恢復為主——瑜珈、散步、簡單伸展或滾筒放鬆就好。";
     caution="如果疼痛劇烈，直接休息，不要勉強自己。";
-  }else if(day<=13){
+  }else if(day<ovu){
     phase="濾泡期";
     note="水分通常較穩定，是看減重趨勢的好時機。";
     training="雌激素上升，體力、耐力與情緒都在變好：<b>這是加量、加強度的最佳時機</b>，重訓與高強度間歇都排在這幾天。";
-  }else if(day<=15){
+  }else if(day<=ovu+1){
     phase="排卵期";
     note="體重可能小幅波動，正常。";
     training="個體差異最大：狀態好就比照濾泡期上強度，不舒服就轉中等強度重訓或有氧。關鍵是傾聽並尊重身體的反應。";
     caution="雌激素達到高峰會讓韌帶暫時鬆弛，運動損傷風險升高：<b>避免挑戰個人最佳成績與高衝擊跳躍動作</b>，暖身與動作控制不能馬虎。";
-  }else if(day<=28){
+  }else if(day<=len+3){
     phase="黃體期"; highWater=true;
     note="⚠️ 易水分滯留、體重偏高 0.5–2kg，是水不是脂肪，別慌。";
     training="體能會波動、體溫升高、耐熱下降。採用<b>「10 分鐘原則」</b>：狀態不好時先輕度暖身 10 分鐘，若沒改善就改做中低強度課表、滾筒放鬆或散步，不要硬上強度。";
     caution="經期前幾天若感覺非常疲勞，可以主動安排<b>減量週</b>，大幅降低訓練量與強度，專心把睡眠和恢復顧好。";
   }else{
-    phase="週期偏長";
-    note="已超過 28 天，下次經期可能將至；記得記錄開始日。";
-    training="以身體感受安排訓練即可，記得補記經期開始日，之後的建議才會準。";
+    // 超過個人週期長度＋3 天，最常見的原因是「已經來了但忘了記」，而不是週期真的變長。
+    // 講成「週期偏長」會讓規律的人被誤判，也讓後面的相位建議全部錯位。
+    phase="待補記";
+    note=`距離上次已 ${day} 天${CL.est?"":`，你的平均週期是 ${len} 天`}。多半是經期已經來了但忘了記。`;
+    training="補記上一次的經期開始日，相位與訓練建議才會回到正軌；在那之前先照身體感受安排。";
+    caution=null;
   }
   // highWater=易水分滯留期（黃體/月經）→ 解讀體重/身體組成時要把水分變因考慮進去
-  return {day, phase, note, training, caution, last, highWater};
+  return {day, phase, note, training, caution, last, highWater, cycleLen:len, cycleEst:CL.est};
 }
 function renderPeriod(){
   const card=document.getElementById("cardPeriod"); if(!card) return;
@@ -1399,7 +1498,7 @@ function renderPeriod(){
   const ph=cyclePhase(), pill=document.getElementById("periodPill");
   if(pill) pill.textContent=ph?("第 "+ph.day+" 天·"+ph.phase):"";
   // 相位配色：月經#紅 / 濾泡#綠 / 排卵#accent / 黃體#warm / 偏長#sub
-  const phaseCol={"月經期":"#b5564e","濾泡期":"var(--green)","排卵期":"var(--accent)","黃體期":"var(--warm)","週期偏長":"var(--sub)"}[ph&&ph.phase]||"var(--sub)";
+  const phaseCol={"月經期":"#b5564e","濾泡期":"var(--green)","排卵期":"var(--accent)","黃體期":"var(--warm)","待補記":"var(--sub)"}[ph&&ph.phase]||"var(--sub)";
   const st=document.getElementById("periodStatus");
   if(st){
     st.innerHTML = ph
@@ -2461,7 +2560,13 @@ function stSuggest(){
   box.style.display="block";
 }
 function pickSt(i){ const n=window.__st[i]; if(n==null) return; document.getElementById("stPick").value=n; document.getElementById("stSuggest").style.display="none"; if(MUSCLE[n]) document.getElementById("stMuscle").value=MUSCLE[n]; document.getElementById("stW").focus(); }
-function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(2.0,w)*(sets*2.5)); } // 保守估：每組約2.5分鐘、MET2(含組間休息)
+// 每組約 2.5 分鐘（含組間休息）。
+// MET 取 3.0：Compendium 對一般阻力訓練給 3.5（EXS 表裡的「重訓(一般)」也是 3.5），
+// 但 MET 是「總消耗」而非「淨增加」——其中約 1 MET 是靜息，而 TDEE 已經算過那段時間了，
+// 運動熱量又是另外加上去，所以會重複計算。這裡刻意取比 3.5 保守一點的 3.0。
+// 原本的 2.0 則太低（約等於站著不動），會嚴重低估重訓，連帶把反推 TDEE 和 EA 都算歪。
+const ST_MET=3.0;
+function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(ST_MET,w)*(sets*2.5)); }
 function stPreview(){
   const w=+val("stW"),r=+val("stR"),s=+val("stS");
   if(!w||!r||!s){ set("stPreview",""); return; }
@@ -2580,15 +2685,32 @@ function renderExRecF(){
   const doneS=strengthDays.size, doneH=hiitDays.size;
   const easyMin=week.filter(e=>EASY_NAMES.includes(e.name)).reduce((a,b)=>a+(+b.minutes||0),0);
   const bar=(v,t)=>`<div class="prog"><i style="width:${Math.min(100,Math.round(v/t*100))}%"></i></div>`;
-  const hit=doneS>=p.strength&&doneH>=p.hiit&&easyMin>=p.easyMin;
+  // 間歇是「加分項」而非硬指標：多數使用者根本沒在做，把它算進達標會讓進度條永遠難看，
+  // 反而讓真正做到的重訓與低強度活動失去回饋。達標只看重訓＋低強度活動。
+  const hit=doneS>=p.strength&&easyMin>=p.easyMin;
+  const ex28=store.exercises.filter(e=>e.date>=new Date(Date.now()-28*86400000).toISOString().slice(0,10));
+  const hiitEver=ex28.some(e=>HIIT_NAMES.includes(e.name));
+  const hiitLine = hiitEver
+    ? `<div class="rec-line" style="margin-top:10px;"><span>每週高強度間歇 <span style="color:var(--sub);font-weight:400;">(加分)</span></span><span><b>${doneH}</b> / ${p.hiit} 次</span></div>`+bar(doneH,p.hiit)
+    : `<div class="hint" style="margin-top:10px;padding:8px 10px;background:var(--soft);border-radius:10px;">`+
+      `💡 <b>還沒試過高強度間歇</b>：每週 1–2 次、每次 10–15 分鐘就有效，是提高最大攝氧量效率最高的方式。`+
+      `App 裡的 HIIT、跳繩、飛輪、拳擊有氧都算。先從一次開始就好。</div>`;
+  // 後側鏈：已經在練的人不需要被從頭教一次，該給的是進階方向
+  const POSTERIOR=["臀推","臀橋","硬舉","腿後勾","早安","登階","分腿蹲","背伸展"];
+  const doesPosterior=ex28.some(e=>e.kind==="strength"&&POSTERIOR.some(k=>String(e.name).includes(k)));
+  const posteriorLine = doesPosterior
+    ? `你的課表裡已經有<b>後側鏈</b>動作，這點做得很好——女性骨盆較寬、Q-angle 較大，容易變成股四頭主導，後側練得夠能降低膝關節與前十字韌帶的風險。`+
+      `接下來可以往<b>單邊動作</b>（單腳羅馬尼亞硬舉、保加利亞分腿蹲）和漸進加重發展。`
+    : `請把<b>後側鏈</b>（硬舉、臀推、單腳羅馬尼亞硬舉、腿後勾）加進課表——女性骨盆較寬、Q-angle 較大，`+
+      `容易變成股四頭主導，平衡後側能降低膝關節與前十字韌帶的受傷風險。`;
   document.getElementById("exRec").innerHTML=
     `<div class="rec-line"><span>每週重訓次數</span><span><b>${doneS}</b> / ${p.strength} 次</span></div>`+bar(doneS,p.strength)+
-    `<div class="rec-line" style="margin-top:10px;"><span>每週高強度間歇</span><span><b>${doneH}</b> / ${p.hiit} 次</span></div>`+bar(doneH,p.hiit)+
     `<div class="rec-line" style="margin-top:10px;"><span>每週低強度活動</span><span><b>${easyMin}</b> / ${p.easyMin} 分</span></div>`+bar(easyMin,p.easyMin)+
+    hiitLine+
     `<div class="hint" style="margin-top:10px;">${p.note} ${hit?"✅ 本週已達標，做得好！":"加油，距離目標還有一點。"}</div>`+
     `<div class="hint tip" style="margin-top:8px;">重訓請優先選<b>較重的重量、每組 5–8 下</b>（疲勞時做到 12 下也沒關係），保留 1–2 下不做到力竭。`+
       `女性慢縮肌比例較高、恢復較快，<b>組間休息 90 秒–2 分鐘</b>通常就夠，不必比照男生休 2–3 分鐘。`+
-      `另外請把<b>後側鏈</b>（硬舉、臀推、單腳羅馬尼亞硬舉）當訓練重點——女性骨盆較寬、Q-angle 較大，容易變成股四頭主導，平衡後側能降低膝關節與前十字韌帶的受傷風險。</div>`;
+      `${posteriorLine}</div>`;
 }
 function renderExRec(){
   if(isFemale()) return renderExRecF();
@@ -3049,7 +3171,74 @@ function renderEta(){
   set("etaOut", `${y}/${m}/${d}`);
   set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
+/* ---------- 目標體重健康區間（提醒，不阻擋） ----------
+   台灣國健署標準：BMI 18.5–24 為健康範圍。只提示、不改任何計算，設定權仍在使用者手上。 */
+function renderTargetHint(){
+  const box=document.getElementById("targetHint"); if(!box) return;
+  const h=+val("height")/100, tgt=+val("targetWeight");
+  if(!h||!tgt){ box.innerHTML=""; return; }
+  const bmi=tgt/(h*h);
+  const lo=(18.5*h*h).toFixed(1), hi=(24*h*h).toFixed(1);
+  let msg=null, col="var(--sub)";
+  if(bmi<18.5){ col="#b5564e";
+    msg=`⚠️ 這個目標的 BMI 是 <b>${bmi.toFixed(1)}</b>，已低於健康範圍（18.5）。以你的身高，健康區間約是 <b>${lo}–${hi} kg</b>。`+
+        `體重再往下掉，掉的多半是肌肉與骨質，代謝會跟著變差。建議把目標設在 ${lo} kg 以上，用體脂率和圍度來看進步會更準。`; }
+  // 18.5–19.5 是緩衝帶：技術上還在健康範圍，但只要再掉 1–2 公斤就出界了，
+  // 而減重過程本來就會超調，所以這裡先提醒改看體脂與圍度，比事後才擋更有意義。
+  else if(bmi<19.5){ col="var(--warm)";
+    msg=`這個目標的 BMI 是 <b>${bmi.toFixed(1)}</b>，還在健康範圍內，但已經很接近下限（18.5，約 ${lo} kg）。`+
+        `再往下就容易掉到過輕，而且掉的多半是肌肉。建議<b>把這裡當終點</b>，之後改用體脂率和圍度來看進步。`; }
+  else if(bmi>=27){ col="var(--warm)";
+    msg=`這個目標的 BMI 是 <b>${bmi.toFixed(1)}</b>，仍在肥胖範圍。以你的身高，健康區間約是 <b>${lo}–${hi} kg</b>——不必一次到位，但可以把它當成下一個里程碑。`; }
+  else if(bmi>=24){ col="var(--sub)";
+    msg=`這個目標的 BMI 是 <b>${bmi.toFixed(1)}</b>，略高於健康範圍上限（24）。以你的身高，健康區間約是 <b>${lo}–${hi} kg</b>。`; }
+  else {
+    msg=`這個目標的 BMI 是 <b>${bmi.toFixed(1)}</b>，落在健康範圍（18.5–24）內 👍`; }
+  box.innerHTML=`<div class="hint" style="margin-top:6px;color:${col};line-height:1.6;">${msg}</div>`;
+}
+// 目標日期的可行性判定
+function renderDatePlan(){
+  const box=document.getElementById("datePlan"); if(!box) return;
+  const base=baseTDEE();
+  const P=base.tdee?datePlan(base.tdee):null;
+  if(!P){ box.innerHTML=""; return; }
+  const wrap=(col,title,body)=>`<div style="margin-top:10px;background:var(--soft);border-radius:12px;padding:10px 14px;border-left:4px solid ${col};">`+
+    `<div style="font-size:13px;font-weight:700;color:${col};">${title}</div>`+
+    `<div style="font-size:12px;color:var(--ink);line-height:1.6;margin-top:5px;">${body}</div></div>`;
+  const dstr=d=>d?d.replace(/-/g,"/"):"—";
+  if(P.status==="past"){
+    box.innerHTML=wrap("var(--sub)","目標日期已經過了",
+      `還差 ${P.needKg.toFixed(1)} kg。照安全速度最快約 ${dstr(P.fastestDate)} 可以達成，把日期往後調一下吧。`);
+    return;
+  }
+  // 實測 TDEE 若因漏記被低估，maxDeficit 會跟著變小，判定會過度悲觀 → 要講清楚
+  const underNote = tdeeLikelyUnderestimated()
+    ? `<br><span style="color:var(--warm)">另外：你的實測 TDEE 可能因為飲食漏記而被低估，這個判定會偏保守。先把記錄補齊，日期評估才準。</span>` : "";
+  if(P.status==="tooFast"){
+    // 擋住的是熱量下限還是速率上限，解法不同，不能混為一談
+    const why = P.limitedBy==="floor"
+      ? `要準時只能每天吃 <b>${P.rawKcal.toLocaleString()} kcal</b>，低於 ${MIN_GOAL_KCAL} 的安全下限——`+
+        `你的 TDEE 是 ${(P.maxDeficit+MIN_GOAL_KCAL).toLocaleString()}，能挪出來的赤字最多就是每天 ${P.maxDeficit} kcal。`
+      : `等於每週要掉 <b>${P.needRateWk.toFixed(2)} kg</b>（體重的 ${P.pctBW.toFixed(2)}%），超過每週 1% 的安全上限，`+
+        `再快就會開始賠掉肌肉與代謝。`;
+    box.innerHTML=wrap("#b5564e","⛔ 這個日期趕不上（照健康的方式）",
+      `距離 ${dstr(P.dateStr)} 還有 ${P.days} 天，要減 ${P.needKg.toFixed(1)} kg。${why}<br>`+
+      `<b>建議二選一：</b>把日期延到 <b>${dstr(P.fastestDate)}</b> 之後，或把目標體重調得溫和一些。`+
+      `攝取我已經幫你壓在安全範圍（每日赤字 ${P.maxDeficit} kcal），不會照這個日期硬壓。`+
+      (P.limitedBy==="floor"?`<br>想提早達成，比較安全的做法是<b>把 TDEE 拉高</b>——增加重訓與日常活動量，而不是再少吃。`:"")+
+      underNote);
+    return;
+  }
+  box.innerHTML=wrap(P.nearRateCap?"var(--warm)":"var(--green)",
+    P.nearRateCap?"⚠️ 做得到，但貼著安全上限":"✅ 這個日期是做得到的",
+    `距離 ${dstr(P.dateStr)} 還有 ${P.days} 天，要減 ${P.needKg.toFixed(1)} kg，每週約 <b>${P.needRateWk.toFixed(2)} kg</b>`+
+    `（體重的 ${P.pctBW.toFixed(2)}%）。已依這個日期把每日赤字設為 <b>${P.deficit} kcal</b>。`+
+    (P.nearRateCap?`<br>這個速度已經接近每週 1% 的上限，沒有犯錯空間：蛋白質要吃滿、重訓不能停，`+
+      `並且要盯著體脂與瘦體重的走勢，確認掉的是脂肪。只要覺得恢復變差就把日期往後放。`:"")+
+    (!P.nearRateCap&&P.deficit<P.maxDeficit*0.6?`<br>其實還有餘裕——比起再少吃，把蛋白質和訓練顧好，成果會更漂亮。`:"")+
+    underNote);
+}
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
