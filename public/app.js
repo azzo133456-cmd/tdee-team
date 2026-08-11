@@ -3206,6 +3206,36 @@ function renderTargetHint(){
     msg=`這個目標的 BMI 是 <b>${bmi.toFixed(1)}</b>，落在健康範圍（18.5–24）內 👍`; }
   box.innerHTML=`<div class="hint" style="margin-top:6px;color:${col};line-height:1.6;">${msg}</div>`;
 }
+/* ---------- 第二條目標線：守住瘦體重 ----------
+   體重目標仍是主角，但只看體重會給出反過來的評價：實測有使用者體重幾乎不動（看起來
+   停滯、目標日還判她趕不上），實際上是四人中唯一瘦體重在增加的；反過來也有體重掉得
+   漂亮、卻同時在掉肌肉的。所以在體重目標旁邊並列一條瘦體重趨勢，讓兩件事一起被看見。*/
+function renderLeanGoal(){
+  const box=document.getElementById("leanGoal"); if(!box) return;
+  const bc=bodyComp();
+  if(!bc.ok){ box.innerHTML=""; return; }
+  const lw=bc.leanWk, k=bc.quality.key;
+  // 直接沿用 bodyComp 的判定，不另訂門檻——否則同一個人在兩張卡會被講成不同的結果。
+  // bodyComp 的門檻刻意保守，因為短期瘦體重變動多半是水分而非真的肌肉。
+  const V={
+    recomp:{col:"var(--green)", txt:"肌肉在增加",
+            msg:"體重沒怎麼動、脂肪卻在降，肌肉還增加了——這是最理想的結果，別誤判成停滯。"},
+    good:  {col:"var(--green)", txt:"肌肉守得住",
+            msg:"體重下降的同時肌肉沒掉，這才是有價值的減重——比單看體重數字重要。"},
+    muscle:{col:"#b5564e", txt:"肌肉在流失",
+            msg:"⚠️ 體重雖然在降，但掉的有一部分是肌肉。<b>別再砍熱量</b>，先把蛋白質吃滿、重訓次數補上。"},
+    bad:   {col:"#b5564e", txt:"掉的不是脂肪",
+            msg:"🚨 脂肪幾乎沒降、瘦體重卻在掉。先回到維持熱量，把蛋白質與重訓補起來再談減脂。"},
+  }[k] || {col:"var(--sub)", txt:"變化不明顯",
+           msg:"目前的變化還在量測誤差範圍內，持續記錄體脂就會看得更清楚。"};
+  box.innerHTML=
+    `<div class="result" style="margin-top:10px;border-left:4px solid ${V.col};">`+
+      `<div class="lbl">同時也要守住的：瘦體重（肌肉）</div>`+
+      `<div class="big" style="font-size:24px;color:${V.col};">${lw>0?"+":""}${lw} kg/週</div>`+
+      `<div class="hint">近 ${bc.spanWk} 週 · 目前瘦體重 ${bc.leanNow}kg · <b style="color:${V.col}">${V.txt}</b>`+
+        `<br>${V.msg}</div>`+
+    `</div>`;
+}
 // 目標日期的可行性判定
 function renderDatePlan(){
   const box=document.getElementById("datePlan"); if(!box) return;
@@ -3222,6 +3252,12 @@ function renderDatePlan(){
     return;
   }
   // 實測 TDEE 若因漏記被低估，maxDeficit 會跟著變小，判定會過度悲觀 → 要講清楚
+  // 體重停滯但身體組成在改善的人，只看體重會被判成落後——那是錯的評價，要先說清楚
+  const bcq=bodyComp();
+  const goodQuality = bcq.ok && (bcq.quality.key==="recomp" || bcq.quality.key==="good");
+  const goodNote = goodQuality
+    ? `<br><span style="color:var(--green)">不過先講重點：你的瘦體重每週 ${bcq.leanWk>0?"+":""}${bcq.leanWk} kg，`+
+      `<b>掉的是脂肪、肌肉守住了</b>。體重數字動得慢不代表沒進步，這種進度反而是最理想的，別為了追日期把熱量再砍下去。</span>` : "";
   const underNote = tdeeLikelyUnderestimated()
     ? `<br><span style="color:var(--warm)">另外：你的實測 TDEE 可能因為飲食漏記而被低估，這個判定會偏保守。先把記錄補齊，日期評估才準。</span>` : "";
   if(P.status==="tooFast"){
@@ -3235,17 +3271,27 @@ function renderDatePlan(){
       `距離 ${dstr(P.dateStr)} 還有 ${P.days} 天，要減 ${P.needKg.toFixed(1)} kg。${why}<br>`+
       `<b>建議二選一：</b>把日期延到 <b>${dstr(P.fastestDate)}</b> 之後，或把目標體重調得溫和一些。`+
       `攝取我已經幫你壓在安全範圍（每日赤字 ${P.maxDeficit} kcal），不會照這個日期硬壓。`+
+      goodNote+
       (P.limitedBy==="floor"?`<br>想提早達成，比較安全的做法是<b>把 TDEE 拉高</b>——增加重訓與日常活動量，而不是再少吃。`:"")+
       underNote);
     return;
   }
-  box.innerHTML=wrap(P.nearRateCap?"var(--warm)":"var(--green)",
-    P.nearRateCap?"⚠️ 做得到，但貼著安全上限":"✅ 這個日期是做得到的",
+  // 只看「進度追不追得上」會給出誤導的綠燈：體重掉得漂亮但同時在掉肌肉的人，
+  // 拿到的應該是提醒而不是嘉獎。品質判定優先於進度判定。
+  const bc=bodyComp();
+  const losingMuscle = bc.ok && (bc.quality.key==="muscle" || bc.quality.key==="bad");
+  const qualityNote = losingMuscle
+    ? `<br><span style="color:#b5564e">⚠️ 但要注意品質：你的瘦體重每週 ${bc.leanWk} kg，掉的有一部分是肌肉。`+
+      `<b>進度追得上不等於做得對</b>——先把蛋白質吃滿、重訓補上，必要時把日期往後放，而不是繼續照這個赤字走。</span>` : "";
+  box.innerHTML=wrap(losingMuscle?"#b5564e":(P.nearRateCap?"var(--warm)":"var(--green)"),
+    losingMuscle?"進度跟得上，但掉的不只是脂肪"
+      :(P.nearRateCap?"⚠️ 做得到，但貼著安全上限":"✅ 這個日期是做得到的"),
     `距離 ${dstr(P.dateStr)} 還有 ${P.days} 天，要減 ${P.needKg.toFixed(1)} kg，每週約 <b>${P.needRateWk.toFixed(2)} kg</b>`+
     `（體重的 ${P.pctBW.toFixed(2)}%）。已依這個日期把每日赤字設為 <b>${P.deficit} kcal</b>。`+
+    qualityNote+
     (P.nearRateCap?`<br>這個速度已經接近每週 1% 的上限，沒有犯錯空間：蛋白質要吃滿、重訓不能停，`+
       `並且要盯著體脂與瘦體重的走勢，確認掉的是脂肪。只要覺得恢復變差就把日期往後放。`:"")+
-    (!P.nearRateCap&&P.deficit<P.maxDeficit*0.6?`<br>其實還有餘裕——比起再少吃，把蛋白質和訓練顧好，成果會更漂亮。`:"")+
+    (!losingMuscle&&!P.nearRateCap&&P.deficit<P.maxDeficit*0.6?`<br>其實還有餘裕——比起再少吃，把蛋白質和訓練顧好，成果會更漂亮。`:"")+
     underNote);
 }
 // 讓使用者看得到「計算實際採用的體重」，而不是靜靜地跟欄位裡的數字不一樣
@@ -3266,7 +3312,7 @@ function syncProfileWeight(){
   document.getElementById("weight").value=d.eff;
   saveProfile();
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); renderWeightHint(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); renderWeightHint(); renderLeanGoal(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
