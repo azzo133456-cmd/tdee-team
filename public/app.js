@@ -2252,51 +2252,12 @@ function renderRings(date){
     `<div class="ring">${ringSvg(tg?v/tg:0,col)}<div class="rv">${v}/${tg}</div><div class="rk">${nm}(${u})</div></div>`).join("");
 }
 
-/* ---------- 訓練前後營養窗口 ＋ 每餐蛋白分配（女性專屬） ---------- */
-// 訓前吃東西的目的不是吃飽，是送出「能量很充足、不必分解肌肉」的訊號；
-// 訓後女性的恢復窗口比男性短（約 45–60 分鐘），碳水就算在減脂期也不能省。
-const POST_PROTEIN_G=35;      // 訓後蛋白目標（g）
-const POST_CARB_PER_KG=0.3;   // 訓後碳水目標（g/kg 體重）
-function fuelWindow(date){
-  if(!isFemale()) return null;
-  // created_at 是判斷窗口的依據，但 migration 會把舊資料的時間戳補成當下 → 只採用「日期＝該筆
-  // 紀錄日期」的時間戳，時間對不上就當作沒有時間資訊，寧可不提示也不要提示錯的。
-  const sameDay=(ts,d)=>{ if(!ts) return false;
-    const t=new Date(ts); if(isNaN(t)) return false;
-    return new Date(t.getTime()+8*3600000).toISOString().slice(0,10)===d; };
-  const hard=store.exercises.filter(e=>e.date.slice(0,10)===date &&
-    (e.kind==="strength"||HIIT_NAMES.includes(e.name)||["重訓(一般)","重訓(高強度)","徒手健身"].includes(e.name)) &&
-    sameDay(e.created_at,date));
-  if(!hard.length) return null;
-  const exT=Math.min(...hard.map(e=>new Date(e.created_at).getTime()));
-  const meals=(store.meals||[]).filter(m=>m.date.slice(0,10)===date && sameDay(m.created_at,date))
-                         .map(m=>({...m, t:new Date(m.created_at).getTime()}));
-  const pre=meals.filter(m=>m.t<=exT && m.t>=exT-90*60000);       // 訓前 0–90 分鐘
-  const post=meals.filter(m=>m.t>exT && m.t<=exT+60*60000);       // 訓後 60 分鐘內
-  const sum=(a,k)=>Math.round(a.reduce((s,m)=>s+(+m[k]||0),0));
-  const w=effectiveWeight();
-  const carbTarget=Math.round(w*POST_CARB_PER_KG*10)/10;
-  return {exT, preOk:pre.length>0, postP:sum(post,"protein"), postC:sum(post,"carb"),
-          carbTarget, w, minsSince:Math.round((Date.now()-exT)/60000)};
-}
-function renderFuel(date){
-  const box=document.getElementById("fuelBox"); if(!box) return;
-  const F=fuelWindow(date);
-  if(!F){ box.innerHTML=""; return; }
-  const hhmm=new Date(F.exT).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false});
-  const row=(ok,txt)=>`<div style="font-size:12px;line-height:1.6;color:${ok?"var(--green)":"var(--warm)"};">${ok?"✅":"⚠️"} ${txt}</div>`;
-  const pOk=F.postP>=POST_PROTEIN_G, cOk=F.carbTarget?F.postC>=F.carbTarget:true;
-  box.innerHTML=
-    `<div class="result" style="margin-top:10px;">`+
-      `<div class="lbl">訓練前後營養窗口（${hhmm} 那場訓練）</div>`+
-      row(F.preOk,F.preOk?"訓前 90 分鐘內有進食，能量訊號充足。"
-        :"訓前 30–90 分鐘沒有進食紀錄。下次訓練前吃一點蛋白質＋碳水（例如一根香蕉配乳清或希臘優格），是告訴身體「能量充足、不必分解肌肉」的訊號。")+
-      row(pOk,`訓後 60 分鐘內蛋白 <b>${F.postP}g</b> / ${POST_PROTEIN_G}g${pOk?"":`　還差 ${POST_PROTEIN_G-F.postP}g`}`)+
-      (F.carbTarget?row(cOk,`訓後 60 分鐘內碳水 <b>${F.postC}g</b> / ${F.carbTarget}g（${F.w}kg × ${POST_CARB_PER_KG}）${cOk?"":`　還差 ${Math.round((F.carbTarget-F.postC)*10)/10}g`}`):"")+
-      `<div class="hint" style="margin-top:6px;">女性的恢復窗口比男性短，訓後 45–60 分鐘內要補到。碳水就算在減脂期也不能省，是用來補回肌肝醣的。`+
-        `建議用<b>有適當調味的正餐</b>而不是完全沒加鹽的水煮餐，順便補回流汗流失的電解質。</div>`+
-    `</div>`;
-}
+/* ---------- 每餐蛋白分配（女性專屬） ----------
+   註：這裡原本還有一張「訓練前後營養窗口」卡（訓前 30–90 分鐘進食、訓後 60 分鐘內
+   35g 蛋白＋0.3g/kg 碳水）。移除的原因是它判斷窗口要靠運動的 created_at，但實際使用
+   情境是「事後補記」，時間戳等於記錄時間而非訓練時間 —— 實測四位使用者近 30 個有記錄
+   餐點的日子，可用天數是 0。要它有用等於要求人在訓練當下掏手機記錄，不現實。
+   而「每餐蛋白分佈」只需要餐別、不需要精確時間，抓的又是更關鍵的分配問題，故保留。 */
 // 每餐蛋白分佈：總量達標但全部集中在晚餐，肌肉合成效率會差很多
 function renderProteinSplit(date){
   const box=document.getElementById("pSplit"); if(!box) return;
@@ -2378,7 +2339,7 @@ function renderPoop(date){
 function renderDay(){
   const d=selDate();
   set("dayLabel", d.slice(5));
-  renderNet(); renderRings(d); renderProteinSplit(d); renderFuel(d); renderMeals(d); renderWater(d); renderPoop(d);
+  renderNet(); renderRings(d); renderProteinSplit(d); renderMeals(d); renderWater(d); renderPoop(d);
 }
 
 /* ---------- 食譜 ---------- */
