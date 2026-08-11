@@ -191,7 +191,7 @@ async function changeName(){
 }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","targetDate","macroStyle"];
+const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","targetDate","macroStyle","proteinPerKg"];
 // 在伺服器的真實 profile 套進表單「之前」，絕不可儲存：否則會把空白/預設表單 PUT 上去，蓋掉雲端真資料。
 let profileReady=false;
 function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); profileReady=true; }
@@ -321,27 +321,34 @@ function goalTargets(){
   //   LBM 係數 減脂2.4/維持2.0/增肌2.2；體重 係數 減脂2.0/維持1.6/增肌1.8
   const goalNow=val("goal");
   const bf=latestBodyFat();
-  let protein, proteinBasis;
-  if(bf!=null && bf>0 && bf<60){
-    const lbm=w*(1-bf/100);
+  // 基準與現行一致：有體脂用瘦體重、沒有就用體重。自訂係數只是接手「乘幾」這件事。
+  const hasBf = bf!=null && bf>0 && bf<60;
+  const basis = hasBf ? w*(1-bf/100) : w;
+  const basisName = hasBf ? "瘦體重"+basis.toFixed(1)+"kg" : "體重";
+  const custom = +val("proteinPerKg")||0;
+  let protein, proteinBasis, proteinCustom=false;
+  if(custom>0){
+    protein=Math.round(basis*custom); proteinBasis=basisName+"×"+custom+"（自訂）"; proteinCustom=true;
+  }else if(hasBf){
     const k={cut:2.4,maintain:2.0,bulk:2.2}[goalNow]||2.0;
-    protein=Math.round(lbm*k); proteinBasis="瘦體重"+lbm.toFixed(1)+"kg×"+k;
+    protein=Math.round(basis*k); proteinBasis=basisName+"×"+k;
   }else{
     const k={cut:2.0,maintain:1.6,bulk:1.8}[goalNow]||1.6;
-    protein=Math.round(w*k); proteinBasis="體重×"+k;
+    protein=Math.round(basis*k); proteinBasis=basisName+"×"+k;
   }
-  // 女性硬性下限 1.6 g/kg：低熱量＋高訓練量是內分泌失調的組合，蛋白質不該因為赤字或
-  // 低體脂估算被壓到這條線以下（維持期的體重×1.6 恰好等於下限，實際只在體脂偏低時生效）。
-  if(isFemale()){
-    const floor=Math.round(w*1.6);
-    if(protein<floor){ protein=floor; proteinBasis="體重×1.6（女性下限）"; }
-  }
+  // 女性下限 1.6 g/kg 體重：低熱量＋高訓練量是內分泌失調的組合，蛋白質不該因為赤字或
+  // 低體脂估算被壓到這條線以下。但自訂係數是教練的明確決定 → 不強制拉高，只標記後提醒。
+  const floor=Math.round(w*1.6);
+  if(isFemale() && !proteinCustom && protein<floor){ protein=floor; proteinBasis="體重×1.6（女性下限）"; }
+  // 旗標要在套用下限「之後」才算：自動模式已經被拉到下限，就不該再說它低於下限
+  const proteinLow = isFemale() && protein<floor;
   // 脂肪佔比依碳水風格：低碳40% / 均衡25% / 高碳18%
   const style=val("macroStyle")||"balanced";
   const fatPct=style==="low"?0.40:style==="high"?0.18:0.25;
   const fatKcal=target*fatPct, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
-  return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style, floored, raw};
+  return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style, floored, raw,
+          proteinCustom, proteinLow, proteinFloor:floor, proteinAutoBasis:basisName, proteinBasisKg:basis};
 }
 /* ---------- 能量可用性 EA（女性專屬） ---------- */
 // EA =（攝取 − 運動消耗）/ 瘦體重(kg)，單位 kcal/kg LBM。
@@ -543,7 +550,28 @@ function calcGoal(){
     `吃更低不會瘦得更快，只會讓微量營養素吃不夠、恢復變差。想加大赤字請改成增加活動量，而不是再往下砍。`;
   set("goalBasis", basis);
   drawMacroBar("goalBar","goalLeg",protein,fat,carb);
+  renderProteinHint(t);
   renderGoalEa(t);
+}
+// 蛋白質係數欄位下方的說明：自訂時要看得到「自動會給多少」才好比較
+function renderProteinHint(t){
+  const box=document.getElementById("proteinHint"); if(!box) return;
+  const w=+val("weight")||0;
+  const perKgBW = w ? (t.protein/w).toFixed(2) : "—";
+  const pctKcal = Math.round(t.protein*4/t.kcal*100);
+  let s=`目前 <b>${t.protein}g</b>（${t.proteinBasis}）＝ 每公斤體重 ${perKgBW}g・佔總熱量 ${pctKcal}%`;
+  if(!t.proteinCustom){
+    s+=`<br>係數留空時由系統決定：有體脂用瘦體重×2.4/2.0/2.2（減脂/維持/增肌），否則體重×2.0/1.6/1.8。`+
+       `填數字就會乘在<b>${t.proteinAutoBasis.replace(/[\d.]+kg/,"")}</b>（${t.proteinBasisKg.toFixed(1)}kg）上。`;
+  }
+  if(t.proteinLow){
+    s=`<span style="color:var(--warm)">⚠️ 這個係數算出來是 ${t.protein}g，低於女性建議下限 ${t.proteinFloor}g（體重×1.6）。`+
+      `減脂期蛋白質不足會讓掉的變成肌肉，經期與恢復也容易出狀況。確定要這樣設就留著，我不會擋。</span><br>`+s;
+  }
+  if(t.proteinCustom && pctKcal>45){
+    s+=`<br><span style="color:var(--warm)">蛋白質已佔 ${pctKcal}% 的熱量，碳水只剩 ${t.carb}g——訓練強度高的話會不夠用。</span>`;
+  }
+  box.innerHTML=`<div class="hint" style="margin-top:6px;line-height:1.6;">${s}</div>`;
 }
 // 事前檢查：照現在這組「目標 kcal ＋ 平均運動量」吃下去，EA 會落在哪裡
 function renderGoalEa(t){
