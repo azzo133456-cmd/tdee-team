@@ -91,6 +91,8 @@ async function initDb() {
     ALTER TABLE exercises ADD COLUMN IF NOT EXISTS weight REAL;
     ALTER TABLE exercises ADD COLUMN IF NOT EXISTS volume REAL;
     ALTER TABLE exercises ADD COLUMN IF NOT EXISTS muscle TEXT;
+    -- 記錄時間戳：用來判斷「訓練前後營養窗口」（舊資料會是 migration 當下時間，前端只採用當日紀錄）
+    ALTER TABLE exercises ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
     CREATE TABLE IF NOT EXISTS recipes (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,

@@ -150,6 +150,7 @@
         </div>
         <div class="macro-bar" id="goalBar"></div>
         <div class="macro-leg" id="goalLeg"></div>
+        <div id="goalEa"></div>
         <div class="hint tip">蛋白依目標分級（減脂保肌肉吃最多）：有填體脂用瘦體重×2.4/2.0/2.2（減脂/維持/增肌），否則體重×2.0/1.6/1.8；脂肪依碳水風格、其餘碳水。基準優先用真實TDEE。</div>
       </div>
     </div>
@@ -305,12 +306,14 @@
           <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天飲食</button>
         </div>
         <div class="rings" id="rings" style="margin-top:12px;"></div>
+        <div id="pSplit"></div>
         <div class="chipbar">
           <button class="ghost sm" onclick="coachDaily()">🤖 今日建議</button>
           <button class="ghost sm" onclick="coachRemain()">🍱 還能吃什麼</button>
         </div>
         <div id="coachBox" class="hint" style="overflow-wrap:anywhere;"></div>
         <div class="result" id="netBox" style="display:none;"></div>
+        <div id="fuelBox"></div>
         <div id="mealGroups"></div>
         <div class="hint tip">環圈＝對②目標的達成度。AI 建議僅供參考。</div>
       </div>

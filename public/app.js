@@ -283,12 +283,42 @@ function goalTargets(){
     const k={cut:2.0,maintain:1.6,bulk:1.8}[goalNow]||1.6;
     protein=Math.round(w*k); proteinBasis="體重×"+k;
   }
+  // 女性硬性下限 1.6 g/kg：低熱量＋高訓練量是內分泌失調的組合，蛋白質不該因為赤字或
+  // 低體脂估算被壓到這條線以下（維持期的體重×1.6 恰好等於下限，實際只在體脂偏低時生效）。
+  if(isFemale()){
+    const floor=Math.round(w*1.6);
+    if(protein<floor){ protein=floor; proteinBasis="體重×1.6（女性下限）"; }
+  }
   // 脂肪佔比依碳水風格：低碳40% / 均衡25% / 高碳18%
   const style=val("macroStyle")||"balanced";
   const fatPct=style==="low"?0.40:style==="high"?0.18:0.25;
   const fatKcal=target*fatPct, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
   return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style};
+}
+/* ---------- 能量可用性 EA（女性專屬） ---------- */
+// EA =（攝取 − 運動消耗）/ 瘦體重(kg)，單位 kcal/kg LBM。
+// 為什麼要另外算：熱量赤字只看「相對 TDEE 少吃多少」，看不出「扣掉運動後身體還剩多少能量
+// 維持生理功能」。赤字設得很合理、但運動量很大時，EA 仍可能掉到危險區。女性對低 EA 特別
+// 敏感（與經期紊亂、內分泌與骨質流失相關），所以這張卡只對女性顯示。
+function leanMassKg(){
+  const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||0 : 0);
+  if(!w) return null;
+  const bf=latestBodyFat();
+  if(bf!=null && bf>0 && bf<60) return {lbm:w*(1-bf/100), est:false, w};
+  return {lbm:w*0.75, est:true, w};   // 沒體脂資料時的粗估（女性體脂約 25%）
+}
+// 門檻：<30 低能量可用性（風險區）、30–45 偏低、>=45 充足
+function eaLevel(ea){
+  if(ea<30) return {key:"low",  color:"#b5564e",      label:"偏低"};
+  if(ea<45) return {key:"mid",  color:"var(--warm)",  label:"稍低"};
+  return      {key:"ok",   color:"var(--green)", label:"充足"};
+}
+function energyAvailability(intake, burn){
+  const L=leanMassKg();
+  if(!L || intake==null) return null;
+  const ea=(intake-(burn||0))/L.lbm;
+  return {ea:Math.round(ea*10)/10, lbm:Math.round(L.lbm*10)/10, est:L.est, level:eaLevel(ea)};
 }
 // 減重計畫脈絡：把「目標TDEE是否實測、目標體重、目標vs實際每週速度、預計達成日、赤字」整合一包
 // 給 AI 教練與報表共用，讓建議都對準『減重進度』而非泛泛營養
@@ -324,7 +354,10 @@ function planContext(){
   }
   // 經期相位（女性有記錄才有）：解讀體重/身體組成時把水分變因納入
   const cyc=(typeof cyclePhase==="function")?cyclePhase():null;
-  const cycleSummary = cyc ? { day:cyc.day, phase:cyc.phase, highWater:!!cyc.highWater } : null;
+  // training/caution 一併帶給 AI 教練與週報，建議才會跟著相位走（例如排卵期不叫人挑戰 PR）
+  const stripTags=s=>s?String(s).replace(/<[^>]+>/g,""):null;
+  const cycleSummary = cyc ? { day:cyc.day, phase:cyc.phase, highWater:!!cyc.highWater,
+                               training:stripTags(cyc.training), caution:stripTags(cyc.caution) } : null;
   // 身體組成趨勢（脂肪量/瘦體重），給教練與覆盤參考「掉的是脂肪還是肌肉」
   const bc=bodyComp();
   const bodyCompSummary = bc.ok ? {
@@ -437,6 +470,36 @@ function calcGoal(){
   if(base.corrected) basis+="　⚠️ 初期掉的多為水分，實測 TDEE 已向公式校正，避免高估；記滿約 2 週會更準。";
   set("goalBasis", basis);
   drawMacroBar("goalBar","goalLeg",protein,fat,carb);
+  renderGoalEa(t);
+}
+// 事前檢查：照現在這組「目標 kcal ＋ 平均運動量」吃下去，EA 會落在哪裡
+function renderGoalEa(t){
+  const box=document.getElementById("goalEa"); if(!box) return;
+  if(!isFemale()){ box.innerHTML=""; return; }
+  const m=tdeeModel(), burn=Math.round(m.avgBurn||0);
+  // base 基準的目標本來就不含運動（使用者會自行把消耗加回去吃），所以扣的運動量是 0
+  const E=energyAvailability(t.kcal, t.base.mode==="base"?0:burn);
+  if(!E){ box.innerHTML=""; return; }
+  const L=E.level;
+  const note = L.key==="low"
+    ? `⚠️ 低能量可用性：扣掉運動後身體剩下的能量不足以好好維持生理功能與修復，長期容易造成經期紊亂、內分泌失調、恢復變差與骨質流失。<b>建議把減脂強度調低一階，或減少有氧總量</b>——不是少吃就會瘦得更好。`
+    : L.key==="mid"
+    ? `這個區間還算可行，但若同時出現睡不好、情緒起伏大、訓練體感變差，優先把吃的加回去而不是再加運動。`
+    : `能量充足，身體有餘裕修復與適應，可以放心把訓練強度拉上去。`;
+  box.innerHTML=
+    `<div style="margin-top:12px;background:var(--soft);border-radius:12px;padding:10px 14px;border-left:4px solid ${L.color};">`+
+      `<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">`+
+        `<span style="font-size:12px;color:var(--sub);">能量可用性 EA</span>`+
+        `<span style="font-size:20px;font-weight:800;color:${L.color};line-height:1;">${E.ea}</span>`+
+        `<span style="font-size:12px;color:var(--sub);">kcal/kg 瘦體重</span>`+
+        `<span style="font-size:12px;font-weight:700;color:${L.color};">${L.label}</span>`+
+      `</div>`+
+      `<div style="font-size:11px;color:var(--sub);margin-top:4px;">`+
+        `（${t.kcal.toLocaleString()}${(t.base.mode!=="base"&&burn)?` − 運動 ${burn.toLocaleString()}`:""}）÷ 瘦體重 ${E.lbm}kg`+
+        `${E.est?"（未填體脂，瘦體重以體重×0.75 粗估）":""}`+
+      `</div>`+
+      `<div style="font-size:12px;color:var(--ink);line-height:1.5;margin-top:5px;">${note}</div>`+
+    `</div>`;
 }
 function drawMacroBar(barId,legId,p,f,c){
   const pk=p*4,fk=f*9,ck=c*4,tot=pk+fk+ck||1;
@@ -1268,6 +1331,11 @@ async function maybeWeeklyReview(){
   await genWeeklyReview(ws,false);
 }
 /* ---------- 經期記錄（僅女性顯示；只記「開始日」，自動算週期天數與相位） ---------- */
+// 女性專屬邏輯（EA 警示、極化訓練、週期建議、營養窗口）共用的判斷。
+// 以「表單值」為準而非 store.profile：saveProfile() 只把改動送到伺服器、不會更新本地
+// store.profile，若以 profile 為準，使用者改了性別要等重新載入才生效。表單值也和
+// calcMifflin() 算 BMR 用的來源一致。表單尚未由 applyProfile 填入時才退回 profile。
+function isFemale(){ return (val("sex")||(store.profile&&store.profile.sex))==="f"; }
 function periodDates(){ const p=store.profile&&store.profile.periods; return Array.isArray(p)?p.slice().sort():[]; }
 // 依「最近一次經期開始日」算目前是第幾天、處於哪個相位
 function cyclePhase(){
@@ -1276,18 +1344,40 @@ function cyclePhase(){
   const day=Math.floor((new Date(todayStr())-new Date(last))/86400000)+1;  // 開始日當第 1 天
   if(day<1) return null;
   // 概略相位：1-5 月經期、6-13 濾泡期、14-15 排卵、16-28 黃體期(易水腫)、>28 可能下次將至
-  let phase, note, highWater=false;
-  if(day<=5){ phase="月經期"; note="這幾天體重可能偏高（水分），屬正常，別過度節食。"; highWater=true; }
-  else if(day<=13){ phase="濾泡期"; note="水分通常較穩定，是看減重趨勢的好時機。"; }
-  else if(day<=15){ phase="排卵期"; note="體重可能小幅波動，正常。"; }
-  else if(day<=28){ phase="黃體期"; note="⚠️ 易水分滯留、體重偏高 0.5–2kg，是水不是脂肪，別慌。"; highWater=true; }
-  else { phase="週期偏長"; note="已超過 28 天，下次經期可能將至；記得記錄開始日。"; }
+  // training=該相位的訓練安排建議；caution=該相位特有的風險提醒（沒有就 null）
+  // 女性的身體是「週期系統」而非穩定系統，能量、恢復能力與受傷風險都隨相位變動，
+  // 所以訓練要明確但不能僵化——把加量放在濾泡期，把恢復放在月經期，才不會每個月都硬撞。
+  let phase, note, training, caution=null, highWater=false;
+  if(day<=5){
+    phase="月經期"; highWater=true;
+    note="這幾天體重可能偏高（水分），屬正常，別過度節食。";
+    training="雌激素低、容易疲勞不適：以恢復為主——瑜珈、散步、簡單伸展或滾筒放鬆就好。";
+    caution="如果疼痛劇烈，直接休息，不要勉強自己。";
+  }else if(day<=13){
+    phase="濾泡期";
+    note="水分通常較穩定，是看減重趨勢的好時機。";
+    training="雌激素上升，體力、耐力與情緒都在變好：<b>這是加量、加強度的最佳時機</b>，重訓與高強度間歇都排在這幾天。";
+  }else if(day<=15){
+    phase="排卵期";
+    note="體重可能小幅波動，正常。";
+    training="個體差異最大：狀態好就比照濾泡期上強度，不舒服就轉中等強度重訓或有氧。關鍵是傾聽並尊重身體的反應。";
+    caution="雌激素達到高峰會讓韌帶暫時鬆弛，運動損傷風險升高：<b>避免挑戰個人最佳成績與高衝擊跳躍動作</b>，暖身與動作控制不能馬虎。";
+  }else if(day<=28){
+    phase="黃體期"; highWater=true;
+    note="⚠️ 易水分滯留、體重偏高 0.5–2kg，是水不是脂肪，別慌。";
+    training="體能會波動、體溫升高、耐熱下降。採用<b>「10 分鐘原則」</b>：狀態不好時先輕度暖身 10 分鐘，若沒改善就改做中低強度課表、滾筒放鬆或散步，不要硬上強度。";
+    caution="經期前幾天若感覺非常疲勞，可以主動安排<b>減量週</b>，大幅降低訓練量與強度，專心把睡眠和恢復顧好。";
+  }else{
+    phase="週期偏長";
+    note="已超過 28 天，下次經期可能將至；記得記錄開始日。";
+    training="以身體感受安排訓練即可，記得補記經期開始日，之後的建議才會準。";
+  }
   // highWater=易水分滯留期（黃體/月經）→ 解讀體重/身體組成時要把水分變因考慮進去
-  return {day, phase, note, last, highWater};
+  return {day, phase, note, training, caution, last, highWater};
 }
 function renderPeriod(){
   const card=document.getElementById("cardPeriod"); if(!card) return;
-  const isF=(store.profile&&store.profile.sex||val("sex"))==="f";
+  const isF=isFemale();
   card.style.display=isF?"":"none";
   if(!isF) return;
   // 經期卡有自己的日期欄（可自由往前補記，不再借用體重日期）
@@ -1309,7 +1399,9 @@ function renderPeriod(){
             `<span style="font-size:14px;font-weight:700;color:${phaseCol};">${ph.phase}</span>`+
           `</div>`+
           `<div style="font-size:12px;color:var(--ink);line-height:1.5;margin-top:5px;">${ph.note}</div>`+
-          `<div style="font-size:11px;color:var(--sub);margin-top:3px;">起算日：${ph.last}</div>`+
+          (ph.training?`<div style="font-size:12px;color:var(--ink);line-height:1.5;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);"><b>🏋️ 這幾天怎麼練：</b>${ph.training}</div>`:"")+
+          (ph.caution?`<div style="font-size:12px;color:var(--warm);line-height:1.5;margin-top:5px;">⚠️ ${ph.caution}</div>`:"")+
+          `<div style="font-size:11px;color:var(--sub);margin-top:6px;">起算日：${ph.last}</div>`+
         `</div>`
       : `<div style="background:var(--soft);border-radius:12px;padding:12px 14px;color:var(--sub);font-size:13px;line-height:1.6;">還沒記錄經期。選好「經期第一天」按記錄即可；過去的月份把日期往前選就能補。</div>`;
   }
@@ -2002,6 +2094,79 @@ function renderRings(date){
     `<div class="ring">${ringSvg(tg?v/tg:0,col)}<div class="rv">${v}/${tg}</div><div class="rk">${nm}(${u})</div></div>`).join("");
 }
 
+/* ---------- 訓練前後營養窗口 ＋ 每餐蛋白分配（女性專屬） ---------- */
+// 訓前吃東西的目的不是吃飽，是送出「能量很充足、不必分解肌肉」的訊號；
+// 訓後女性的恢復窗口比男性短（約 45–60 分鐘），碳水就算在減脂期也不能省。
+const POST_PROTEIN_G=35;      // 訓後蛋白目標（g）
+const POST_CARB_PER_KG=0.3;   // 訓後碳水目標（g/kg 體重）
+function fuelWindow(date){
+  if(!isFemale()) return null;
+  // created_at 是判斷窗口的依據，但 migration 會把舊資料的時間戳補成當下 → 只採用「日期＝該筆
+  // 紀錄日期」的時間戳，時間對不上就當作沒有時間資訊，寧可不提示也不要提示錯的。
+  const sameDay=(ts,d)=>{ if(!ts) return false;
+    const t=new Date(ts); if(isNaN(t)) return false;
+    return new Date(t.getTime()+8*3600000).toISOString().slice(0,10)===d; };
+  const hard=store.exercises.filter(e=>e.date.slice(0,10)===date &&
+    (e.kind==="strength"||HIIT_NAMES.includes(e.name)||["重訓(一般)","重訓(高強度)","徒手健身"].includes(e.name)) &&
+    sameDay(e.created_at,date));
+  if(!hard.length) return null;
+  const exT=Math.min(...hard.map(e=>new Date(e.created_at).getTime()));
+  const meals=(store.meals||[]).filter(m=>m.date.slice(0,10)===date && sameDay(m.created_at,date))
+                         .map(m=>({...m, t:new Date(m.created_at).getTime()}));
+  const pre=meals.filter(m=>m.t<=exT && m.t>=exT-90*60000);       // 訓前 0–90 分鐘
+  const post=meals.filter(m=>m.t>exT && m.t<=exT+60*60000);       // 訓後 60 分鐘內
+  const sum=(a,k)=>Math.round(a.reduce((s,m)=>s+(+m[k]||0),0));
+  const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||0 : 0);
+  const carbTarget=Math.round(w*POST_CARB_PER_KG*10)/10;
+  return {exT, preOk:pre.length>0, postP:sum(post,"protein"), postC:sum(post,"carb"),
+          carbTarget, w, minsSince:Math.round((Date.now()-exT)/60000)};
+}
+function renderFuel(date){
+  const box=document.getElementById("fuelBox"); if(!box) return;
+  const F=fuelWindow(date);
+  if(!F){ box.innerHTML=""; return; }
+  const hhmm=new Date(F.exT).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false});
+  const row=(ok,txt)=>`<div style="font-size:12px;line-height:1.6;color:${ok?"var(--green)":"var(--warm)"};">${ok?"✅":"⚠️"} ${txt}</div>`;
+  const pOk=F.postP>=POST_PROTEIN_G, cOk=F.carbTarget?F.postC>=F.carbTarget:true;
+  box.innerHTML=
+    `<div class="result" style="margin-top:10px;">`+
+      `<div class="lbl">訓練前後營養窗口（${hhmm} 那場訓練）</div>`+
+      row(F.preOk,F.preOk?"訓前 90 分鐘內有進食，能量訊號充足。"
+        :"訓前 30–90 分鐘沒有進食紀錄。下次訓練前吃一點蛋白質＋碳水（例如一根香蕉配乳清或希臘優格），是告訴身體「能量充足、不必分解肌肉」的訊號。")+
+      row(pOk,`訓後 60 分鐘內蛋白 <b>${F.postP}g</b> / ${POST_PROTEIN_G}g${pOk?"":`　還差 ${POST_PROTEIN_G-F.postP}g`}`)+
+      (F.carbTarget?row(cOk,`訓後 60 分鐘內碳水 <b>${F.postC}g</b> / ${F.carbTarget}g（${F.w}kg × ${POST_CARB_PER_KG}）${cOk?"":`　還差 ${Math.round((F.carbTarget-F.postC)*10)/10}g`}`):"")+
+      `<div class="hint" style="margin-top:6px;">女性的恢復窗口比男性短，訓後 45–60 分鐘內要補到。碳水就算在減脂期也不能省，是用來補回肌肝醣的。`+
+        `建議用<b>有適當調味的正餐</b>而不是完全沒加鹽的水煮餐，順便補回流汗流失的電解質。</div>`+
+    `</div>`;
+}
+// 每餐蛋白分佈：總量達標但全部集中在晚餐，肌肉合成效率會差很多
+function renderProteinSplit(date){
+  const box=document.getElementById("pSplit"); if(!box) return;
+  if(!isFemale()){ box.innerHTML=""; return; }
+  const t=goalTargets(); if(!t){ box.innerHTML=""; return; }
+  const ORDER=["早餐","午餐","晚餐","點心"];
+  const meals=(store.meals||[]).filter(m=>m.date.slice(0,10)===date);
+  if(!meals.length){ box.innerHTML=""; return; }
+  const by={};
+  meals.forEach(m=>{ const k=m.meal||"點心"; by[k]=(by[k]||0)+(+m.protein||0); });
+  const keys=ORDER.filter(k=>by[k]!=null).concat(Object.keys(by).filter(k=>!ORDER.includes(k)));
+  const tot=Math.round(keys.reduce((s,k)=>s+by[k],0));
+  const cells=keys.map(k=>{
+    const g=Math.round(by[k]);
+    return `<span style="font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--soft);">`+
+           `${k} <b>${g}g</b><span style="color:var(--sub);"> ${tot?Math.round(g/tot*100):0}%</span></span>`;
+  }).join("");
+  const missing=ORDER.slice(0,3).filter(k=>!by[k]||by[k]<10);
+  box.innerHTML=
+    `<div style="margin-top:10px;">`+
+      `<div style="font-size:12px;color:var(--sub);margin-bottom:6px;">每餐蛋白分佈（今日合計 ${tot}g / 目標 ${t.protein}g）</div>`+
+      `<div style="display:flex;flex-wrap:wrap;gap:6px;">${cells}</div>`+
+      `<div class="hint" style="margin-top:8px;">每一餐都要有蛋白質，其中<b>早餐與訓練後的比例要最高</b>。`+
+        (missing.length?`<span style="color:var(--warm)"><br>${missing.join("、")}的蛋白質偏少，補一份會比全部集中在同一餐更有效。</span>`:"")+
+      `</div>`+
+    `</div>`;
+}
+
 /* ---------- 飲水 ---------- */
 function waterFor(date){ const r=store.records.find(x=>x.date.slice(0,10)===date); return r&&r.water_ml?+r.water_ml:0; }
 async function addWater(amt,reset){
@@ -2055,7 +2220,7 @@ function renderPoop(date){
 function renderDay(){
   const d=selDate();
   set("dayLabel", d.slice(5));
-  renderNet(); renderRings(d); renderMeals(d); renderWater(d); renderPoop(d);
+  renderNet(); renderRings(d); renderProteinSplit(d); renderFuel(d); renderMeals(d); renderWater(d); renderPoop(d);
 }
 
 /* ---------- 食譜 ---------- */
@@ -2384,7 +2549,39 @@ async function saveExEdit(id,isStrength){
   try{ await api("/api/exercise/"+id,{method:"PUT",body:JSON.stringify(body)}); editingEx=null; await reload(); }
   catch(e){ alert(e.message); }
 }
+// 女性極化訓練建議：兩端（高強度重訓／間歇 ＋ 低強度活動）取代中間的「長時間中等強度有氧」。
+// 中等強度有氧對女性主要貢獻的是疲勞與發炎累積，強度又不足以刺激肌肉與骨骼生長；
+// 訓練的目的是「刺激」不是「消耗」，所以這裡追蹤的是重訓與間歇的次數，而非有氧總分鐘數。
+const HIIT_NAMES=["HIIT","跳繩","飛輪","拳擊有氧"];
+const EASY_NAMES=["走路(慢)","走路(快)","健走","瑜珈","伸展操","皮拉提斯"];
+function renderExRecF(){
+  const goal=val("goal")||"maintain";
+  const plans={
+    cut:{strength:3,hiit:2,easyMin:150,note:"減脂期：重訓保留（甚至增加）肌肉，間歇拉最大攝氧量，其餘時間用散步等低強度活動累積活動量。"},
+    maintain:{strength:3,hiit:1,easyMin:150,note:"維持期：把重訓當保養，強度要夠；低強度活動維持日常代謝。"},
+    bulk:{strength:4,hiit:1,easyMin:90,note:"增肌期：重訓為主，間歇維持心肺即可，別讓有氧吃掉恢復資源。"}
+  };
+  const p=plans[goal]||plans.maintain;
+  const now=new Date(), wk=new Date(now-6*86400000).toISOString().slice(0,10);
+  const week=store.exercises.filter(e=>e.date>=wk);
+  const strongNames=["重訓(一般)","重訓(高強度)","徒手健身"];
+  const strengthDays=new Set(week.filter(e=>e.kind==="strength"||strongNames.includes(e.name)).map(e=>e.date.slice(0,10)));
+  const hiitDays=new Set(week.filter(e=>HIIT_NAMES.includes(e.name)).map(e=>e.date.slice(0,10)));
+  const doneS=strengthDays.size, doneH=hiitDays.size;
+  const easyMin=week.filter(e=>EASY_NAMES.includes(e.name)).reduce((a,b)=>a+(+b.minutes||0),0);
+  const bar=(v,t)=>`<div class="prog"><i style="width:${Math.min(100,Math.round(v/t*100))}%"></i></div>`;
+  const hit=doneS>=p.strength&&doneH>=p.hiit&&easyMin>=p.easyMin;
+  document.getElementById("exRec").innerHTML=
+    `<div class="rec-line"><span>每週重訓次數</span><span><b>${doneS}</b> / ${p.strength} 次</span></div>`+bar(doneS,p.strength)+
+    `<div class="rec-line" style="margin-top:10px;"><span>每週高強度間歇</span><span><b>${doneH}</b> / ${p.hiit} 次</span></div>`+bar(doneH,p.hiit)+
+    `<div class="rec-line" style="margin-top:10px;"><span>每週低強度活動</span><span><b>${easyMin}</b> / ${p.easyMin} 分</span></div>`+bar(easyMin,p.easyMin)+
+    `<div class="hint" style="margin-top:10px;">${p.note} ${hit?"✅ 本週已達標，做得好！":"加油，距離目標還有一點。"}</div>`+
+    `<div class="hint tip" style="margin-top:8px;">重訓請優先選<b>較重的重量、每組 5–8 下</b>（疲勞時做到 12 下也沒關係），保留 1–2 下不做到力竭。`+
+      `女性慢縮肌比例較高、恢復較快，<b>組間休息 90 秒–2 分鐘</b>通常就夠，不必比照男生休 2–3 分鐘。`+
+      `另外請把<b>後側鏈</b>（硬舉、臀推、單腳羅馬尼亞硬舉）當訓練重點——女性骨盆較寬、Q-angle 較大，容易變成股四頭主導，平衡後側能降低膝關節與前十字韌帶的受傷風險。</div>`;
+}
 function renderExRec(){
+  if(isFemale()) return renderExRecF();
   const goal=val("goal")||"maintain";
   const plans={
     cut:{cardioMin:200,strength:3,note:"減脂期：有氧拉高總消耗，重訓保留肌肉。"},
@@ -2437,11 +2634,17 @@ function renderNet(){
   // 含運動基準：目標已含運動，拿原始攝取比；不含運動基準：拿淨熱量比
   const cmpVal=base.mode==="base"?net:(intake||0);
   const cmpLbl=base.mode==="base"?"淨熱量":"攝取";
+  // 當日實際 EA（女性才顯示）；沒記到攝取就不算，避免用半天的資料嚇人
+  const E=(isFemale()&&intake!=null)?energyAvailability(intake,burn):null;
+  const eaLine=E?`<div class="hint" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);">`+
+      `能量可用性 EA <b style="color:${E.level.color}">${E.ea}</b> kcal/kg 瘦體重 ·「${E.level.label}」`+
+      (E.level.key==="low"?`<br><span style="color:#b5564e">今天扣掉運動後能量偏低，睡前若還很餓請務必補足，別硬撐。</span>`:"")+
+    `</div>`:"";
   box.style.display="block";
   box.innerHTML=`<div class="lbl">${date.slice(5)} 淨熱量（攝取 − 運動消耗）</div>`+
     `<div class="big">${net.toLocaleString()} kcal</div>`+
     `<div class="hint">攝取 ${intake!=null?intake.toLocaleString():"—"} − 運動 ${burn.toLocaleString()}`+
-    (target?`<br>對目標（${base.mode==="base"?"不含運動":"含運動"}基準 ${target.toLocaleString()}，比${cmpLbl} ${cmpVal.toLocaleString()}）　${cmpVal<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-cmpVal).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${(cmpVal-target).toLocaleString()}</span>`}`:"")+`</div>`;
+    (target?`<br>對目標（${base.mode==="base"?"不含運動":"含運動"}基準 ${target.toLocaleString()}，比${cmpLbl} ${cmpVal.toLocaleString()}）　${cmpVal<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-cmpVal).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${(cmpVal-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
 }
 async function delRecord(rid){
   if(!confirm("刪除這筆紀錄？")) return;
