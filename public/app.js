@@ -2275,14 +2275,14 @@ function renderProteinSplit(date){
     return `<span style="font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--soft);">`+
            `${k} <b>${g}g</b><span style="color:var(--sub);"> ${tot?Math.round(g/tot*100):0}%</span></span>`;
   }).join("");
-  const missing=ORDER.slice(0,3).filter(k=>!by[k]||by[k]<10);
+  // 不判斷「哪一餐沒吃」：使用者可能在做 168 之類的間歇性斷食，早餐永遠是空的，
+  // 那個提示對他每天都是錯的；而且看當天時，還沒到的餐也會被當成漏掉。
+  // 這裡只呈現分佈，把「分散比集中好」講一次就好，不對照三餐制去挑毛病。
   box.innerHTML=
     `<div style="margin-top:10px;">`+
       `<div style="font-size:12px;color:var(--sub);margin-bottom:6px;">每餐蛋白分佈（今日合計 ${tot}g / 目標 ${t.protein}g）</div>`+
       `<div style="display:flex;flex-wrap:wrap;gap:6px;">${cells}</div>`+
-      `<div class="hint" style="margin-top:8px;">每一餐都要有蛋白質，其中<b>早餐與訓練後的比例要最高</b>。`+
-        (missing.length?`<span style="color:var(--warm)"><br>${missing.join("、")}的蛋白質偏少，補一份會比全部集中在同一餐更有效。</span>`:"")+
-      `</div>`+
+      `<div class="hint" style="margin-top:8px;">同樣的總量，<b>分散到你有吃的每一餐</b>會比集中在單一餐更有效；訓練後那一餐可以吃多一點。</div>`+
     `</div>`;
 }
 
