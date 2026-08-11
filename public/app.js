@@ -210,8 +210,29 @@ function saveProfile(){
   saveTimer=setTimeout(()=> api("/api/profile",{method:"PUT",body:JSON.stringify(readProfile())}).catch(()=>{}), 600);
 }
 
+/* ---------- 實際採用的體重 ----------
+   基本資料的體重欄位是使用者當初填的，之後量了幾十次也不會自己更新，於是 BMR、蛋白質
+   目標、EA 的瘦體重、運動熱量全部長期停在舊數字上。這裡一律改用「最近 7 天的平均體重」：
+   用平均而非當天最新，是因為體重受水分影響每天可晃 ±1kg，若直接跟著跳，使用者每天看到
+   的建議都在變、反而不能信。沒有紀錄時才退回基本資料欄位。 */
+function effectiveWeight(){
+  const recs=(store.records||[]).filter(r=>r.weight!=null);
+  if(recs.length){
+    const since=new Date(new Date(todayStr()).getTime()-6*86400000).toISOString().slice(0,10);
+    const wk=recs.filter(r=>r.date.slice(0,10)>=since).map(r=>+r.weight);
+    if(wk.length) return +(wk.reduce((a,b)=>a+b,0)/wk.length).toFixed(1);
+    return +recs[recs.length-1].weight;      // 近 7 天沒量就用最後一次
+  }
+  return +val("weight")||0;
+}
+// 基本資料欄位與實際採用值差多少（給提示用）
+function weightDrift(){
+  const prof=+val("weight")||0, eff=effectiveWeight();
+  if(!prof||!eff) return null;
+  return {prof, eff, diff:+(eff-prof).toFixed(1)};
+}
 function calcMifflin(){
-  const a=+val("age"), h=+val("height"), w=+val("weight"), act=+val("act")||1.4;
+  const a=+val("age"), h=+val("height"), w=effectiveWeight(), act=+val("act")||1.4;
   if(!a||!h||!w){ set("mifflinOut","—"); set("bmrOut",""); return null; }
   const bmr=10*w+6.25*h-5*a+(val("sex")==="f"?-161:5);
   const tdee=Math.round(bmr*act);
@@ -263,7 +284,7 @@ const MAX_WEEKLY_PCT=0.01;   // 每週最多減體重的 1%，超過就開始賠
    讓使用者自己選擇延期或調整目標體重——這才是協助健康減重，而不是催進度。 */
 function currentWeight(){
   const wr=(store.records||[]).filter(r=>r.weight!=null);
-  return wr.length ? +wr[wr.length-1].weight : (+val("weight")||null);
+  return effectiveWeight()||null;   // 用 7 天平均，避免單日水分讓目標日的速度計算跳動
 }
 function datePlan(tdee){
   const dateStr=val("targetDate");
@@ -315,7 +336,7 @@ function goalTargets(){
   const base=baseTDEE(); if(!base.tdee) return null;
   const raw=rawGoal(base.tdee), target=applyGoal(base.tdee);
   const floored=target>raw;   // 下限有生效 → 要讓使用者知道為什麼跟他選的強度對不上
-  const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||60 : 60);
+  const w=effectiveWeight()||60;
   // 蛋白質依「目標 × 體脂」分級（實證：減脂赤字保肌肉需求最高，增肌夠用即可）
   //   有填體脂→用瘦體重(LBM)更準；否則退回體重。
   //   LBM 係數 減脂2.4/維持2.0/增肌2.2；體重 係數 減脂2.0/維持1.6/增肌1.8
@@ -356,7 +377,7 @@ function goalTargets(){
 // 維持生理功能」。赤字設得很合理、但運動量很大時，EA 仍可能掉到危險區。女性對低 EA 特別
 // 敏感（與經期紊亂、內分泌與骨質流失相關），所以這張卡只對女性顯示。
 function leanMassKg(){
-  const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||0 : 0);
+  const w=effectiveWeight();
   if(!w) return null;
   const bf=latestBodyFat();
   if(bf!=null && bf>0 && bf<60) return {lbm:w*(1-bf/100), est:false, w};
@@ -556,7 +577,7 @@ function calcGoal(){
 // 蛋白質係數欄位下方的說明：自訂時要看得到「自動會給多少」才好比較
 function renderProteinHint(t){
   const box=document.getElementById("proteinHint"); if(!box) return;
-  const w=+val("weight")||0;
+  const w=effectiveWeight()||0;
   const perKgBW = w ? (t.protein/w).toFixed(2) : "—";
   const pctKcal = Math.round(t.protein*4/t.kcal*100);
   let s=`目前 <b>${t.protein}g</b>（${t.proteinBasis}）＝ 每公斤體重 ${perKgBW}g・佔總熱量 ${pctKcal}%`;
@@ -2253,7 +2274,7 @@ function fuelWindow(date){
   const pre=meals.filter(m=>m.t<=exT && m.t>=exT-90*60000);       // 訓前 0–90 分鐘
   const post=meals.filter(m=>m.t>exT && m.t<=exT+60*60000);       // 訓後 60 分鐘內
   const sum=(a,k)=>Math.round(a.reduce((s,m)=>s+(+m[k]||0),0));
-  const w=+val("weight")|| (store.records.length? +store.records[store.records.length-1].weight||0 : 0);
+  const w=effectiveWeight();
   const carbTarget=Math.round(w*POST_CARB_PER_KG*10)/10;
   return {exT, preOk:pre.length>0, postP:sum(post,"protein"), postC:sum(post,"carb"),
           carbTarget, w, minsSince:Math.round((Date.now()-exT)/60000)};
@@ -2594,7 +2615,7 @@ function pickSt(i){ const n=window.__st[i]; if(n==null) return; document.getElem
 // 運動熱量又是另外加上去，所以會重複計算。這裡刻意取比 3.5 保守一點的 3.0。
 // 原本的 2.0 則太低（約等於站著不動），會嚴重低估重訓，連帶把反推 TDEE 和 EA 都算歪。
 const ST_MET=3.0;
-function stEstKcal(sets){ const w=+val("weight")||60; return Math.round(exKcalPerMin(ST_MET,w)*(sets*2.5)); }
+function stEstKcal(sets){ const w=effectiveWeight()||60; return Math.round(exKcalPerMin(ST_MET,w)*(sets*2.5)); }
 function stPreview(){
   const w=+val("stW"),r=+val("stR"),s=+val("stS");
   if(!w||!r||!s){ set("stPreview",""); return; }
@@ -3266,7 +3287,25 @@ function renderDatePlan(){
     (!P.nearRateCap&&P.deficit<P.maxDeficit*0.6?`<br>其實還有餘裕——比起再少吃，把蛋白質和訓練顧好，成果會更漂亮。`:"")+
     underNote);
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
+// 讓使用者看得到「計算實際採用的體重」，而不是靜靜地跟欄位裡的數字不一樣
+function renderWeightHint(){
+  const box=document.getElementById("weightHint"); if(!box) return;
+  const d=weightDrift();
+  if(!d || !(store.records||[]).some(r=>r.weight!=null)){ box.innerHTML=""; return; }
+  const big=Math.abs(d.diff)>=1;
+  box.innerHTML=`<div class="hint" style="margin-top:6px;line-height:1.6;${big?"color:var(--warm);":""}">`+
+    `計算實際採用 <b>${d.eff} kg</b>（最近 7 天平均，避免單日水分影響）。`+
+    (big?`　欄位裡是 ${d.prof} kg，差 ${d.diff>0?"+":""}${d.diff} kg。`+
+         `<button class="ghost sm" style="margin-left:6px;" onclick="syncProfileWeight()">更新為 ${d.eff}</button>`
+        :"")+
+    `</div>`;
+}
+function syncProfileWeight(){
+  const d=weightDrift(); if(!d) return;
+  document.getElementById("weight").value=d.eff;
+  saveProfile();
+}
+function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); renderWeightHint(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
