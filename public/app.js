@@ -245,22 +245,37 @@ function calcMifflin(){
 // 單一真相來源：把「原始反推 / 公式 / 夾限校正後」全算好，全 App（真實TDEE卡、目標建議、
 // 減重計畫）都用這個，避免各處算法不一致而顯示出不同的 TDEE。
 //   gross = 校正後採用的含運動 TDEE；rawGross = 未校正的原始反推；formula = 公式估算。
+/* 實測 TDEE 的來源優先序（都用能量平衡，差別在怎麼估「身體釋出多少能量」）：
+     ① 體組成能量（全歷史）—— 把體重拆成脂肪與瘦體重分別計價，水分位移不會被當成脂肪
+     ② 全歷史體重趨勢 ×7700 —— 沒有體脂資料時退而求其次
+     ③ 生理週期對齊視窗 —— 前兩者資料不足時使用；短視窗才追得上近期變化
+   實測四位使用者，①與②收斂在 1～5%，交叉驗證通過。 */
+function measuredTDEE(){
+  const C=compTDEE();
+  if(C) return {tdee:C.tdee, src:"comp", detail:C};
+  const L=lifetimeTDEE();
+  if(L) return {tdee:L.tdee, src:"lifetime", detail:L};
+  return null;
+}
 function tdeeModel(){
   const R=calcReal(store.records, store.exercises);
   const formula=calcMifflin();   // 公式估算（含活動係數）的 gross TDEE，用來當夾限基準
-  if(R.tdee && formula){
+  const M=measuredTDEE();
+  const measured=M?M.tdee:R.tdee;
+  const src=M?M.src:"window";
+  if(measured && formula){
     const days=R.days||0;
     // 資料越少越信任公式：7 天→全用公式，14 天→全用實測，中間線性過渡
     const wReal=Math.min(1, Math.max(0, (days-7)/7));
-    const blend=R.tdee*wReal + formula*(1-wReal);
+    const blend=measured*wReal + formula*(1-wReal);
     // 硬上下限：實測不得偏離公式 ±30%（防止初期掉水分被當成超大赤字而灌水）
     const grossClamped=Math.round(Math.min(formula*1.3, Math.max(formula*0.7, blend)));
-    return {hasReal:true, formula, rawGross:R.tdee, gross:grossClamped, base:grossClamped-(R.avgBurn||0),
-            avgBurn:R.avgBurn||0, corrected:grossClamped!==Math.round(R.tdee), days, R};
+    return {hasReal:true, formula, rawGross:measured, gross:grossClamped, base:grossClamped-(R.avgBurn||0),
+            avgBurn:R.avgBurn||0, corrected:grossClamped!==Math.round(measured), days, R, src, measured:M};
   }
   // 沒有實測（或基本資料沒填全無法比對）：用公式
-  return {hasReal:false, formula, rawGross:R.tdee||null, gross:formula||null,
-          base:(R.tdeeBase!=null?R.tdeeBase:formula), avgBurn:R.avgBurn||0, corrected:false, days:R.days||0, R};
+  return {hasReal:false, formula, rawGross:measured||null, gross:formula||null,
+          base:(R.tdeeBase!=null?R.tdeeBase:formula), avgBurn:R.avgBurn||0, corrected:false, days:R.days||0, R, src, measured:M};
 }
 // 依使用者選的基準回傳要用的 TDEE
 function baseTDEE(){
@@ -2884,6 +2899,37 @@ function finishReal(out, recs, exercises, slope){
    模擬驗證：真實 TDEE 從 2000 掉到 1700 後第 50 天，週期擬合已收斂到 1704，
    全歷史仍停在 1865。所以不能拿全歷史來設目標，但它擺動小（實測全距約為前者的 1/3），
    很適合當對照——兩者持續背離就是代謝在適應的訊號。 */
+/* ---------- 體組成能量 TDEE（全歷史） ----------
+   把體重拆成脂肪量與瘦體重，各自對全期做線性回歸取每日變化，再用各自的能量密度換算：
+     脂肪組織 9440 kcal/kg（近乎純脂質）、瘦組織 1820 kcal/kg（約七成是水，水沒有熱量）
+   兩者差 5 倍以上，這是它勝過單一 7700 常數的關鍵——水分位移會被正確地便宜計價。
+   實測某位使用者體重幾乎沒動（+0.12kg），7700 法算出「沒有赤字」，但她其實掉了 0.96kg
+   脂肪、增了 1.08kg 瘦體重，體組成法算出的 TDEE 高了 126 kcal。
+   代價：瘦體重是由 BIA 體脂推得，而 BIA 對水分敏感，所以資料要夠密才判讀。*/
+const E_FAT_KG=9440, E_LEAN_KG=1820;   // Hall (NIH) 能量密度
+function slopePerDay(xs, ys){
+  const mx=avg(xs), my=avg(ys);
+  let num=0, den=0;
+  for(let i=0;i<xs.length;i++){ num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2; }
+  return den?num/den:null;
+}
+function compTDEE(){
+  const r=(store.records||[]).filter(x=>x.weight!=null&&x.body_fat!=null&&+x.body_fat>0&&+x.body_fat<60);
+  if(r.length<14) return null;
+  const t0=new Date(r[0].date).getTime();
+  const days=Math.round((new Date(r[r.length-1].date)-new Date(r[0].date))/86400000)+1;
+  if(days<21) return null;                     // 跨度太短，BIA 雜訊會蓋過真實變化
+  const xs=r.map(x=>(new Date(x.date).getTime()-t0)/86400000);
+  const fatSlope=slopePerDay(xs, r.map(x=>+x.weight*+x.body_fat/100));
+  const leanSlope=slopePerDay(xs, r.map(x=>+x.weight*(1-+x.body_fat/100)));
+  if(fatSlope==null||leanSlope==null) return null;
+  const ks=(store.records||[]).filter(x=>x.kcal!=null);
+  if(ks.length<10) return null;
+  const avgK=avg(ks.map(x=>+x.kcal));
+  const release=-(fatSlope*E_FAT_KG + leanSlope*E_LEAN_KG);   // 每日淨釋出 kcal
+  return {tdee:Math.round(avgK+release), release:Math.round(release), avgK:Math.round(avgK),
+          fatWk:+(fatSlope*7).toFixed(3), leanWk:+(leanSlope*7).toFixed(3), days, n:r.length};
+}
 function lifetimeTDEE(){
   const r=(store.records||[]).filter(x=>x.weight!=null);
   if(r.length<14) return null;
@@ -3124,35 +3170,51 @@ function renderReport(){
 function renderLifetimeTdee(R){
   const box=document.getElementById("lifetimeTdee"); if(!box) return;
   const L=lifetimeTDEE();
-  if(!L||!R||!R.tdee){ box.innerHTML=""; return; }
-  const diff=R.tdee-L.tdee;
+  const M=measuredTDEE();
+  // 一定要對照「實際採用的值」，不能固定拿視窗值——否則這張卡會說出跟目標建議不同的數字
+  const used=M?M.tdee:(R&&R.tdee);
+  if(!L||!used){ box.innerHTML=""; return; }
+  const winTxt = M&&M.src==="comp" ? `體組成能量拆解（全部 ${M.detail.days} 天）`
+               : M&&M.src==="lifetime" ? `全歷史體重趨勢`
+               : R&&R.window==="cycle" ? `近 ${R.cycles} 個生理週期（${R.windowDays} 天）`
+               : `近 ${R?R.days:0} 天`;
+  // 採用體組成法時，它本身就是全歷史，跟①對照才有意義；否則拿①當對照
+  const other = (M&&M.src==="comp")
+    ? {v:L.tdee, name:`全歷史體重趨勢（${L.days} 天）`}
+    : {v:L.tdee, name:`全歷史體重趨勢（${L.days} 天）`};
+  const diff=used-other.v;
   const big=Math.abs(diff)>=150;
-  const winTxt = R.window==="cycle"
-    ? `近 ${R.cycles} 個生理週期（${R.windowDays} 天）` : `近 ${R.days} 天`;
-  // 女性但沒對齊到生理週期時，短期數字本身就可能是相位造成的假訊號——
+  // 女性但沒對齊到生理週期、且採用的就是那個視窗值時，數字本身可能是相位造成的假訊號——
   // 這時不能把背離解讀成「代謝變了」，否則會叫一個其實沒變的人多吃或少吃。
-  const unaligned = isFemale() && R.window!=="cycle";
+  const unaligned = isFemale() && (!M || M.src==="window") && R && R.window!=="cycle";
   let note;
   if(big && unaligned){
     note=`<span style="color:var(--warm)">⚠️ 這個落差先別當真。</span>你的經期紀錄不足，短期數字沒辦法對齊生理週期，`+
          `而週期性水分光是相位差就能讓體重看起來差好幾公斤。<b>補記經期開始日（累積兩次以上）</b>之後，`+
          `短期 TDEE 會自動改用週期對齊計算，那時的落差才有解讀價值。在那之前，<b>以長期平均 ${L.tdee.toLocaleString()} 為準比較安全</b>。`;
   }else if(!big){
-    note=`兩個數字接近，代表你的代謝穩定、記錄也一致，可以放心照建議吃。`;
-  }else if(diff<0){
-    note=`<b>短期比長期低 ${Math.abs(diff)} kcal</b>——最近的消耗比這段期間的平均少。`+
-         `常見原因是代謝適應（長期赤字後身體調降消耗）或活動量下降。`+
-         `<b>與其再減熱量，先把活動量拉回來</b>；若已赤字很久，可以安排 1–2 週回到維持熱量。`;
+    note=`兩種算法收斂（差 ${Math.abs(diff)} kcal），代表體重、體脂與飲食記錄彼此一致，這個數字可信。`;
+  }else if(M&&M.src==="comp"){
+    // 兩者都是全歷史，差異來自「體重之外的資訊」＝瘦體重在變
+    note = diff>0
+      ? `<b>體組成法比單看體重高 ${diff} kcal</b>——你的瘦體重在增加，體重因此低估了脂肪的減少。`+
+        `這是好結果：<b>體重沒動不代表沒進步</b>，該看的是體脂與圍度。`
+      : `<b>體組成法比單看體重低 ${Math.abs(diff)} kcal</b>——體重掉的有一部分是瘦體重，不全是脂肪。`+
+        `<b>別再砍熱量</b>，先把蛋白質吃滿、重訓補上。`;
   }else{
-    note=`<b>短期比長期高 ${diff} kcal</b>——最近消耗變多了，可能是活動量增加，`+
-         `或前段期間有水分變化把長期平均拉低。這是好訊號，代表你現在可以吃得比之前多。`;
+    note = diff<0
+      ? `<b>短期比長期低 ${Math.abs(diff)} kcal</b>——最近的消耗比這段期間的平均少。`+
+        `常見原因是代謝適應（長期赤字後身體調降消耗）或活動量下降。`+
+        `<b>與其再減熱量，先把活動量拉回來</b>；若已赤字很久，可以安排 1–2 週回到維持熱量。`
+      : `<b>短期比長期高 ${diff} kcal</b>——最近消耗變多了，可能是活動量增加，`+
+        `或前段期間有水分變化把長期平均拉低。這是好訊號，代表你現在可以吃得比之前多。`;
   }
   box.innerHTML=
     `<div class="result" style="margin-top:10px;${big?"border-left:4px solid var(--warm);":""}">`+
-      `<div class="lbl">長期平均 TDEE（全部 ${L.days} 天紀錄）</div>`+
-      `<div class="big" style="font-size:22px;">${L.tdee.toLocaleString()} kcal</div>`+
+      `<div class="lbl">對照：${other.name}</div>`+
+      `<div class="big" style="font-size:22px;">${other.v.toLocaleString()} kcal</div>`+
       `<div class="hint">平均攝取 ${L.avgK.toLocaleString()} · 全期體重趨勢 ${L.slopeWk>0?"+":""}${L.slopeWk} kg/週`+
-        `<br>目前採用的是<b>${winTxt}</b>的 ${R.tdee.toLocaleString()} kcal——短期才追得上變化，長期平均只當對照。`+
+        `<br>目前採用的是<b>${winTxt}</b>的 <b>${used.toLocaleString()} kcal</b>。`+
         `<br>${note}</div>`+
     `</div>`;
 }
