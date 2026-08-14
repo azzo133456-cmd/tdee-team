@@ -2807,32 +2807,135 @@ async function delRecord(rid){
 // tdee = 含運動的總 TDEE；tdeeBase = 不含運動的基礎 TDEE；avgBurn = 期間平均每日運動消耗
 // 視窗取近 28 天（蓋滿一個生理週期，抹平女性週期性水分滯留）；體重先做 EMA 平滑再算趨勢，
 // 削掉單日鈉/碳水造成的暴衝暴跌，讓斜率（每週體重變化）更貼近真實脂肪變化。
-function calcReal(records, exercises){
-  const recs=(records||[]).filter(r=>r.weight!=null).slice(-28);
-  const out={tdee:null,tdeeBase:null,avgK:null,avgBurn:0,slopeWk:null,deficit:null,days:recs.length};
-  if(recs.length<7) return out;
-  const t0=new Date(recs[0].date).getTime();
-  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
-  // 體重 EMA 平滑（α=0.3）：先把每日水分雜訊壓掉，再對平滑後的曲線做線性回歸取斜率
-  const raw=recs.map(r=>+r.weight);
-  const ALPHA=0.3; const ys=[]; let e=raw[0];
-  for(let i=0;i<raw.length;i++){ e = i===0 ? raw[0] : ALPHA*raw[i]+(1-ALPHA)*e; ys.push(e); }
-  const n=xs.length,mx=avg(xs),my=avg(ys);
-  let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
-  const slope=den?num/den:0;
-  out.slopeWk=slope*7;
-  // 期間平均每日運動消耗（用首尾日期跨越的天數當分母）
+/* ---------- 反推視窗的選取 ----------
+   原本固定取「最近 28 筆」，用意是蓋滿一個生理週期好抹平週期性水分滯留。但那只有在
+   起點與終點落在同一個相位時才會相抵，而 slice(-28) 取的是筆數不是天數，漏記幾天就
+   偏移；使用者的實際週期也未必是 28 天（實測四位都是 27）。
+   結果就是同一段資料，視窗切在哪裡會得出完全不同的答案——實測某位使用者任意 28 天
+   視窗的體重變化落在 −2.23 ~ +1.07 kg，而她單一相位造成的體重偏移就有 2.16 kg，
+   比她兩個月的減重成果還大。
+   改法：女性且算得出個人週期長度時，視窗長度取「整數個週期天數」並以最後一筆為終點，
+   起訖因此必然同相位，水分在頭尾相抵。其餘情況維持原本的最近 28 筆。 */
+function analysisRecords(records){
+  const all=(records||[]).filter(r=>r.weight!=null);
+  const fallback={recs:all.slice(-28), mode:"count"};
+  if(all.length<7) return fallback;
+  if(!isFemale()) return fallback;
+  const CL=cycleLength();
+  if(CL.est) return fallback;               // 經期紀錄不足，週期長度只是預設值，不能拿來對齊
+  const last=all[all.length-1].date.slice(0,10);
+  const first=all[0].date.slice(0,10);
+  const span=Math.round((new Date(last)-new Date(first))/86400000)+1;
+  const k = span>=CL.len*2 ? 2 : (span>=CL.len ? 1 : 0);
+  if(!k) return fallback;
+  const from=new Date(new Date(last).getTime()-(CL.len*k-1)*86400000).toISOString().slice(0,10);
+  const win=all.filter(r=>r.date.slice(0,10)>=from);
+  if(win.length<7) return fallback;
+  return {recs:win, mode:"cycle", cycleLen:CL.len, cycles:k, windowDays:CL.len*k};
+}
+// 最小平方擬合 y = a + b·t + c·cos(2πt/T) + d·sin(2πt/T)，回傳斜率 b 與水分振幅 √(c²+d²)。
+// 4×4 常態方程式用高斯消去解；矩陣接近奇異（資料太短、相位沒掃過）就回 null 讓上層退回原本做法。
+function fitTrendWithCycle(xs, ys, T){
+  const n=xs.length; if(n<10) return null;
+  const B=xs.map(t=>[1, t, Math.cos(2*Math.PI*t/T), Math.sin(2*Math.PI*t/T)]);
+  const A=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]], g=[0,0,0,0];
+  for(let i=0;i<n;i++){
+    for(let r=0;r<4;r++){
+      g[r]+=B[i][r]*ys[i];
+      for(let c=0;c<4;c++) A[r][c]+=B[i][r]*B[i][c];
+    }
+  }
+  // 高斯消去（部分主元）
+  const M=A.map((row,i)=>row.concat([g[i]]));
+  for(let col=0;col<4;col++){
+    let piv=col;
+    for(let r=col+1;r<4;r++) if(Math.abs(M[r][col])>Math.abs(M[piv][col])) piv=r;
+    if(Math.abs(M[piv][col])<1e-9) return null;
+    [M[col],M[piv]]=[M[piv],M[col]];
+    for(let r=0;r<4;r++){
+      if(r===col) continue;
+      const f=M[r][col]/M[col][col];
+      for(let c=col;c<5;c++) M[r][c]-=f*M[col][c];
+    }
+  }
+  const sol=M.map((row,i)=>row[4]/row[i]);
+  if(sol.some(v=>!isFinite(v))) return null;
+  return {slope:sol[1], amp:Math.hypot(sol[2],sol[3])};
+}
+// calcReal 的共用結尾：由斜率算赤字與 TDEE
+function finishReal(out, recs, exercises, slope){
   const d0=recs[0].date.slice(0,10), d1=recs[recs.length-1].date.slice(0,10);
   const spanDays=Math.max(1,Math.round((new Date(d1)-new Date(d0))/86400000)+1);
   const totalBurn=(exercises||[]).filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;}).reduce((a,b)=>a+(+b.kcal||0),0);
   out.avgBurn=Math.round(totalBurn/spanDays);
   const ks=recs.filter(r=>r.kcal!=null).map(r=>+r.kcal);
   if(ks.length<3) return out;
-  const avgK=avg(ks),deficit=-slope*7700;
+  const avgK=avg(ks), deficit=-slope*7700;
   out.avgK=Math.round(avgK); out.deficit=Math.round(deficit);
-  out.tdee=Math.round(avgK+deficit);                 // 含運動：你真正每天總消耗
-  out.tdeeBase=Math.round(avgK+deficit-out.avgBurn); // 不含運動：基礎(NEAT+BMR)
+  out.tdee=Math.round(avgK+deficit);
+  out.tdeeBase=Math.round(avgK+deficit-out.avgBurn);
   return out;
+}
+/* ---------- 長期平均 TDEE（全歷史） ----------
+   對整段歷史做線性回歸取體重趨勢，再用能量平衡反推：TDEE = 平均攝取 − 趨勢/7×7700。
+   它與週期擬合各自回答不同問題：
+     · 週期擬合（近 1–2 個週期）＝「我現在的 TDEE」→ 拿來設每日目標，會追蹤變化
+     · 全歷史＝「我這段期間平均燒多少」→ 穩定但有延遲，拿來當長期錨點
+   模擬驗證：真實 TDEE 從 2000 掉到 1700 後第 50 天，週期擬合已收斂到 1704，
+   全歷史仍停在 1865。所以不能拿全歷史來設目標，但它擺動小（實測全距約為前者的 1/3），
+   很適合當對照——兩者持續背離就是代謝在適應的訊號。 */
+function lifetimeTDEE(){
+  const r=(store.records||[]).filter(x=>x.weight!=null);
+  if(r.length<14) return null;
+  const ks=r.filter(x=>x.kcal!=null);
+  if(ks.length<10) return null;
+  const t0=new Date(r[0].date).getTime();
+  const xs=r.map(x=>(new Date(x.date).getTime()-t0)/86400000), ys=r.map(x=>+x.weight);
+  const mx=avg(xs), my=avg(ys);
+  let num=0,den=0; for(let i=0;i<xs.length;i++){num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2;}
+  if(!den) return null;
+  const slopeWk=(num/den)*7;
+  const avgK=avg(ks.map(x=>+x.kcal));
+  const days=Math.round((new Date(r[r.length-1].date)-new Date(r[0].date))/86400000)+1;
+  return {tdee:Math.round(avgK - slopeWk/7*7700), slopeWk:+slopeWk.toFixed(3), days, avgK:Math.round(avgK), n:r.length};
+}
+function calcReal(records, exercises){
+  const W=analysisRecords(records);
+  const recs=W.recs;
+  const out={tdee:null,tdeeBase:null,avgK:null,avgBurn:0,slopeWk:null,deficit:null,days:recs.length,
+             window:W.mode, cycleLen:W.cycleLen||null, cycles:W.cycles||null, windowDays:W.windowDays||null};
+  if(recs.length<7) return out;
+  const t0=new Date(recs[0].date).getTime();
+  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
+  // 體重 EMA 平滑（α=0.3）：先把每日水分雜訊壓掉，再對平滑後的曲線做線性回歸取斜率。
+  // 但週期對齊視窗不能套 EMA：整數個週期上做回歸，週期性水分（正弦項）與時間軸正交、
+  // 會自然相抵，這正是對齊的用意；EMA 有延遲、會扭曲振幅與相位，抵消就不成立了。
+  // 隨機的每日雜訊本來就會被最小平方法吸收，不需要先平滑。
+  const raw=recs.map(r=>+r.weight);
+  // 已知週期長度時，把「週期性水分」當成一個明確的項一起擬合掉：
+  //   體重 ≈ a + b·天數 + c·cos(2πt/T) + d·sin(2πt/T)
+  // 只靠「取整數個週期讓正弦項相消」是不夠的——離散求和的 Σt·cos 並不為零，
+  // 實測殘留偏誤達 ±0.14 kg/週（振幅 1.1kg 時）。直接擬合則與視窗相位無關，
+  // 資料只有一個週期也能用，順便得到水分振幅。
+  if(W.mode==="cycle" && W.cycleLen){
+    const fit=fitTrendWithCycle(xs, raw, W.cycleLen);
+    if(fit){
+      out.slopeWk=fit.slope*7;
+      out.waterAmp=Math.round(fit.amp*100)/100;
+      return finishReal(out, recs, exercises, fit.slope);
+    }
+  }
+  // 體重 EMA 平滑（α=0.3）：先把每日水分雜訊壓掉，再對平滑後的曲線做線性回歸取斜率
+  let ys;
+  {
+    const ALPHA=0.3; ys=[]; let e=raw[0];
+    for(let i=0;i<raw.length;i++){ e = i===0 ? raw[0] : ALPHA*raw[i]+(1-ALPHA)*e; ys.push(e); }
+  }
+  const n=xs.length,mx=avg(xs),my=avg(ys);
+  let num=0,den=0; for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
+  const slope=den?num/den:0;
+  out.slopeWk=slope*7;
+  return finishReal(out, recs, exercises, slope);
 }
 
 /* ---------- 身體組成：脂肪量 vs 瘦體重趨勢（解讀「掉的是脂肪還是肌肉」） ----------
@@ -3017,8 +3120,45 @@ function renderReport(){
     stat(Math.round(volTotal).toLocaleString(),"訓練量kg")+`</div>`;
   box.innerHTML=html;
 }
+// 長期平均 TDEE 對照：穩定但有延遲，用來驗證短期數字、並在兩者背離時示警
+function renderLifetimeTdee(R){
+  const box=document.getElementById("lifetimeTdee"); if(!box) return;
+  const L=lifetimeTDEE();
+  if(!L||!R||!R.tdee){ box.innerHTML=""; return; }
+  const diff=R.tdee-L.tdee;
+  const big=Math.abs(diff)>=150;
+  const winTxt = R.window==="cycle"
+    ? `近 ${R.cycles} 個生理週期（${R.windowDays} 天）` : `近 ${R.days} 天`;
+  // 女性但沒對齊到生理週期時，短期數字本身就可能是相位造成的假訊號——
+  // 這時不能把背離解讀成「代謝變了」，否則會叫一個其實沒變的人多吃或少吃。
+  const unaligned = isFemale() && R.window!=="cycle";
+  let note;
+  if(big && unaligned){
+    note=`<span style="color:var(--warm)">⚠️ 這個落差先別當真。</span>你的經期紀錄不足，短期數字沒辦法對齊生理週期，`+
+         `而週期性水分光是相位差就能讓體重看起來差好幾公斤。<b>補記經期開始日（累積兩次以上）</b>之後，`+
+         `短期 TDEE 會自動改用週期對齊計算，那時的落差才有解讀價值。在那之前，<b>以長期平均 ${L.tdee.toLocaleString()} 為準比較安全</b>。`;
+  }else if(!big){
+    note=`兩個數字接近，代表你的代謝穩定、記錄也一致，可以放心照建議吃。`;
+  }else if(diff<0){
+    note=`<b>短期比長期低 ${Math.abs(diff)} kcal</b>——最近的消耗比這段期間的平均少。`+
+         `常見原因是代謝適應（長期赤字後身體調降消耗）或活動量下降。`+
+         `<b>與其再減熱量，先把活動量拉回來</b>；若已赤字很久，可以安排 1–2 週回到維持熱量。`;
+  }else{
+    note=`<b>短期比長期高 ${diff} kcal</b>——最近消耗變多了，可能是活動量增加，`+
+         `或前段期間有水分變化把長期平均拉低。這是好訊號，代表你現在可以吃得比之前多。`;
+  }
+  box.innerHTML=
+    `<div class="result" style="margin-top:10px;${big?"border-left:4px solid var(--warm);":""}">`+
+      `<div class="lbl">長期平均 TDEE（全部 ${L.days} 天紀錄）</div>`+
+      `<div class="big" style="font-size:22px;">${L.tdee.toLocaleString()} kcal</div>`+
+      `<div class="hint">平均攝取 ${L.avgK.toLocaleString()} · 全期體重趨勢 ${L.slopeWk>0?"+":""}${L.slopeWk} kg/週`+
+        `<br>目前採用的是<b>${winTxt}</b>的 ${R.tdee.toLocaleString()} kcal——短期才追得上變化，長期平均只當對照。`+
+        `<br>${note}</div>`+
+    `</div>`;
+}
 function renderReal(){
   const R=calcReal(store.records, store.exercises);
+  renderLifetimeTdee(R);
   const M=tdeeModel();
   const cmp=document.querySelector("#cmpTbl tbody");
   // 防呆：基本資料沒填全時 calcMifflin()=null → M.gross/base 為 null，退回原始實測，避免 toLocaleString 崩潰
