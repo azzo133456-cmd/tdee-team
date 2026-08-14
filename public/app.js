@@ -284,6 +284,11 @@ function tdeeModel(){
   const M=measuredTDEE();
   const measured=M?M.tdee:R.tdee;
   const src=M?M.src:"window";
+  // 基礎 TDEE = 總 TDEE − 運動消耗，兩者必須取自同一期間。
+  // 採用的 gross 已改為全歷史，若仍拿 calcReal() 短視窗的 avgBurn 相減，等於拿兩個
+  // 不同期間的數字做減法；運動量前後期有變化時誤差會被放大。
+  const F=(M&&(M.src==="comp"||M.src==="lifetime"))?fullStats():null;
+  const burn=(F?F.avgBurn:R.avgBurn)||0;
   if(measured && formula){
     const days=R.days||0;
     // 資料越少越信任公式：7 天→全用公式，14 天→全用實測，中間線性過渡
@@ -291,12 +296,12 @@ function tdeeModel(){
     const blend=measured*wReal + formula*(1-wReal);
     // 硬上下限：實測不得偏離公式 ±30%（防止初期掉水分被當成超大赤字而灌水）
     const grossClamped=Math.round(Math.min(formula*1.3, Math.max(formula*0.7, blend)));
-    return {hasReal:true, formula, rawGross:measured, gross:grossClamped, base:grossClamped-(R.avgBurn||0),
-            avgBurn:R.avgBurn||0, corrected:grossClamped!==Math.round(measured), days, R, src, measured:M};
+    return {hasReal:true, formula, rawGross:measured, gross:grossClamped, base:grossClamped-burn,
+            avgBurn:burn, corrected:grossClamped!==Math.round(measured), days, R, src, measured:M};
   }
   // 沒有實測（或基本資料沒填全無法比對）：用公式
   return {hasReal:false, formula, rawGross:measured||null, gross:formula||null,
-          base:(R.tdeeBase!=null?R.tdeeBase:formula), avgBurn:R.avgBurn||0, corrected:false, days:R.days||0, R, src, measured:M};
+          base:(R.tdeeBase!=null?R.tdeeBase:formula), avgBurn:burn, corrected:false, days:R.days||0, R, src, measured:M};
 }
 // 依使用者選的基準回傳要用的 TDEE
 function baseTDEE(){
@@ -3295,7 +3300,7 @@ function renderReal(){
   const goal=val("goal"), rate=+val("goalRate");
   let useGross=gross; if(goal==="cut")useGross=Math.round(gross*(1-rate)); if(goal==="bulk")useGross=Math.round(gross*(1+rate*0.5));
   set("cmpHint",
-    `兩者差 ${R.avgBurn.toLocaleString()} kcal ＝ 你平均每天靠運動多燒的量。`+
+    `兩者差 ${stat.avgBurn.toLocaleString()} kcal ＝ 你平均每天靠運動多燒的量。`+
     `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
     `\n· 想「把運動另外算、運動多就多吃」→ 用 ➋ 基礎 TDEE 當底，再每天加回當天實際運動消耗。`);
   document.getElementById("cmpHint").style.whiteSpace="pre-line";
