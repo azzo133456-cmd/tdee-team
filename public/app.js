@@ -250,47 +250,78 @@ function calcMifflin(){
      ② 全歷史體重趨勢 ×7700 —— 沒有體脂資料時退而求其次
      ③ 生理週期對齊視窗 —— 前兩者資料不足時使用；短視窗才追得上近期變化
    實測四位使用者，①與②收斂在 1～5%，交叉驗證通過。 */
-function measuredTDEE(){
-  const C=compTDEE();
-  if(C) return {tdee:C.tdee, src:"comp", detail:C};
-  const L=lifetimeTDEE();
-  if(L) return {tdee:L.tdee, src:"lifetime", detail:L};
-  return null;
-}
-/* 全歷史統計：給「真實 TDEE」卡的數字方塊與詳細比較用。
-   範圍必須與實際採用的 TDEE 一致（現在是全歷史），否則卡片上的
-   「平均攝取 / 週體重變化 / 每日赤字」會跟採用值算不出同一個結果。 */
-function fullStats(){
-  const r=(store.records||[]).filter(x=>x.weight!=null);
-  if(r.length<7) return null;
-  const ks=(store.records||[]).filter(x=>x.kcal!=null);
-  if(ks.length<3) return null;
-  const d0=r[0].date.slice(0,10), d1=r[r.length-1].date.slice(0,10);
+/* ---------- 分析期間：單一真相來源 ----------
+   實測 TDEE 的計算範圍前後改過數次（28 筆視窗 → 週期對齊 → 全歷史體組成），而週邊
+   的引用點各自框自己的期間，於是接連出現三個「數字本身沒錯、但兩處取自不同範圍」的
+   問題：卡片顯示視窗值卻採用全歷史、基礎 TDEE 拿短視窗的運動量去減全歷史的總量、
+   達標判定用今天的目標回溯改判歷史。
+   這裡把「期間、平均攝取、運動消耗、體重與體組成趨勢、淨釋出、採用的 TDEE」一次算完，
+   所有引用點都從這裡取。日後要改分析範圍，只需要動這個函式。 */
+function analysisPeriod(){
+  const recs=(store.records||[]).filter(r=>r.weight!=null);
+  const none={ok:false, src:null, days:0, tdee:null};
+  if(recs.length<7) return none;
+  const d0=recs[0].date.slice(0,10), d1=recs[recs.length-1].date.slice(0,10);
   const days=Math.max(1,Math.round((new Date(d1)-new Date(d0))/86400000)+1);
+  const ks=(store.records||[]).filter(r=>r.kcal!=null);
+  const avgK=ks.length>=3?Math.round(avg(ks.map(r=>+r.kcal))):null;
+  const avgBurn=Math.round((store.exercises||[])
+    .filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;})
+    .reduce((a,b)=>a+(+b.kcal||0),0)/days);
   const t0=new Date(d0).getTime();
-  const xs=r.map(x=>(new Date(x.date).getTime()-t0)/86400000);
-  const slope=slopePerDay(xs, r.map(x=>+x.weight));
-  const avgK=Math.round(avg(ks.map(x=>+x.kcal)));
-  const burn=(store.exercises||[]).filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;})
-                                  .reduce((a,b)=>a+(+b.kcal||0),0);
-  // 淨釋出：有體組成資料時用它（水分不會被當脂肪計價），否則退回 7700
-  const C=compTDEE();
-  const release = C ? C.release : Math.round(-(slope||0)*7700);
-  return {days, avgK, avgBurn:Math.round(burn/days), slopeWk:(slope||0)*7, deficit:release};
+  const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
+  const wSlope=slopePerDay(xs, recs.map(r=>+r.weight));
+  const base={ok:true, d0, d1, days, avgK, avgBurn, slopeWk:(wSlope||0)*7, n:recs.length};
+
+  // ① 體組成能量：脂肪與瘦體重分開計價，水分位移不會被當成脂肪
+  const bf=recs.filter(r=>r.body_fat!=null&&+r.body_fat>0&&+r.body_fat<60);
+  if(bf.length>=14 && avgK!=null && ks.length>=10){
+    const bt0=new Date(bf[0].date).getTime();
+    const bSpan=Math.round((new Date(bf[bf.length-1].date)-bt0)/86400000)+1;
+    if(bSpan>=21){
+      const bxs=bf.map(r=>(new Date(r.date).getTime()-bt0)/86400000);
+      const fatSlope=slopePerDay(bxs, bf.map(r=>+r.weight*+r.body_fat/100));
+      const leanSlope=slopePerDay(bxs, bf.map(r=>+r.weight*(1-+r.body_fat/100)));
+      if(fatSlope!=null&&leanSlope!=null){
+        const release=Math.round(-(fatSlope*E_FAT_KG + leanSlope*E_LEAN_KG));
+        return {...base, src:"comp", release, tdee:avgK+release,
+                fatWk:+(fatSlope*7).toFixed(3), leanWk:+(leanSlope*7).toFixed(3),
+                bfDays:bSpan, bfN:bf.length};
+      }
+    }
+  }
+  // ② 全歷史體重趨勢 ×7700
+  if(recs.length>=14 && avgK!=null && ks.length>=10 && wSlope!=null){
+    const release=Math.round(-wSlope*7700);
+    return {...base, src:"lifetime", release, tdee:avgK+release};
+  }
+  // ③ 生理週期對齊視窗（資料還不足以做全歷史時；也是唯一追得上近期變化的）
+  const R=calcReal(store.records, store.exercises);
+  if(R.tdee) return {...base, src:"window", release:R.deficit, tdee:R.tdee,
+                     avgK:R.avgK, avgBurn:R.avgBurn, slopeWk:R.slopeWk, days:R.days, window:R.window};
+  return none;
+}
+// 以下兩個是 analysisPeriod() 的薄讀取層，保留原本的呼叫介面
+function measuredTDEE(){
+  const P=analysisPeriod();
+  return (P.ok&&P.tdee&&P.src!=="window") ? {tdee:P.tdee, src:P.src, detail:P} : null;
+}
+function fullStats(){
+  const P=analysisPeriod();
+  return P.ok ? {days:P.days, avgK:P.avgK, avgBurn:P.avgBurn, slopeWk:P.slopeWk, deficit:P.release} : null;
 }
 function tdeeModel(){
   const R=calcReal(store.records, store.exercises);
   const formula=calcMifflin();   // 公式估算（含活動係數）的 gross TDEE，用來當夾限基準
+  // 期間、實測值與運動消耗全部取自同一來源，天然一致（先前是各自取，導致
+  // base = gross − avgBurn 兩邊來自不同期間）
+  const P=analysisPeriod();
   const M=measuredTDEE();
-  const measured=M?M.tdee:R.tdee;
-  const src=M?M.src:"window";
-  // 基礎 TDEE = 總 TDEE − 運動消耗，兩者必須取自同一期間。
-  // 採用的 gross 已改為全歷史，若仍拿 calcReal() 短視窗的 avgBurn 相減，等於拿兩個
-  // 不同期間的數字做減法；運動量前後期有變化時誤差會被放大。
-  const F=(M&&(M.src==="comp"||M.src==="lifetime"))?fullStats():null;
-  const burn=(F?F.avgBurn:R.avgBurn)||0;
+  const measured=P.ok?P.tdee:R.tdee;
+  const src=P.ok?P.src:"window";
+  const burn=(P.ok?P.avgBurn:R.avgBurn)||0;
   if(measured && formula){
-    const days=R.days||0;
+    const days=P.ok?P.days:(R.days||0);
     // 資料越少越信任公式：7 天→全用公式，14 天→全用實測，中間線性過渡
     const wReal=Math.min(1, Math.max(0, (days-7)/7));
     const blend=measured*wReal + formula*(1-wReal);
@@ -2939,22 +2970,12 @@ function slopePerDay(xs, ys){
   for(let i=0;i<xs.length;i++){ num+=(xs[i]-mx)*(ys[i]-my); den+=(xs[i]-mx)**2; }
   return den?num/den:null;
 }
+// analysisPeriod() 的體組成分支；保留此名稱供渲染與測試使用
 function compTDEE(){
-  const r=(store.records||[]).filter(x=>x.weight!=null&&x.body_fat!=null&&+x.body_fat>0&&+x.body_fat<60);
-  if(r.length<14) return null;
-  const t0=new Date(r[0].date).getTime();
-  const days=Math.round((new Date(r[r.length-1].date)-new Date(r[0].date))/86400000)+1;
-  if(days<21) return null;                     // 跨度太短，BIA 雜訊會蓋過真實變化
-  const xs=r.map(x=>(new Date(x.date).getTime()-t0)/86400000);
-  const fatSlope=slopePerDay(xs, r.map(x=>+x.weight*+x.body_fat/100));
-  const leanSlope=slopePerDay(xs, r.map(x=>+x.weight*(1-+x.body_fat/100)));
-  if(fatSlope==null||leanSlope==null) return null;
-  const ks=(store.records||[]).filter(x=>x.kcal!=null);
-  if(ks.length<10) return null;
-  const avgK=avg(ks.map(x=>+x.kcal));
-  const release=-(fatSlope*E_FAT_KG + leanSlope*E_LEAN_KG);   // 每日淨釋出 kcal
-  return {tdee:Math.round(avgK+release), release:Math.round(release), avgK:Math.round(avgK),
-          fatWk:+(fatSlope*7).toFixed(3), leanWk:+(leanSlope*7).toFixed(3), days, n:r.length};
+  const P=analysisPeriod();
+  if(!P.ok||P.src!=="comp") return null;
+  return {tdee:P.tdee, release:P.release, avgK:P.avgK, fatWk:P.fatWk, leanWk:P.leanWk,
+          days:P.bfDays, n:P.bfN};
 }
 function lifetimeTDEE(){
   const r=(store.records||[]).filter(x=>x.weight!=null);
