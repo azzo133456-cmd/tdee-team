@@ -2,7 +2,7 @@ const API = "";
 const SKEY = "tdeeUser_session";
 let session = JSON.parse(localStorage.getItem(SKEY) || "null"); // {token,userId,username}
 let store = { profile:{}, records:[], exercises:[] };
-let chart = null, kcalChart = null, tdeeChart = null, foodCart = [], authMode = "login";
+let chart = null, foodCart = [], authMode = "login";
 
 /* ---------- 食物資料庫（每 100g：kcal, 蛋白P, 脂肪F, 碳水C） ---------- */
 const FOODS = {
@@ -256,6 +256,27 @@ function measuredTDEE(){
   const L=lifetimeTDEE();
   if(L) return {tdee:L.tdee, src:"lifetime", detail:L};
   return null;
+}
+/* 全歷史統計：給「真實 TDEE」卡的數字方塊與詳細比較用。
+   範圍必須與實際採用的 TDEE 一致（現在是全歷史），否則卡片上的
+   「平均攝取 / 週體重變化 / 每日赤字」會跟採用值算不出同一個結果。 */
+function fullStats(){
+  const r=(store.records||[]).filter(x=>x.weight!=null);
+  if(r.length<7) return null;
+  const ks=(store.records||[]).filter(x=>x.kcal!=null);
+  if(ks.length<3) return null;
+  const d0=r[0].date.slice(0,10), d1=r[r.length-1].date.slice(0,10);
+  const days=Math.max(1,Math.round((new Date(d1)-new Date(d0))/86400000)+1);
+  const t0=new Date(d0).getTime();
+  const xs=r.map(x=>(new Date(x.date).getTime()-t0)/86400000);
+  const slope=slopePerDay(xs, r.map(x=>+x.weight));
+  const avgK=Math.round(avg(ks.map(x=>+x.kcal)));
+  const burn=(store.exercises||[]).filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;})
+                                  .reduce((a,b)=>a+(+b.kcal||0),0);
+  // 淨釋出：有體組成資料時用它（水分不會被當脂肪計價），否則退回 7700
+  const C=compTDEE();
+  const release = C ? C.release : Math.round(-(slope||0)*7700);
+  return {days, avgK, avgBurn:Math.round(burn/days), slopeWk:(slope||0)*7, deficit:release};
 }
 function tdeeModel(){
   const R=calcReal(store.records, store.exercises);
@@ -3228,9 +3249,12 @@ function renderReal(){
   if(R.tdee){
     // 顯示「校正後採用值」（與目標建議、減重計畫一致），不再顯示未夾限的原始反推，避免四處數字打架
     set("realTdee",gross!=null?gross.toLocaleString():"—"); set("realTdeeBase",base!=null?base.toLocaleString():"—");
+    const srcTxt = M.src==="comp" ? `全部 ${M.measured.detail.days} 天紀錄，體組成能量拆解`
+                 : M.src==="lifetime" ? `全部 ${M.measured.detail.days} 天紀錄，體重趨勢反推`
+                 : `最近 ${R.days} 天紀錄`;
     set("realDetail", M.corrected
-      ? `根據最近 ${R.days} 天紀錄校正（原始反推 ${R.tdee.toLocaleString()}，因初期掉水分偏高，已向公式收斂）`
-      : `根據最近 ${R.days} 天紀錄`);
+      ? `根據${srcTxt}（原始 ${M.rawGross.toLocaleString()}，已向公式收斂）`
+      : `根據${srcTxt}`);
   }else{
     set("realTdee","—"); set("realTdeeBase","—");
     // 還差幾天能算出實測：需 ≥7 天有體重 且 其中 ≥3 天有攝取
@@ -3244,20 +3268,29 @@ function renderReal(){
     else msg="資料即將足夠，再記一天即可";
     set("realDetail", `⏳ ${msg}（目前用公式估）`);
   }
-  set("sAvgKcal", R.avgK?R.avgK.toLocaleString():"—");
-  set("sBurn", R.avgBurn?R.avgBurn.toLocaleString():"0");
-  set("sSlope", R.slopeWk!=null?(R.slopeWk>=0?"+":"")+R.slopeWk.toFixed(2)+"kg":"—");
-  set("sDeficit", R.deficit!=null?(R.deficit>=0?"+":"")+R.deficit.toLocaleString():"—");
+  // 統計與詳細比較一律用「全部紀錄」，跟實際採用的 TDEE 同一個範圍。
+  // 先前這裡固定顯示視窗值（且寫死「近 28 天」），與採用的全歷史數字打架。
+  const S=fullStats();
+  const stat = S || {avgK:R.avgK, avgBurn:R.avgBurn, slopeWk:R.slopeWk, deficit:R.deficit, days:R.days};
+  set("sAvgKcal", stat.avgK?stat.avgK.toLocaleString():"—");
+  set("sBurn", stat.avgBurn?stat.avgBurn.toLocaleString():"0");
+  set("sSlope", stat.slopeWk!=null?(stat.slopeWk>=0?"+":"")+stat.slopeWk.toFixed(2)+"kg":"—");
+  set("sDeficit", stat.deficit!=null?(stat.deficit>=0?"+":"")+stat.deficit.toLocaleString():"—");
 
-  if(!R.tdee){ cmp.innerHTML=`<tr><td class="empty" colspan="3">資料足夠後會顯示比較</td></tr>`; set("cmpHint",""); return; }
+  if(!R.tdee&&!M.hasReal){ cmp.innerHTML=`<tr><td class="empty" colspan="3">資料足夠後會顯示比較</td></tr>`; set("cmpHint",""); return; }
   const row=(k,v,note)=>`<tr><td style="text-align:left">${k}</td><td style="font-weight:700">${v}</td><td style="text-align:left;color:var(--sub);font-size:12px">${note}</td></tr>`;
+  const spanTxt=`全部 ${stat.days} 天`;
+  const C=compTDEE();
   cmp.innerHTML=
-    row("平均每日攝取", R.avgK.toLocaleString()+" kcal", "近 28 天吃進的平均")+
-    row("週體重變化", (R.slopeWk>=0?"+":"")+R.slopeWk.toFixed(2)+" kg", R.slopeWk<0?"下降中":R.slopeWk>0?"上升中":"持平")+
-    row("體重反推每日赤字", (R.deficit>=0?"+":"")+R.deficit.toLocaleString()+" kcal", "脂肪 1kg≈7700kcal")+
-    (M.corrected?row("原始反推 TDEE", R.tdee.toLocaleString()+" kcal", "未校正，初期掉水分易偏高"):"")+
-    row("平均每日運動消耗", R.avgBurn.toLocaleString()+" kcal", "你記錄的運動")+
-    row("➊ 總 TDEE（含運動）", "<b>"+gross.toLocaleString()+"</b> kcal", M.corrected?"校正後採用值":"攝取＋赤字")+
+    row("平均每日攝取", stat.avgK.toLocaleString()+" kcal", spanTxt+"吃進的平均")+
+    row("週體重變化", (stat.slopeWk>=0?"+":"")+stat.slopeWk.toFixed(2)+" kg", stat.slopeWk<0?"下降中":stat.slopeWk>0?"上升中":"持平")+
+    (C?row("　其中 脂肪量", (C.fatWk>=0?"+":"")+C.fatWk.toFixed(2)+" kg/週", "×9440 kcal/kg")
+      +row("　其中 瘦體重", (C.leanWk>=0?"+":"")+C.leanWk.toFixed(2)+" kg/週", "×1820 kcal/kg（多為水）"):"")+
+    row("身體每日淨釋出", (stat.deficit>=0?"+":"")+stat.deficit.toLocaleString()+" kcal",
+        C?"依體組成拆解換算":"脂肪 1kg≈7700kcal")+
+    row("平均每日運動消耗", stat.avgBurn.toLocaleString()+" kcal", "你記錄的運動")+
+    row("➊ 總 TDEE（含運動）", "<b>"+gross.toLocaleString()+"</b> kcal",
+        M.corrected?"校正後採用值":"攝取＋淨釋出")+
     row("➋ 基礎 TDEE（不含運動）", "<b>"+base.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
   const goal=val("goal"), rate=+val("goalRate");
   let useGross=gross; if(goal==="cut")useGross=Math.round(gross*(1-rate)); if(goal==="bulk")useGross=Math.round(gross*(1+rate*0.5));
@@ -3315,64 +3348,6 @@ function drawChart(){
   chart=new Chart(cv,{type:"line",data:{labels:allLabels,datasets},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales}});
 }
 // 計算「每天」的滾動真實 TDEE 歷史（用截至當天的資料、套同一套夾限校正），給代謝/熱量收支圖用
-function tdeeSeries(daysBack){
-  daysBack=daysBack||45;
-  const recs=store.records||[], exs=store.exercises||[];
-  const formula=calcMifflin();                          // 公式估算當基準（依目前基本資料）
-  const since=isoLocal(new Date(new Date(todayStr())-(daysBack-1)*86400000));
-  const dates=[...new Set(recs.filter(r=>r.date.slice(0,10)>=since && (r.weight!=null||r.kcal!=null)).map(r=>r.date.slice(0,10)))].sort();
-  const series=dates.map(d=>{
-    const upto=recs.filter(r=>r.date.slice(0,10)<=d);
-    const R=calcReal(upto, exs);                         // calcReal 內部自動取截至當天的近 28 天
-    let real=null;
-    if(R.tdee && formula){
-      const days=R.days||0, wReal=Math.min(1,Math.max(0,(days-7)/7));
-      const blend=R.tdee*wReal+formula*(1-wReal);
-      real=Math.round(Math.min(formula*1.3, Math.max(formula*0.7, blend)));
-    }
-    const rec=recs.find(r=>r.date.slice(0,10)===d);
-    const intake=(rec&&rec.kcal!=null)?Math.round(+rec.kcal):null;
-    return {date:d, real, formula:formula||null, intake};
-  });
-  return {series, formula};
-}
-// A. 攝取 vs 消耗(TDEE)　B. 代謝(TDEE)趨勢　兩張小圖；資料不足時整張卡隱藏
-function drawMetabolismCharts(){
-  const card=document.getElementById("metabCard"); if(!card) return;
-  const {series,formula}=tdeeSeries(45);
-  const haveReal=series.some(s=>s.real!=null);
-  const intakeDays=series.filter(s=>s.intake!=null).length;
-  if(series.length<5 || (!haveReal && intakeDays<4)){
-    card.style.display="none";
-    if(kcalChart){kcalChart.destroy();kcalChart=null;} if(tdeeChart){tdeeChart.destroy();tdeeChart=null;}
-    return;
-  }
-  card.style.display="";
-  const labels=series.map(s=>s.date.slice(5).replace("-","/"));
-  // 「今天」還沒記完，攝取會異常低 → 不畫今天那根柱與其均值，避免看起來像超大赤字
-  const todayS=todayStr();
-  const intake=series.map(s=> s.date===todayS ? null : s.intake);
-  const maIntake=series.map((s,i)=>{ if(s.date===todayS) return null; const w=intake.slice(Math.max(0,i-6),i+1).filter(v=>v!=null); return w.length?Math.round(w.reduce((a,b)=>a+b,0)/w.length):null; });
-  const realLine=series.map(s=>s.real);
-  const cvA=document.getElementById("kcalChart");
-  if(cvA){
-    if(kcalChart)kcalChart.destroy();
-    kcalChart=new Chart(cvA,{data:{labels,datasets:[
-      {type:"bar",label:"攝取",data:intake,backgroundColor:"rgba(91,138,166,.30)",borderWidth:0},
-      {type:"line",label:"7日均攝取",data:maIntake,borderColor:"#5b8aa6",borderWidth:2,pointRadius:0,tension:.3,spanGaps:true},
-      {type:"line",label:"TDEE",data:realLine,borderColor:"#b5564e",borderDash:[5,4],borderWidth:2,pointRadius:0,tension:.3,spanGaps:true}
-    ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:10}}},x:{ticks:{font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8}}}}});
-  }
-  const cvB=document.getElementById("tdeeChart");
-  if(cvB){
-    const formLine=series.map(()=>formula||null);
-    if(tdeeChart)tdeeChart.destroy();
-    tdeeChart=new Chart(cvB,{type:"line",data:{labels,datasets:[
-      {label:"真實 TDEE",data:realLine,borderColor:"#c98b5e",backgroundColor:"rgba(201,139,94,.12)",borderWidth:2,pointRadius:0,fill:true,tension:.3,spanGaps:true},
-      {label:"公式估算",data:formLine,borderColor:"#9aa0a6",borderDash:[4,4],borderWidth:1.5,pointRadius:0,fill:false}
-    ]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},scales:{y:{ticks:{font:{size:10}}},x:{ticks:{font:{size:9},maxRotation:0,autoSkip:true,maxTicksLimit:8}}}}});
-  }
-}
 function renderEta(){
   const target=+val("targetWeight");
   const recs=store.records.filter(r=>r.weight!=null);
@@ -3528,7 +3503,7 @@ function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta();
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）
-  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderBodyComp,renderReviews,renderReport,renderReal,renderPoints,drawChart,drawMetabolismCharts,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
+  const parts=[renderDerived,renderTable,renderDashboard,renderPlan,renderBodyComp,renderReviews,renderReport,renderReal,renderPoints,drawChart,renderExercises,renderPR,renderVolTrend,renderBalance,renderRecipes,renderFavs,renderShared,renderDay,renderPeriod];
   for(const fn of parts){ try{ fn(); }catch(e){ console.error("render 區塊出錯：",fn.name,e); } }
 }
 
