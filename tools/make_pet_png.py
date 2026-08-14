@@ -17,7 +17,18 @@ import argparse
 import numpy as np
 from PIL import Image
 from scipy import ndimage
-from rembg import remove
+from rembg import remove, new_session
+
+# birefnet-general 對細長物件（權杖、自拍棒、鬍鬚）明顯優於預設的 u2net：
+# 實測 UNI1 第 4 張的權杖，u2net 只抓到 40%、birefnet 抓到 67%。
+DEFAULT_MODEL = "birefnet-general"
+_SESSION = {}
+
+
+def session(name: str):
+    if name not in _SESSION:
+        _SESSION[name] = new_session(name)
+    return _SESSION[name]
 
 CANVAS = 512
 MARGIN = 0.09          # 四邊留白比例
@@ -25,7 +36,7 @@ ALPHA_MIN = 24         # 低於此值視為透明
 SPECKLE = 0.004        # 面積小於主體這個比例的碎塊一律丟掉
 
 
-def cutout(path: str, keep_ratio: float, erase=()):
+def cutout(path: str, keep_ratio: float, erase=(), model: str = DEFAULT_MODEL):
     src = Image.open(path).convert("RGB")
     if erase:
         # 在去背前把指定矩形塗成白色，讓 rembg 直接把它當背景
@@ -35,7 +46,7 @@ def cutout(path: str, keep_ratio: float, erase=()):
             for y in range(int(y1 * h), min(h, int(y2 * h))):
                 for x in range(int(x1 * w), min(w, int(x2 * w))):
                     px[x, y] = (255, 255, 255)
-    out = remove(src)                       # rembg 回傳 RGBA
+    out = remove(src, session=session(model))   # rembg 回傳 RGBA
     rgba = np.array(out.convert("RGBA"))
     alpha = rgba[:, :, 3]
 
@@ -80,6 +91,7 @@ def main():
                     help="次要區塊面積達主體的多少比例才保留（預設 0.95，等於只留最大塊）")
     ap.add_argument("--erase", action="append", default=[],
                     help="去背前塗白的矩形，格式 idx:x1,y1,x2,y2（比例 0~1），可重複")
+    ap.add_argument("--model", default=DEFAULT_MODEL, help=f"rembg 模型（預設 {DEFAULT_MODEL}）")
     args = ap.parse_args()
 
     erases = {}
@@ -97,7 +109,7 @@ def main():
         if not os.path.exists(jpg):
             print(f"  {i}.jpg 不存在，略過")
             continue
-        im, n, dropped = cutout(jpg, args.keep_ratio, erases.get(i, ()))
+        im, n, dropped = cutout(jpg, args.keep_ratio, erases.get(i, ()), args.model)
         im = fit_canvas(im)
         # 量化成調色盤（保留透明），檔案從 ~170KB 降到 ~40KB，肉眼幾乎無差
         im = im.quantize(colors=255, method=Image.FASTOCTREE)
