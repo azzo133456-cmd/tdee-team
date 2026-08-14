@@ -2329,6 +2329,8 @@ function genCode() {
   for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
   return s;
 }
+// 達標旗標可被重算的寬限天數：這期間內允許補記與修正，超過就凍結當時的判定。
+const STAT_GRACE_DAYS = 7;
 // 上傳自己近期每日統計（成員自算 flag，體重僅供算個人%、不外傳）
 app.post("/api/dailystats", auth, async (req, res) => {
   try {
@@ -2353,9 +2355,19 @@ app.post("/api/dailystats", auth, async (req, res) => {
         `INSERT INTO daily_stats(user_id,date,logged,kcal_hit,protein_hit,exercised,water_hit,ex_count,volume,weight,water_pct,protein_pct,poop,body_fat)
          VALUES ${vals.join(",")}
          ON CONFLICT (user_id,date) DO UPDATE SET
-           logged=EXCLUDED.logged,kcal_hit=EXCLUDED.kcal_hit,protein_hit=EXCLUDED.protein_hit,
-           exercised=EXCLUDED.exercised,water_hit=EXCLUDED.water_hit,ex_count=EXCLUDED.ex_count,
-           volume=EXCLUDED.volume,weight=EXCLUDED.weight,water_pct=EXCLUDED.water_pct,protein_pct=EXCLUDED.protein_pct,poop=EXCLUDED.poop,body_fat=EXCLUDED.body_fat`,
+           -- 客觀量測值（與目標無關）一律更新
+           logged=EXCLUDED.logged,
+           exercised=EXCLUDED.exercised,ex_count=EXCLUDED.ex_count,
+           volume=EXCLUDED.volume,weight=EXCLUDED.weight,poop=EXCLUDED.poop,body_fat=EXCLUDED.body_fat,
+           -- 達標旗標與達成率取決於「當時的目標」。前端每次同步都是拿今天的目標去重算
+           -- 全部歷史，所以目標一改（例如實測 TDEE 更新使建議攝取下修），過去已經達成的
+           -- 日子會被回溯改判、分數平白消失。這裡只讓最近 ${STAT_GRACE_DAYS} 天可重算
+           -- （容許補記與修正），更早的日子維持當時的判定。
+           kcal_hit    = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.kcal_hit    ELSE daily_stats.kcal_hit    END,
+           protein_hit = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_hit ELSE daily_stats.protein_hit END,
+           water_hit   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_hit   ELSE daily_stats.water_hit   END,
+           water_pct   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_pct   ELSE daily_stats.water_pct   END,
+           protein_pct = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_pct ELSE daily_stats.protein_pct END`,
         params
       );
     }
