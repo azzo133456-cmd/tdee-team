@@ -121,6 +121,13 @@ const EXS = {
   "跳繩":11.0,"爬山":7.0,"爬樓梯":8.0,"籃球":6.5,"羽球":5.5,"網球":7.0,"桌球":4.0,
   "足球":7.0,"舞蹈(中等)":5.0,"拳擊有氧":7.5,"划船機":7.0,"橢圓機":5.0,"伸展操":2.3
 };
+// 資料庫保留使用者輸入／裝置回報的「總運動消耗」。能量平衡計算改用
+// 扣除靜息消耗後的「淨增加消耗」；既有紀錄按已知 MET 換算，不回寫資料。
+function exerciseNetKcal(e){
+  const gross=+e.kcal||0;
+  const met=e.kind==="strength" ? ST_MET : (+EXS[e.name]||0);
+  return met>1 ? gross*(met-1)/met : gross;
+}
 function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 
 /* ---------- API ---------- */
@@ -267,13 +274,15 @@ function analysisPeriod(){
   const avgK=ks.length>=3?Math.round(avg(ks.map(r=>+r.kcal))):null;
   const avgBurn=Math.round((store.exercises||[])
     .filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;})
-    .reduce((a,b)=>a+(+b.kcal||0),0)/days);
+    .reduce((a,b)=>a+exerciseNetKcal(b),0)/days);
   const t0=new Date(d0).getTime();
   const xs=recs.map(r=>(new Date(r.date).getTime()-t0)/86400000);
   const wSlope=slopePerDay(xs, recs.map(r=>+r.weight));
   const base={ok:true, d0, d1, days, avgK, avgBurn, slopeWk:(wSlope||0)*7, n:recs.length};
 
-  // ① 體組成能量：脂肪與瘦體重分開計價，水分位移不會被當成脂肪
+  // 體組成是交叉驗證，不是主來源：BIA 的脂肪率／瘦體重同樣會受水分影響。
+  // 主 TDEE 一律採全歷史體重趨勢；有足夠體脂資料時，把另一個估計一併回傳供 UI 解讀。
+  let comp=null;
   const bf=recs.filter(r=>r.body_fat!=null&&+r.body_fat>0&&+r.body_fat<60);
   if(bf.length>=14 && avgK!=null && ks.length>=10){
     const bt0=new Date(bf[0].date).getTime();
@@ -284,16 +293,16 @@ function analysisPeriod(){
       const leanSlope=slopePerDay(bxs, bf.map(r=>+r.weight*(1-+r.body_fat/100)));
       if(fatSlope!=null&&leanSlope!=null){
         const release=Math.round(-(fatSlope*E_FAT_KG + leanSlope*E_LEAN_KG));
-        return {...base, src:"comp", release, tdee:avgK+release,
-                fatWk:+(fatSlope*7).toFixed(3), leanWk:+(leanSlope*7).toFixed(3),
-                bfDays:bSpan, bfN:bf.length};
+        comp={tdee:avgK+release, release,
+              fatWk:+(fatSlope*7).toFixed(3), leanWk:+(leanSlope*7).toFixed(3),
+              days:bSpan, n:bf.length};
       }
     }
   }
   // ② 全歷史體重趨勢 ×7700
   if(recs.length>=14 && avgK!=null && ks.length>=10 && wSlope!=null){
     const release=Math.round(-wSlope*7700);
-    return {...base, src:"lifetime", release, tdee:avgK+release};
+    return {...base, src:"lifetime", release, tdee:avgK+release, comp};
   }
   // ③ 生理週期對齊視窗（資料還不足以做全歷史時；也是唯一追得上近期變化的）
   const R=calcReal(store.records, store.exercises);
@@ -328,23 +337,30 @@ function tdeeModel(){
     // 硬上下限：實測不得偏離公式 ±30%（防止初期掉水分被當成超大赤字而灌水）
     const grossClamped=Math.round(Math.min(formula*1.3, Math.max(formula*0.7, blend)));
     return {hasReal:true, formula, rawGross:measured, gross:grossClamped, base:grossClamped-burn,
-            avgBurn:burn, corrected:grossClamped!==Math.round(measured), days, R, src, measured:M};
+            avgBurn:burn, avgBurnKnown:true, corrected:grossClamped!==Math.round(measured), days, R, src, measured:M};
   }
   // 沒有實測（或基本資料沒填全無法比對）：用公式
   return {hasReal:false, formula, rawGross:measured||null, gross:formula||null,
-          base:(R.tdeeBase!=null?R.tdeeBase:formula), avgBurn:burn, corrected:false, days:R.days||0, R, src, measured:M};
+          base:formula||null, avgBurn:0, avgBurnKnown:false, corrected:false, days:R.days||0, R, src, measured:M};
 }
 // 依使用者選的基準回傳要用的 TDEE
 function baseTDEE(){
   const m=tdeeModel(), mode=val("tdeeBasis")||"gross";
   if(!m.hasReal){
-    if(mode==="base" && m.R.tdeeBase!=null) return {tdee:m.R.tdeeBase, src:"基礎 TDEE(不含運動)", mode:"base"};
-    if(m.R.tdee) return {tdee:m.R.tdee, src:"真實 TDEE(含運動)", mode:"gross"};
-    return {tdee:m.formula, src:"公式估算", mode:"gross"};
+    return {tdee:m.formula, src:"公式估算（含日常活動）", mode:"gross", avgBurn:0, avgBurnKnown:false};
   }
   const tag=m.corrected?"·已校正":"";
-  if(mode==="base") return {tdee:m.base, src:"基礎 TDEE(不含運動)"+tag, mode:"base", corrected:m.corrected};
-  return {tdee:m.gross, src:"真實 TDEE(含運動)"+tag, mode:"gross", corrected:m.corrected};
+  if(mode==="base") return {tdee:m.base, src:"基礎 TDEE(不含運動)"+tag, mode:"base", avgBurn:m.avgBurn, avgBurnKnown:true, corrected:m.corrected};
+  return {tdee:m.gross, src:"真實 TDEE(含運動)"+tag, mode:"gross", avgBurn:m.avgBurn, avgBurnKnown:true, corrected:m.corrected};
+}
+// 每日可吃目標只在此處處理運動，避免首頁、餐點建議與日結各自加回而重複計算。
+function dailyKcalTarget(t, burn){
+  if(!t||t.kcal==null) return null;
+  const todayBurn=+burn||0;
+  if(t.base.mode==="base") return {kcal:Math.round(t.kcal+todayBurn), adjustment:Math.round(todayBurn)};
+  // 含運動 TDEE 已包含分析期間的平均運動；只補今天相對平均多出的部分。
+  const adjustment=t.base.avgBurnKnown ? todayBurn-(+t.base.avgBurn||0) : 0;
+  return {kcal:Math.round(t.kcal+adjustment), adjustment:Math.round(adjustment)};
 }
 // 建議攝取的絕對下限。低於這條線很難吃滿微量營養素，且低熱量＋高訓練量正是內分泌
 // 失調的組合（見 EA 警示）；再兇的赤字設定也不該讓 App 建議吃到 1200 以下。
@@ -540,7 +556,7 @@ function planContext(){
     target:t?{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb}:null,
     weight:curW, targetWeight:tgtW, bfNow, bfDelta,
     dailyDeficitTarget, weeklyTargetKg, weeklyObservedKg,
-    dailyDeficitObserved:R.deficit!=null?R.deficit:null, etaText,
+    dailyDeficitObserved:R.deficit!=null?R.deficit:null, trendWindow:recentTrendLabel(R), etaText,
     bodyComp:bodyCompSummary, cycle:cycleSummary
   };
 }
@@ -599,6 +615,7 @@ function renderPlan(){
     title="🔥 執行赤字中";
     const slow=(ph.obs!=null && P.weeklyTargetKg!=null && ph.obs>-Math.abs(P.weeklyTargetKg)*0.6);
     body=`用實測 TDEE 抓赤字、蛋白吃滿（目標 ${num(P.target&&P.target.protein)}g）。每日攝取目標 <b>${num(P.target&&P.target.kcal)} kcal</b>（赤字約 ${num(P.dailyDeficitTarget)}）。`+
+      `<br><span style="color:var(--sub)">TDEE 為全歷史估計；實際速度採 ${P.trendWindow}。</span>`+
       `目標週速度 ${P.weeklyTargetKg!=null?(-Math.abs(P.weeklyTargetKg))+"kg":"—"}、實際 <b>${wkObs}</b>。`+
       (slow?`<br>⚠ 下降偏慢，可再收緊一點攝取或增加活動量。`:`<br>✅ 方向不錯，穩住就好。`);
     actions=[`每週看一次「實際 vs 目標週速度」，差很多才調`,`別靠運動硬湊赤字；重訓保肌、有氧加成`];
@@ -1399,11 +1416,12 @@ async function coachDaily(){
   const box=document.getElementById("coachBox");
   const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能給建議。"; return; }
   const d=dayNutrition(selDate()), burn=burnByDate(selDate());
+  const daily=dailyKcalTarget(t,burn);
   box.textContent="🤖 AI 教練思考中…約 3–6 秒";
   try{
     const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"daily",
       today:{kcal:d.k,protein:d.p,fat:d.f,carb:d.c},
-      target:{kcal:t.kcal,protein:t.protein,fat:t.fat,carb:t.carb},
+      target:{kcal:daily.kcal,protein:t.protein,fat:t.fat,carb:t.carb},
       burn, goal:val("goal"), plan:planContext()})});
     box.innerHTML=coachHtml(r);
   }catch(e){ box.innerHTML=`建議失敗：${e.message} <button class="ghost sm" onclick="coachDaily()">🔁 再試</button>`; }
@@ -1412,7 +1430,8 @@ async function coachRemain(){
   const box=document.getElementById("coachBox");
   const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
   const d=dayNutrition(selDate()), burn=burnByDate(selDate());
-  const remain={kcal:Math.round(t.kcal+burn-d.k), protein:Math.round(t.protein-d.p), fat:Math.round(t.fat-d.f), carb:Math.round(t.carb-d.c)};
+  const daily=dailyKcalTarget(t,burn);
+  const remain={kcal:Math.round(daily.kcal-d.k), protein:Math.round(t.protein-d.p), fat:Math.round(t.fat-d.f), carb:Math.round(t.carb-d.c)};
   box.textContent="🍱 AI 依你剩餘額度找選擇中…約 3–6 秒";
   try{
     const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"remain",remain,goal:val("goal"),prefs:topFoods(10)})});
@@ -1445,7 +1464,7 @@ async function coachReport(){
   const avgP=Math.round(avg(intakeDays.map(r=>+r.protein||0)));
   const avgF=Math.round(avg(intakeDays.map(r=>+r.fat||0)));
   const avgC=Math.round(avg(intakeDays.map(r=>+r.carb||0)));
-  const avgBurn=Math.round(exs.reduce((a,b)=>a+(+b.kcal||0),0)/reportDays);
+  const avgBurn=Math.round(exs.reduce((a,b)=>a+exerciseNetKcal(b),0)/reportDays);
   const wRecs=recs.filter(r=>r.weight!=null);
   const wDelta=wRecs.length>=2?+(+wRecs[wRecs.length-1].weight-+wRecs[0].weight).toFixed(1):null;
   box.textContent="🤖 教練點評產生中…約 3–6 秒";
@@ -1505,7 +1524,7 @@ function weekStats(since,until){
     avgP:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.protein||0))):0,
     avgF:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.fat||0))):0,
     avgC:intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.carb||0))):0,
-    avgBurn:Math.round(exs.reduce((a,b)=>a+(+b.kcal||0),0)/7),
+    avgBurn:Math.round(exs.reduce((a,b)=>a+exerciseNetKcal(b),0)/7),
     wDelta:wRecs.length>=2?+(+wRecs[wRecs.length-1].weight-+wRecs[0].weight).toFixed(1):null,
   };
 }
@@ -2711,7 +2730,7 @@ function exRowHtml(e){
     ? `<span style="color:var(--sub)">${e.weight}kg × ${e.reps}次 × ${e.sets}組 · ${Math.round(+e.volume||0).toLocaleString()}kg</span>`
     : `<span style="color:var(--sub)">${e.minutes||"—"} 分</span>`;
   return `<div class="foodrow"><span class="nm">${isS?"💪":"🏃"} ${e.name}<br>${detail}</span>`+
-    `<span class="kc">${Math.round(+e.kcal||0)} kcal</span>`+
+    `<span class="kc">淨 ${Math.round(exerciseNetKcal(e))} kcal</span>`+
     `<span class="x" style="color:var(--accent)" onclick="editExercise(${e.id})">✏️</span>`+
     `<span class="x" onclick="delExercise(${e.id})">✕</span></div>`;
 }
@@ -2844,7 +2863,7 @@ async function addRecord(){
   }catch(e){ alert(e.message); }
 }
 // 每日運動消耗
-function burnByDate(date){ return store.exercises.filter(e=>e.date.slice(0,10)===date).reduce((a,b)=>a+(+b.kcal||0),0); }
+function burnByDate(date){ return store.exercises.filter(e=>e.date.slice(0,10)===date).reduce((a,b)=>a+exerciseNetKcal(b),0); }
 function renderNet(){
   const box=document.getElementById("netBox");
   const date=selDate();
@@ -2854,10 +2873,8 @@ function renderNet(){
   if(intake==null&&burn===0){ box.style.display="none"; return; }
   const net=(intake||0)-burn;
   const base=baseTDEE();
-  const target=base.tdee?applyGoal(base.tdee):null;
-  // 含運動基準：目標已含運動，拿原始攝取比；不含運動基準：拿淨熱量比
-  const cmpVal=base.mode==="base"?net:(intake||0);
-  const cmpLbl=base.mode==="base"?"淨熱量":"攝取";
+  const t=goalTargets(), daily=t?dailyKcalTarget(t,burn):null;
+  const target=daily&&daily.kcal;
   // 當日實際 EA（女性才顯示）；沒記到攝取就不算，避免用半天的資料嚇人
   const E=(isFemale()&&intake!=null)?energyAvailability(intake,burn):null;
   const eaLine=E?`<div class="hint" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);">`+
@@ -2868,7 +2885,7 @@ function renderNet(){
   box.innerHTML=`<div class="lbl">${date.slice(5)} 淨熱量（攝取 − 運動消耗）</div>`+
     `<div class="big">${net.toLocaleString()} kcal</div>`+
     `<div class="hint">攝取 ${intake!=null?intake.toLocaleString():"—"} − 運動 ${burn.toLocaleString()}`+
-    (target?`<br>對目標（${base.mode==="base"?"不含運動":"含運動"}基準 ${target.toLocaleString()}，比${cmpLbl} ${cmpVal.toLocaleString()}）　${cmpVal<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-cmpVal).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${(cmpVal-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
+    (target?`<br>今日攝取目標 ${target.toLocaleString()} kcal（${base.mode==="base"?"不含運動基準＋今日運動":"含運動基準，已扣除平均運動"}）　${(intake||0)<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-(intake||0)).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${((intake||0)-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
 }
 async function delRecord(rid){
   if(!confirm("刪除這筆紀錄？")) return;
@@ -2938,7 +2955,7 @@ function fitTrendWithCycle(xs, ys, T){
 function finishReal(out, recs, exercises, slope){
   const d0=recs[0].date.slice(0,10), d1=recs[recs.length-1].date.slice(0,10);
   const spanDays=Math.max(1,Math.round((new Date(d1)-new Date(d0))/86400000)+1);
-  const totalBurn=(exercises||[]).filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;}).reduce((a,b)=>a+(+b.kcal||0),0);
+  const totalBurn=(exercises||[]).filter(e=>{const d=e.date.slice(0,10); return d>=d0&&d<=d1;}).reduce((a,b)=>a+exerciseNetKcal(b),0);
   out.avgBurn=Math.round(totalBurn/spanDays);
   const ks=recs.filter(r=>r.kcal!=null).map(r=>+r.kcal);
   if(ks.length<3) return out;
@@ -2973,9 +2990,8 @@ function slopePerDay(xs, ys){
 // analysisPeriod() 的體組成分支；保留此名稱供渲染與測試使用
 function compTDEE(){
   const P=analysisPeriod();
-  if(!P.ok||P.src!=="comp") return null;
-  return {tdee:P.tdee, release:P.release, avgK:P.avgK, fatWk:P.fatWk, leanWk:P.leanWk,
-          days:P.bfDays, n:P.bfN};
+  if(!P.ok||!P.comp) return null;
+  return {...P.comp, avgK:P.avgK};
 }
 function lifetimeTDEE(){
   const r=(store.records||[]).filter(x=>x.weight!=null);
@@ -3029,6 +3045,10 @@ function calcReal(records, exercises){
   const slope=den?num/den:0;
   out.slopeWk=slope*7;
   return finishReal(out, recs, exercises, slope);
+}
+function recentTrendLabel(R){
+  if(!R||!R.days) return "近期資料";
+  return R.window==="cycle" ? `最近 ${R.cycles} 個生理週期（${R.windowDays} 天）` : `最近 ${R.days} 筆體重紀錄`;
 }
 
 /* ---------- 身體組成：脂肪量 vs 瘦體重趨勢（解讀「掉的是脂肪還是肌肉」） ----------
@@ -3128,7 +3148,8 @@ function renderDashboard(){
   const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
   let html="";
   if(t){
-    const remain=Math.round(t.kcal+burn-nut.k);
+    const daily=dailyKcalTarget(t,burn);
+    const remain=Math.round(daily.kcal-nut.k);
     const pLeft=Math.max(0,Math.round(t.protein-nut.p));
     html+=`<div class="stat-row" style="margin-top:2px;">`+
       stat((remain>=0?"":"")+remain.toLocaleString(),"還可吃 kcal",remain<0?"#b5564e":"var(--green)")+
@@ -3171,7 +3192,7 @@ function renderReport(){
   const avgF=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.fat||0))):0;
   const avgC=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.carb||0))):0;
   // 運動
-  const burnTotal=exs.reduce((a,b)=>a+(+b.kcal||0),0);
+  const burnTotal=exs.reduce((a,b)=>a+exerciseNetKcal(b),0);
   const avgBurn=Math.round(burnTotal/reportDays);
   const strengthDays=new Set(exs.filter(e=>e.kind==="strength").map(e=>e.date.slice(0,10))).size;
   const volTotal=exs.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0);
@@ -3216,52 +3237,27 @@ function renderReport(){
 // 長期平均 TDEE 對照：穩定但有延遲，用來驗證短期數字、並在兩者背離時示警
 function renderLifetimeTdee(R){
   const box=document.getElementById("lifetimeTdee"); if(!box) return;
-  const L=lifetimeTDEE();
   const M=measuredTDEE();
-  // 一定要對照「實際採用的值」，不能固定拿視窗值——否則這張卡會說出跟目標建議不同的數字
+  const C=compTDEE();
+  // 體組成只作交叉驗證：主值永遠是全歷史體重趨勢，避免 BIA 水分波動主導目標熱量。
   const used=M?M.tdee:(R&&R.tdee);
-  if(!L||!used){ box.innerHTML=""; return; }
-  const winTxt = M&&M.src==="comp" ? `體組成能量拆解（全部 ${M.detail.days} 天）`
-               : M&&M.src==="lifetime" ? `全歷史體重趨勢`
-               : R&&R.window==="cycle" ? `近 ${R.cycles} 個生理週期（${R.windowDays} 天）`
-               : `近 ${R?R.days:0} 天`;
-  // 採用體組成法時，它本身就是全歷史，跟①對照才有意義；否則拿①當對照
-  const other = (M&&M.src==="comp")
-    ? {v:L.tdee, name:`全歷史體重趨勢（${L.days} 天）`}
-    : {v:L.tdee, name:`全歷史體重趨勢（${L.days} 天）`};
+  if(!C||!used){ box.innerHTML=""; return; }
+  const other={v:C.tdee, name:`體組成估計（${C.days} 天，僅交叉驗證）`};
   const diff=used-other.v;
   const big=Math.abs(diff)>=150;
-  // 女性但沒對齊到生理週期、且採用的就是那個視窗值時，數字本身可能是相位造成的假訊號——
-  // 這時不能把背離解讀成「代謝變了」，否則會叫一個其實沒變的人多吃或少吃。
-  const unaligned = isFemale() && (!M || M.src==="window") && R && R.window!=="cycle";
   let note;
-  if(big && unaligned){
-    note=`<span style="color:var(--warm)">⚠️ 這個落差先別當真。</span>你的經期紀錄不足，短期數字沒辦法對齊生理週期，`+
-         `而週期性水分光是相位差就能讓體重看起來差好幾公斤。<b>補記經期開始日（累積兩次以上）</b>之後，`+
-         `短期 TDEE 會自動改用週期對齊計算，那時的落差才有解讀價值。在那之前，<b>以長期平均 ${L.tdee.toLocaleString()} 為準比較安全</b>。`;
-  }else if(!big){
-    note=`兩種算法收斂（差 ${Math.abs(diff)} kcal），代表體重、體脂與飲食記錄彼此一致，這個數字可信。`;
-  }else if(M&&M.src==="comp"){
-    // 兩者都是全歷史，差異來自「體重之外的資訊」＝瘦體重在變
-    note = diff>0
-      ? `<b>體組成法比單看體重高 ${diff} kcal</b>——你的瘦體重在增加，體重因此低估了脂肪的減少。`+
-        `這是好結果：<b>體重沒動不代表沒進步</b>，該看的是體脂與圍度。`
-      : `<b>體組成法比單看體重低 ${Math.abs(diff)} kcal</b>——體重掉的有一部分是瘦體重，不全是脂肪。`+
-        `<b>別再砍熱量</b>，先把蛋白質吃滿、重訓補上。`;
+  if(!big){
+    note=`兩種全期估計收斂（差 ${Math.abs(diff)} kcal），體組成資料可作為支持證據；採用值仍維持體重趨勢法。`;
   }else{
-    note = diff<0
-      ? `<b>短期比長期低 ${Math.abs(diff)} kcal</b>——最近的消耗比這段期間的平均少。`+
-        `常見原因是代謝適應（長期赤字後身體調降消耗）或活動量下降。`+
-        `<b>與其再減熱量，先把活動量拉回來</b>；若已赤字很久，可以安排 1–2 週回到維持熱量。`
-      : `<b>短期比長期高 ${diff} kcal</b>——最近消耗變多了，可能是活動量增加，`+
-        `或前段期間有水分變化把長期平均拉低。這是好訊號，代表你現在可以吃得比之前多。`;
+    note = diff>0
+      ? `<b>體組成估計高 ${diff} kcal</b>——可能有瘦體重增加，或 BIA 水分讓瘦體重偏高；先看後續趨勢，不自動調高熱量。`
+      : `<b>體組成估計低 ${Math.abs(diff)} kcal</b>——可能有瘦體重下降，或 BIA 水分影響；先確認量測條件，不自動再砍熱量。`;
   }
   box.innerHTML=
     `<div class="result" style="margin-top:10px;${big?"border-left:4px solid var(--warm);":""}">`+
       `<div class="lbl">對照：${other.name}</div>`+
       `<div class="big" style="font-size:22px;">${other.v.toLocaleString()} kcal</div>`+
-      `<div class="hint">平均攝取 ${L.avgK.toLocaleString()} · 全期體重趨勢 ${L.slopeWk>0?"+":""}${L.slopeWk} kg/週`+
-        `<br>目前採用的是<b>${winTxt}</b>的 <b>${used.toLocaleString()} kcal</b>。`+
+      `<div class="hint">目前採用全歷史體重趨勢的 <b>${used.toLocaleString()} kcal</b>；體組成只作合理性檢查。`+
         `<br>${note}</div>`+
     `</div>`;
 }
@@ -3275,12 +3271,12 @@ function renderReal(){
   if(R.tdee){
     // 顯示「校正後採用值」（與目標建議、減重計畫一致），不再顯示未夾限的原始反推，避免四處數字打架
     set("realTdee",gross!=null?gross.toLocaleString():"—"); set("realTdeeBase",base!=null?base.toLocaleString():"—");
-    const srcTxt = M.src==="comp" ? `全部 ${M.measured.detail.days} 天紀錄，體組成能量拆解`
-                 : M.src==="lifetime" ? `全部 ${M.measured.detail.days} 天紀錄，體重趨勢反推`
-                 : `最近 ${R.days} 天紀錄`;
-    set("realDetail", M.corrected
+    const srcTxt = M&&M.src==="lifetime"&&M.measured ? `全部 ${M.measured.detail.days} 天紀錄，體重趨勢反推`
+                 : `近期 ${recentTrendLabel(R)}`;
+    const recent=`近期體重速度另以 ${recentTrendLabel(R)} 顯示於進度與 ETA。`;
+    set("realDetail", (M.corrected
       ? `根據${srcTxt}（原始 ${M.rawGross.toLocaleString()}，已向公式收斂）`
-      : `根據${srcTxt}`);
+      : `根據${srcTxt}`)+`　${recent}`);
   }else{
     set("realTdee","—"); set("realTdeeBase","—");
     // 還差幾天能算出實測：需 ≥7 天有體重 且 其中 ≥3 天有攝取
@@ -3314,14 +3310,14 @@ function renderReal(){
       +row("　其中 瘦體重", (C.leanWk>=0?"+":"")+C.leanWk.toFixed(2)+" kg/週", "×1820 kcal/kg（多為水）"):"")+
     row("身體每日淨釋出", (stat.deficit>=0?"+":"")+stat.deficit.toLocaleString()+" kcal",
         C?"依體組成拆解換算":"脂肪 1kg≈7700kcal")+
-    row("平均每日運動消耗", stat.avgBurn.toLocaleString()+" kcal", "你記錄的運動")+
+    row("平均每日運動淨增加", stat.avgBurn.toLocaleString()+" kcal", "已扣除運動期間原本會消耗的靜息熱量")+
     row("➊ 總 TDEE（含運動）", "<b>"+gross.toLocaleString()+"</b> kcal",
         M.corrected?"校正後採用值":"攝取＋淨釋出")+
     row("➋ 基礎 TDEE（不含運動）", "<b>"+base.toLocaleString()+"</b> kcal", "➊ − 運動消耗");
   const goal=val("goal"), rate=+val("goalRate");
   let useGross=gross; if(goal==="cut")useGross=Math.round(gross*(1-rate)); if(goal==="bulk")useGross=Math.round(gross*(1+rate*0.5));
   set("cmpHint",
-    `兩者差 ${stat.avgBurn.toLocaleString()} kcal ＝ 你平均每天靠運動多燒的量。`+
+    `兩者差 ${stat.avgBurn.toLocaleString()} kcal ＝ 你平均每天運動額外增加的消耗。`+
     `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
     `\n· 想「把運動另外算、運動多就多吃」→ 用 ➋ 基礎 TDEE 當底，再每天加回當天實際運動消耗。`);
   document.getElementById("cmpHint").style.whiteSpace="pre-line";
@@ -3365,7 +3361,7 @@ function drawChart(){
     }
     const fullLen=data.length+projLabels.length;   // 先固定目標長度，避免對 data 本身 push 時長度一直變動造成無窮迴圈
     datasets.forEach(ds=>{ while(ds.data.length<fullLen) ds.data.push(null); }); // 對齊長度
-    datasets.push({label:"預測",data:proj,borderColor:"#d08bb0",borderDash:[3,3],borderWidth:2,pointRadius:0,fill:false,tension:.1,yAxisID:"y",spanGaps:true});
+    datasets.push({label:"近期趨勢預測",data:proj,borderColor:"#d08bb0",borderDash:[3,3],borderWidth:2,pointRadius:0,fill:false,tension:.1,yAxisID:"y",spanGaps:true});
   }
   const allLabels=labels.concat(projLabels);
   const scales={y:{ticks:{font:{size:11}}},x:{ticks:{font:{size:10}}}};
@@ -3392,7 +3388,7 @@ function renderEta(){
   const eta=new Date(Date.now()+days*86400000);
   const y=eta.getFullYear(), m=eta.getMonth()+1, d=eta.getDate();
   set("etaOut", `${y}/${m}/${d}`);
-  set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜約 ${days} 天、每週 ${Math.abs(R.slopeWk).toFixed(2)}kg`);
+  set("etaDetail", `目前 ${cur}kg → 目標 ${target}kg（差 ${Math.abs(diff).toFixed(1)}kg）｜${recentTrendLabel(R)}約每週 ${Math.abs(R.slopeWk).toFixed(2)}kg、約 ${days} 天`);
 }
 /* ---------- 目標體重健康區間（提醒，不阻擋） ----------
    台灣國健署標準：BMI 18.5–24 為健康範圍。只提示、不改任何計算，設定權仍在使用者手上。 */
