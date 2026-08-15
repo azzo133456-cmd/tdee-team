@@ -362,6 +362,15 @@ function dailyKcalTarget(t, burn){
   const adjustment=t.base.avgBurnKnown ? todayBurn-(+t.base.avgBurn||0) : 0;
   return {kcal:Math.round(t.kcal+adjustment), adjustment:Math.round(adjustment)};
 }
+/* 某一天「可以吃到多少」才算熱量達標。
+   先前達標判定直接拿 t.kcal（未加回運動）比，但首頁「還可吃」、日結的今日目標用的是
+   dailyKcalTarget()（有加回運動）。於是運動量大的那天，畫面說還可以吃、判定卻算沒達標。
+   達標要跟使用者當下看到的那個數字一致，否則等於用一套標準顯示、另一套計分。 */
+function kcalTargetFor(date, t){
+  const tt=t||goalTargets();
+  const d=tt?dailyKcalTarget(tt, burnByDate(date)):null;
+  return d?d.kcal:null;
+}
 // 建議攝取的絕對下限。低於這條線很難吃滿微量營養素，且低熱量＋高訓練量正是內分泌
 // 失調的組合（見 EA 警示）；再兇的赤字設定也不該讓 App 建議吃到 1200 以下。
 const MIN_GOAL_KCAL=1200;
@@ -1722,7 +1731,7 @@ async function syncDailyStats(){
     const water=rec&&rec.water_ml?+rec.water_ml:0;
     const waterGoal=waterGoalFor(ds);   // 依當天體重動態計算
     rows.push({ date:ds, logged,
-      kcal_hit: !!(t && logged && nut.k<=t.kcal),
+      kcal_hit: !!(t && logged && nut.k<=kcalTargetFor(ds,t)),
       protein_hit: !!(t && logged && nut.p>=t.protein),
       exercised, water_hit: water>=waterGoal,
       // 運動次數：同一天「有氧」算1次、「重訓」算1次（各類別當天有做就+1），不再每個動作各記一次
@@ -1939,7 +1948,7 @@ function computePoints(){
     const water=rec&&rec.water_ml?+rec.water_ml:0;
     const logged=nut.k>0, exercised=(store.exercises||[]).some(e=>e.date.slice(0,10)===ds);
     if(logged) activity+=1;
-    if(t&&logged&&nut.k<=t.kcal) activity+=1;
+    if(t&&logged&&nut.k<=kcalTargetFor(ds,t)) activity+=1;
     if(t&&logged&&nut.p>=t.protein) activity+=1;
     if(exercised) activity+=1;
     if(water>=waterGoalFor(ds)) activity+=1;
@@ -2349,7 +2358,7 @@ function renderRings(date){
   const t=goalTargets(), d=dayNutrition(date);
   if(!t){ box.innerHTML='<div class="hint">先填基本資料與目標，才能顯示達成環</div>'; return; }
   const items=[
-    ["熱量","#7c9070",d.k,t.kcal,"kcal"],
+    ["熱量","#7c9070",d.k,kcalTargetFor(date,t),"kcal"],   // 與達標判定、首頁「還可吃」同一個目標
     ["蛋白","#5b8aa6",d.p,t.protein,"g"],
     ["脂肪","#c98b5e",d.f,t.fat,"g"],
     ["碳水","#7c9070",d.c,t.carb,"g"]
@@ -2878,7 +2887,8 @@ async function addRecord(){
   }catch(e){ alert(e.message); }
 }
 // 每日運動消耗
-function burnByDate(date){ return store.exercises.filter(e=>e.date.slice(0,10)===date).reduce((a,b)=>a+exerciseNetKcal(b),0); }
+// 淨消耗會有小數（gross×(MET−1)/MET），一律在這裡收成整數，下游顯示才不會冒出 266.667
+function burnByDate(date){ return Math.round(store.exercises.filter(e=>e.date.slice(0,10)===date).reduce((a,b)=>a+exerciseNetKcal(b),0)); }
 function renderNet(){
   const box=document.getElementById("netBox");
   const date=selDate();
@@ -3207,7 +3217,7 @@ function renderReport(){
   const avgF=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.fat||0))):0;
   const avgC=intakeDays.length?Math.round(avg(intakeDays.map(r=>+r.carb||0))):0;
   // 運動
-  const burnTotal=exs.reduce((a,b)=>a+exerciseNetKcal(b),0);
+  const burnTotal=Math.round(exs.reduce((a,b)=>a+exerciseNetKcal(b),0));
   const avgBurn=Math.round(burnTotal/reportDays);
   const strengthDays=new Set(exs.filter(e=>e.kind==="strength").map(e=>e.date.slice(0,10))).size;
   const volTotal=exs.filter(e=>e.kind==="strength").reduce((a,b)=>a+(+b.volume||0),0);
@@ -3220,7 +3230,7 @@ function renderReport(){
   // 目標達成（攝取在目標±?）— 簡單比對：有目標時算低於目標的天數
   const tgt=goalTargets();
   let underGoal=0;
-  if(tgt){ underGoal=intakeDays.filter(r=>(+r.kcal||0)<=tgt.kcal).length; }
+  if(tgt){ underGoal=intakeDays.filter(r=>(+r.kcal||0)<=kcalTargetFor(r.date.slice(0,10),tgt)).length; }
   const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
   // 減重進度 KPI（週速度/距目標/ETA/TDEE）統一在「📋 我的減重計畫」呈現，這裡不重複，
   // 報表專注於「執行面」明細：攝取/運動/淨熱量/三大營養/體重體脂變化/達標天數。
