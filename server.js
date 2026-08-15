@@ -2329,7 +2329,8 @@ function genCode() {
   for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
   return s;
 }
-// 達標旗標可被重算的寬限天數：這期間內允許補記與修正，超過就凍結當時的判定。
+// 達成率（water_pct / protein_pct）可被重算的寬限天數：這期間內允許補記與修正。
+// 達標旗標不走這條線——它們一律「只補不減」，見下方 upsert 的註解。
 const STAT_GRACE_DAYS = 7;
 // 上傳自己近期每日統計（成員自算 flag，體重僅供算個人%、不外傳）
 app.post("/api/dailystats", auth, async (req, res) => {
@@ -2359,15 +2360,17 @@ app.post("/api/dailystats", auth, async (req, res) => {
            logged=EXCLUDED.logged,
            exercised=EXCLUDED.exercised,ex_count=EXCLUDED.ex_count,
            volume=EXCLUDED.volume,weight=EXCLUDED.weight,poop=EXCLUDED.poop,body_fat=EXCLUDED.body_fat,
-           -- 達標旗標與達成率取決於「當時的目標」。前端每次同步都是拿今天的目標去重算
-           -- 全部歷史，所以目標一改（例如實測 TDEE 更新使建議攝取下修），過去已經達成的
-           -- 日子會被回溯改判、分數平白消失。這裡只讓最近 ${STAT_GRACE_DAYS} 天可重算
-           -- （容許補記與修正），更早的日子維持當時的判定。
-           -- 寬限期外採「取寬」而非單純保留：已經達成過就不再拿走（GREATEST），
-           -- 但若使用者事後補記讓當天變成達標，仍算他達成。目標變嚴只會影響往後的日子。
-           kcal_hit    = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.kcal_hit    ELSE GREATEST(daily_stats.kcal_hit,    EXCLUDED.kcal_hit)    END,
-           protein_hit = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_hit ELSE GREATEST(daily_stats.protein_hit, EXCLUDED.protein_hit) END,
-           water_hit   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_hit   ELSE GREATEST(daily_stats.water_hit,   EXCLUDED.water_hit)   END,
+           -- 達標旗標取決於「當時的目標」。前端每次同步都是拿今天的目標去重算全部歷史，
+           -- 所以目標一改（例如實測 TDEE 更新使建議攝取下修），過去已經達成的日子會被
+           -- 回溯改判、分數平白消失。規則：只要那天達成過就一直算數（GREATEST），事後
+           -- 補記讓它變成達標也算；目標變嚴只影響往後的日子，不會回頭收走任何分數。
+           -- 例外是「今天」——當天還沒過完，早上只吃了 300 kcal 也會暫時符合「吃在目標內」，
+           -- 若連今天都鎖起來，等於吃第一餐就先把熱量達標拿走了。所以今天照實重算。
+           -- （用 >= CURRENT_DATE 而非等於：伺服器走 UTC，台灣時間的今天可能比它大一天。）
+           kcal_hit    = CASE WHEN daily_stats.date >= CURRENT_DATE THEN EXCLUDED.kcal_hit    ELSE GREATEST(daily_stats.kcal_hit,    EXCLUDED.kcal_hit)    END,
+           protein_hit = CASE WHEN daily_stats.date >= CURRENT_DATE THEN EXCLUDED.protein_hit ELSE GREATEST(daily_stats.protein_hit, EXCLUDED.protein_hit) END,
+           water_hit   = CASE WHEN daily_stats.date >= CURRENT_DATE THEN EXCLUDED.water_hit   ELSE GREATEST(daily_stats.water_hit,   EXCLUDED.water_hit)   END,
+           -- 達成率是拿來看趨勢的數字不是分數，維持原本的寬限期規則。
            water_pct   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_pct   ELSE daily_stats.water_pct   END,
            protein_pct = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_pct ELSE daily_stats.protein_pct END`,
         params
