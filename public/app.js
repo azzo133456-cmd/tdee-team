@@ -1911,14 +1911,29 @@ function chooseSkin(id){ try{ localStorage.setItem("tdee_skin",id); }catch(e){} 
   api("/api/cosmetic",{method:"POST",body:JSON.stringify({skin:id||""})}).then(()=>loadGroups()).catch(()=>{});
 }
 // 積分＝歷史每日自律分總和 ＋ 每座冠軍獎盃 100 分
+/* 個人積分：一律讀伺服器上已凍結的 daily_stats，不再自己拿今天的目標回溯重算歷史。
+   先前是每次渲染都用當下的目標重判全部日子，所以目標一改（例如實測 TDEE 更新讓建議
+   攝取下修），使用者什麼都沒做、過去的達標卻會憑空消失。群組競賽早已改讀 daily_stats，
+   這裡跟著讀同一份，兩邊才不會給出不同的分數。
+   尚未同步到伺服器的最近日子（含今天）才在本機補算，否則剛記完的東西不會即時反映。 */
 function computePoints(){
   const t=goalTargets();
-  const dates=new Set();
+  const frozen={}; (store.dailyStats||[]).forEach(d=>{ frozen[d.date.slice(0,10)]=d; });
+  const dates=new Set(Object.keys(frozen));
   (store.records||[]).forEach(r=>dates.add(r.date.slice(0,10)));
   Object.keys(store.mealAgg||{}).forEach(d=>dates.add(d));
   (store.exercises||[]).forEach(e=>dates.add(e.date.slice(0,10)));
   let activity=0;
   dates.forEach(ds=>{
+    const f=frozen[ds];
+    if(f){   // 已凍結：直接採用當時的判定
+      if(f.logged) activity+=1;
+      if(f.kcal_hit) activity+=1;
+      if(f.protein_hit) activity+=1;
+      if(f.exercised) activity+=1;
+      if(f.water_hit) activity+=1;
+      return;
+    }
     const nut=dayNutrition(ds);
     const rec=(store.records||[]).find(r=>r.date.slice(0,10)===ds);
     const water=rec&&rec.water_ml?+rec.water_ml:0;
@@ -3534,7 +3549,7 @@ const storeCacheKey=()=>"cacheAll:"+(session&&session.userId||"");
 function applyStoreData(data){
   store = data;
   store.profile = store.profile||{}; store.recipes = store.recipes||[];
-  store.favorites = store.favorites||[]; store.meals = store.meals||[];
+  store.favorites = store.favorites||[]; store.meals = store.meals||[]; store.dailyStats = store.dailyStats||[];
   store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[]; store.grocery.settles=store.grocery.settles||[]; store.grocery.extras=store.grocery.extras||[];
   if(typeof applyGroceryVisibility==="function") applyGroceryVisibility();
   if(typeof seedGroceryZen==="function") seedGroceryZen();

@@ -2363,9 +2363,11 @@ app.post("/api/dailystats", auth, async (req, res) => {
            -- 全部歷史，所以目標一改（例如實測 TDEE 更新使建議攝取下修），過去已經達成的
            -- 日子會被回溯改判、分數平白消失。這裡只讓最近 ${STAT_GRACE_DAYS} 天可重算
            -- （容許補記與修正），更早的日子維持當時的判定。
-           kcal_hit    = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.kcal_hit    ELSE daily_stats.kcal_hit    END,
-           protein_hit = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_hit ELSE daily_stats.protein_hit END,
-           water_hit   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_hit   ELSE daily_stats.water_hit   END,
+           -- 寬限期外採「取寬」而非單純保留：已經達成過就不再拿走（GREATEST），
+           -- 但若使用者事後補記讓當天變成達標，仍算他達成。目標變嚴只會影響往後的日子。
+           kcal_hit    = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.kcal_hit    ELSE GREATEST(daily_stats.kcal_hit,    EXCLUDED.kcal_hit)    END,
+           protein_hit = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_hit ELSE GREATEST(daily_stats.protein_hit, EXCLUDED.protein_hit) END,
+           water_hit   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_hit   ELSE GREATEST(daily_stats.water_hit,   EXCLUDED.water_hit)   END,
            water_pct   = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.water_pct   ELSE daily_stats.water_pct   END,
            protein_pct = CASE WHEN daily_stats.date >= CURRENT_DATE - ${STAT_GRACE_DAYS} THEN EXCLUDED.protein_pct ELSE daily_stats.protein_pct END`,
         params
@@ -2642,7 +2644,7 @@ app.delete("/api/sharedfood", auth, async (req, res) => {
 app.get("/api/me/all", auth, async (req, res) => {
   try {
     // 並行查詢（原本 7 條依序 await，改成同時送出，縮短首次載入時間）
-    const [recs, exs, rcp, mls, shf, rvw, plt] = await Promise.all([
+    const [recs, exs, rcp, mls, shf, rvw, plt, dst] = await Promise.all([
       pool.query("SELECT * FROM records WHERE user_id=$1 ORDER BY date", [req.user.id]),
       pool.query("SELECT * FROM exercises WHERE user_id=$1 ORDER BY date DESC, id DESC", [req.user.id]),
       pool.query("SELECT * FROM recipes WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
@@ -2652,8 +2654,11 @@ app.get("/api/me/all", auth, async (req, res) => {
       pool.query("SELECT week_start, summary, actions FROM weekly_reviews WHERE user_id=$1 ORDER BY week_start DESC", [req.user.id]),
       // 同餐點照片：不撈 thumb(base64)，只回 has_thumb，縮圖改由 /api/plate/thumbs 按需載入
       pool.query("SELECT id,name,items,kcal,(thumb IS NOT NULL) AS has_thumb FROM plates WHERE user_id=$1 ORDER BY created_at DESC", [req.user.id]),
+      // 已凍結的每日達標旗標：個人積分改讀這份，與群組競賽同一個來源，
+      // 不再由前端拿今天的目標回溯重算歷史。
+      pool.query("SELECT date::text AS date,logged,kcal_hit,protein_hit,exercised,water_hit FROM daily_stats WHERE user_id=$1 ORDER BY date", [req.user.id]),
     ]);
-    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null, grocery: req.user.grocery || { buys: [], meals: [] } });
+    res.json({ profile: req.user.profile, favorites: req.user.favorites || [], records: recs.rows, exercises: exs.rows, recipes: rcp.rows, meals: mls.rows, sharedFoods: shf.rows, reviews: rvw.rows, plates: plt.rows, dailyStats: dst.rows, avatar: req.user.avatar || null, fx: req.user.fx || null, racer: req.user.racer || null, skin: req.user.skin || null, grocery: req.user.grocery || { buys: [], meals: [] } });
   } catch (e) {
     res.status(500).json({ error: "伺服器錯誤" });
   }
