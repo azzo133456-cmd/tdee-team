@@ -353,22 +353,28 @@ function baseTDEE(){
   if(mode==="base") return {tdee:m.base, src:"基礎 TDEE(不含運動)"+tag, mode:"base", avgBurn:m.avgBurn, avgBurnKnown:true, corrected:m.corrected};
   return {tdee:m.gross, src:"真實 TDEE(含運動)"+tag, mode:"gross", avgBurn:m.avgBurn, avgBurnKnown:true, corrected:m.corrected};
 }
-// 每日可吃目標只在此處處理運動，避免首頁、餐點建議與日結各自加回而重複計算。
-function dailyKcalTarget(t, burn){
+/* 每日可吃目標。**不把當天的運動加回**——這是刻意的。
+   原本是「今天多練就今天多吃」，實測四位使用者，每日目標平均跳 59～122 kcal、
+   單日最大跳 455 kcal（YiJin：沒運動 1200、練很兇 1972），而基準目標本身其實很穩
+   （平均只動 0～25 kcal）。也就是說畫面上的忽高忽低幾乎全是運動加回造成的。
+   三個問題：運動熱量本來就是 MET 估的，整包加回等於把估算誤差變成吃飯額度；
+   使用者永遠建立不了「我大概該吃多少」的直覺；而且變成可以用運動換食物。
+   所以改成一個穩定的數字：
+     · 含運動基準(gross)：TDEE 已經含了期間平均運動，不再另外加。
+     · 不含運動基準(base)：加回「期間平均」運動量而非今天的，否則有在運動的人
+       會被系統性地多挖一個赤字；用平均值就不會隨當天訓練量抖動。 */
+function dailyKcalTarget(t){
   if(!t||t.kcal==null) return null;
-  const todayBurn=+burn||0;
-  if(t.base.mode==="base") return {kcal:Math.round(t.kcal+todayBurn), adjustment:Math.round(todayBurn)};
-  // 含運動 TDEE 已包含分析期間的平均運動；只補今天相對平均多出的部分。
-  const adjustment=t.base.avgBurnKnown ? todayBurn-(+t.base.avgBurn||0) : 0;
-  return {kcal:Math.round(t.kcal+adjustment), adjustment:Math.round(adjustment)};
+  if(t.base.mode==="base"){
+    const avg=Math.round(+t.base.avgBurn||0);
+    return {kcal:Math.round(t.kcal+avg), adjustment:avg};
+  }
+  return {kcal:Math.round(t.kcal), adjustment:0};
 }
-/* 某一天「可以吃到多少」才算熱量達標。
-   先前達標判定直接拿 t.kcal（未加回運動）比，但首頁「還可吃」、日結的今日目標用的是
-   dailyKcalTarget()（有加回運動）。於是運動量大的那天，畫面說還可以吃、判定卻算沒達標。
-   達標要跟使用者當下看到的那個數字一致，否則等於用一套標準顯示、另一套計分。 */
+/* 某一天「可以吃到多少」才算熱量達標。判定與畫面顯示必須是同一個數字，
+   否則等於用一套標準顯示、另一套計分。 */
 function kcalTargetFor(date, t){
-  const tt=t||goalTargets();
-  const d=tt?dailyKcalTarget(tt, burnByDate(date)):null;
+  const d=dailyKcalTarget(t||goalTargets());
   return d?d.kcal:null;
 }
 // 建議攝取的絕對下限。低於這條線很難吃滿微量營養素，且低熱量＋高訓練量正是內分泌
@@ -658,10 +664,14 @@ function renderPlan(){
 function calcGoal(){
   const t=goalTargets();
   if(!t){ set("goalKcal","—"); set("goalBasis",""); document.getElementById("goalBar").innerHTML=""; document.getElementById("goalLeg").innerHTML=""; return; }
-  const base=t.base, goal=val("goal"), target=t.kcal, protein=t.protein, fat=t.fat, carb=t.carb;
+  // 顯示的要是「每天實際可以吃的那個數字」（＝首頁、日結、達標判定用的同一個），
+  // 不然 base 基準的人會在這張卡看到一個比首頁少了平均運動量的數字。
+  const base=t.base, goal=val("goal"), protein=t.protein, fat=t.fat, carb=t.carb;
+  const target=(dailyKcalTarget(t)||{}).kcal ?? t.kcal;
   set("goalKcal", target.toLocaleString()+" kcal");
   let basis=`基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${({cut:"減脂",maintain:"維持",bulk:"增肌"})[goal]}`;
-  if(base.mode==="base") basis+="　→ 這是「沒運動」的量，有運動的當天請把消耗加回去再吃。";
+  if(base.mode==="base") basis+=`　→ 已加回你平均每天的運動消耗 ${Math.round(base.avgBurn||0).toLocaleString()} kcal。`;
+  basis+="　這個數字每天一樣，不會因為今天練得多就變多——運動熱量是估的，跟著它上下反而抓不準。";
   const styleName={low:"低碳",balanced:"均衡",high:"高碳"}[t.macroStyle]||"均衡";
   basis+=`　·　蛋白 ${t.proteinBasis}　·　${styleName}（脂肪${Math.round(t.fatPct*100)}%）`;
   if(base.corrected) basis+="　⚠️ 初期掉的多為水分，實測 TDEE 已向公式校正，避免高估；記滿約 2 週會更準。";
@@ -697,8 +707,8 @@ function renderGoalEa(t){
   const box=document.getElementById("goalEa"); if(!box) return;
   if(!isFemale()){ box.innerHTML=""; return; }
   const m=tdeeModel(), burn=Math.round(m.avgBurn||0);
-  // base 基準的目標本來就不含運動（使用者會自行把消耗加回去吃），所以扣的運動量是 0
-  const E=energyAvailability(t.kcal, t.base.mode==="base"?0:burn);
+  // 兩種基準的每日目標現在都已含平均運動量，所以一律拿同一個數字去扣同一筆運動消耗
+  const E=energyAvailability((dailyKcalTarget(t)||{}).kcal ?? t.kcal, burn);
   if(!E){ box.innerHTML=""; return; }
   const L=E.level;
   // 記錄不可靠時，低 EA 多半是漏記的產物 → 先請他補記錄，而不是叫他吃更多／少練
@@ -1425,7 +1435,7 @@ async function coachDaily(){
   const box=document.getElementById("coachBox");
   const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能給建議。"; return; }
   const d=dayNutrition(selDate()), burn=burnByDate(selDate());
-  const daily=dailyKcalTarget(t,burn);
+  const daily=dailyKcalTarget(t);
   box.textContent="🤖 AI 教練思考中…約 3–6 秒";
   try{
     const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"daily",
@@ -1439,7 +1449,7 @@ async function coachRemain(){
   const box=document.getElementById("coachBox");
   const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
   const d=dayNutrition(selDate()), burn=burnByDate(selDate());
-  const daily=dailyKcalTarget(t,burn);
+  const daily=dailyKcalTarget(t);
   const remain={kcal:Math.round(daily.kcal-d.k), protein:Math.round(t.protein-d.p), fat:Math.round(t.fat-d.f), carb:Math.round(t.carb-d.c)};
   box.textContent="🍱 AI 依你剩餘額度找選擇中…約 3–6 秒";
   try{
@@ -2898,7 +2908,7 @@ function renderNet(){
   if(intake==null&&burn===0){ box.style.display="none"; return; }
   const net=(intake||0)-burn;
   const base=baseTDEE();
-  const t=goalTargets(), daily=t?dailyKcalTarget(t,burn):null;
+  const t=goalTargets(), daily=t?dailyKcalTarget(t):null;
   const target=daily&&daily.kcal;
   // 當日實際 EA（女性才顯示）；沒記到攝取就不算，避免用半天的資料嚇人
   const E=(isFemale()&&intake!=null)?energyAvailability(intake,burn):null;
@@ -2910,7 +2920,7 @@ function renderNet(){
   box.innerHTML=`<div class="lbl">${date.slice(5)} 淨熱量（攝取 − 運動消耗）</div>`+
     `<div class="big">${net.toLocaleString()} kcal</div>`+
     `<div class="hint">攝取 ${intake!=null?intake.toLocaleString():"—"} − 運動 ${burn.toLocaleString()}`+
-    (target?`<br>今日攝取目標 ${target.toLocaleString()} kcal（${base.mode==="base"?"不含運動基準＋今日運動":"含運動基準，已扣除平均運動"}）　${(intake||0)<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-(intake||0)).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${((intake||0)-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
+    (target?`<br>每日攝取目標 ${target.toLocaleString()} kcal（${base.mode==="base"?"不含運動基準＋平均運動量":"含運動基準，已含平均運動量"}，不隨當天運動變動）　${(intake||0)<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-(intake||0)).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${((intake||0)-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
 }
 async function delRecord(rid){
   if(!confirm("刪除這筆紀錄？")) return;
@@ -3173,7 +3183,7 @@ function renderDashboard(){
   const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
   let html="";
   if(t){
-    const daily=dailyKcalTarget(t,burn);
+    const daily=dailyKcalTarget(t);
     const remain=Math.round(daily.kcal-nut.k);
     const pLeft=Math.max(0,Math.round(t.protein-nut.p));
     html+=`<div class="stat-row" style="margin-top:2px;">`+
@@ -3344,7 +3354,9 @@ function renderReal(){
   set("cmpHint",
     `兩者差 ${stat.avgBurn.toLocaleString()} kcal ＝ 你平均每天運動額外增加的消耗。`+
     `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
-    `\n· 想「把運動另外算、運動多就多吃」→ 用 ➋ 基礎 TDEE 當底，再每天加回當天實際運動消耗。`);
+    `\n· 想「把運動另外算」→ 用 ➋ 基礎 TDEE 當底，系統會加回你的平均運動量。`+
+    `\n注意：目標不會隨當天練多練少變動。運動熱量是用 MET 估的，跟著單日估算值上下，`+
+    `等於把估算誤差直接變成吃飯額度，也容易變成用運動換食物。`);
   document.getElementById("cmpHint").style.whiteSpace="pre-line";
 }
 function drawChart(){
