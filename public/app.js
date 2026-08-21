@@ -428,25 +428,20 @@ function baseTDEE(){
   if(mode==="base") return {tdee:m.base, src:"基礎 TDEE(不含運動)"+tag, mode:"base", avgBurn:m.avgBurn, avgBurnKnown:true, corrected:m.corrected};
   return {tdee:m.gross, src:"真實 TDEE(含運動)"+tag, mode:"gross", avgBurn:m.avgBurn, avgBurnKnown:true, corrected:m.corrected};
 }
-/* 每日可吃目標。**不把當天的運動加回**——這是刻意的。
-   原本是「今天多練就今天多吃」，實測四位使用者，每日目標平均跳 59～122 kcal、
-   單日最大跳 455 kcal（YiJin：沒運動 1200、練很兇 1972），而基準目標本身其實很穩
-   （平均只動 0～25 kcal）。也就是說畫面上的忽高忽低幾乎全是運動加回造成的。
-   三個問題：運動熱量本來就是 MET 估的，整包加回等於把估算誤差變成吃飯額度；
-   使用者永遠建立不了「我大概該吃多少」的直覺；而且變成可以用運動換食物。
-   所以改成一個穩定的數字：
-     · 含運動基準(gross)：TDEE 已經含了期間平均運動，不再另外加。
-     · 不含運動基準(base)：加回「期間平均」運動量而非今天的，否則有在運動的人
-       會被系統性地多挖一個赤字；用平均值就不會隨當天訓練量抖動。 */
+/* 每日可吃目標。**運動完全不進入這個數字**。
+   兩個決定疊在一起：
+   ① 不加回「當天」的運動 —— 實測四人，加回會讓目標平均跳 59～122 kcal、單日最大 455
+      （YiJin 沒運動 1200、練很兇 1972），而基準目標本身其實只動 0～25。運動熱量是 MET
+      估的，整包加回等於把估算誤差變成吃飯額度，也容易變成用運動換食物。
+   ② 也不加回「平均」運動量 —— 這是使用者選的模型：吃歸吃，運動是額外的消耗。
+      計畫假設完全不運動也能達標，實際去運動就是淨賺的赤字，比預定日期早到。
+   運動要不要算進計畫裡，改由「TDEE 基準」決定，那才是它真正的意義：
+     · 含運動(gross)   → TDEE 已含平均運動量，吃得多一點，準時達標
+     · 不含運動(base)  → TDEE 不含運動，吃得少一點，運動讓你提早達標
+   兩條路都在 goalTargets() 就決定完了，這裡只負責回報，不再做任何加減。 */
 function dailyKcalTarget(t){
   if(!t||t.kcal==null) return null;
-  // 強制模式就是字面上的「只吃這個數字」，連平均運動量也不加回去
-  if(t.forced) return {kcal:t.kcal, adjustment:0};
-  if(t.base.mode==="base"){
-    const avg=Math.round(+t.base.avgBurn||0);
-    return {kcal:Math.round(t.kcal+avg), adjustment:avg};
-  }
-  return {kcal:Math.round(t.kcal), adjustment:0};
+  return {kcal:t.kcal, adjustment:0};
 }
 /* 某一天「可以吃到多少」才算熱量達標。判定與畫面顯示必須是同一個數字，
    否則等於用一套標準顯示、另一套計分。 */
@@ -762,8 +757,10 @@ function calcGoal(){
     renderProteinHint(t); renderGoalEa(t);   // 與下方自動模式走同一組渲染
     return;
   }
-  if(base.mode==="base") basis+=`　→ 已加回你平均每天的運動消耗 ${Math.round(base.avgBurn||0).toLocaleString()} kcal。`;
-  basis+="　這個數字每天一樣，不會因為今天練得多就變多——運動熱量是估的，跟著它上下反而抓不準。";
+  basis += base.mode==="base"
+    ? `　→ 這個數字不含運動。你去運動燒掉的（平均每天約 ${Math.round(base.avgBurn||0).toLocaleString()} kcal）是額外賺到的赤字，會讓你比目標日期早到。`
+    : `　→ 已含你平常的運動量（平均每天約 ${Math.round(base.avgBurn||0).toLocaleString()} kcal），照這樣吃會準時達標。`;
+  basis+="　不論今天練多練少，這個數字都一樣——運動熱量是估的，跟著它上下反而抓不準。";
   const styleName={low:"低碳",balanced:"均衡",high:"高碳"}[t.macroStyle]||"均衡";
   basis+=`　·　蛋白 ${t.proteinBasis}　·　${styleName}（脂肪${Math.round(t.fatPct*100)}%）`;
   if(base.corrected) basis+="　⚠️ 初期掉的多為水分，實測 TDEE 已向公式校正，避免高估；記滿約 2 週會更準。";
@@ -3012,7 +3009,7 @@ function renderNet(){
   box.innerHTML=`<div class="lbl">${date.slice(5)} 淨熱量（攝取 − 運動消耗）</div>`+
     `<div class="big">${net.toLocaleString()} kcal</div>`+
     `<div class="hint">攝取 ${intake!=null?intake.toLocaleString():"—"} − 運動 ${burn.toLocaleString()}`+
-    (target?`<br>每日攝取目標 ${target.toLocaleString()} kcal（${base.mode==="base"?"不含運動基準＋平均運動量":"含運動基準，已含平均運動量"}，不隨當天運動變動）　${(intake||0)<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-(intake||0)).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${((intake||0)-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
+    (target?`<br>每日攝取目標 ${target.toLocaleString()} kcal（${base.mode==="base"?"不含運動，運動是額外賺到的赤字":"已含你平常的運動量"}，不隨當天運動變動）　${(intake||0)<=target?`<span style="color:var(--green)">↓ 還可吃 ${(target-(intake||0)).toLocaleString()}</span>`:`<span style="color:var(--warm)">↑ 超出 ${((intake||0)-target).toLocaleString()}</span>`}`:"")+`</div>`+eaLine;
 }
 async function delRecord(rid){
   if(!confirm("刪除這筆紀錄？")) return;
@@ -3447,7 +3444,7 @@ function renderReal(){
   set("cmpHint",
     `兩者差 ${stat.avgBurn.toLocaleString()} kcal ＝ 你平均每天運動額外增加的消耗。`+
     `\n· 想「維持現在的運動量」設定吃多少 → 用 ➊ 總 TDEE（已含運動），目前目標建議 ${useGross.toLocaleString()} kcal。`+
-    `\n· 想「把運動另外算」→ 用 ➋ 基礎 TDEE 當底，系統會加回你的平均運動量。`+
+    `\n· 想「把運動另外算、當成額外賺到的」→ 用 ➋ 基礎 TDEE 當底，吃得少一點，運動讓你提早達標。`+
     `\n注意：目標不會隨當天練多練少變動。運動熱量是用 MET 估的，跟著單日估算值上下，`+
     `等於把估算誤差直接變成吃飯額度，也容易變成用運動換食物。`);
   document.getElementById("cmpHint").style.whiteSpace="pre-line";
