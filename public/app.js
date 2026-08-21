@@ -198,7 +198,7 @@ async function changeName(){
 }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","targetDate","macroStyle","proteinPerKg"];
+const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","targetDate","macroStyle","proteinPerKg","kcalMode"];
 // 在伺服器的真實 profile 套進表單「之前」，絕不可儲存：否則會把空白/預設表單 PUT 上去，蓋掉雲端真資料。
 let profileReady=false;
 function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); profileReady=true; }
@@ -440,6 +440,8 @@ function baseTDEE(){
        會被系統性地多挖一個赤字；用平均值就不會隨當天訓練量抖動。 */
 function dailyKcalTarget(t){
   if(!t||t.kcal==null) return null;
+  // 強制模式就是字面上的「只吃這個數字」，連平均運動量也不加回去
+  if(t.forced) return {kcal:t.kcal, adjustment:0};
   if(t.base.mode==="base"){
     const avg=Math.round(+t.base.avgBurn||0);
     return {kcal:Math.round(t.kcal+avg), adjustment:avg};
@@ -512,8 +514,12 @@ function latestBodyFat(){
 }
 function goalTargets(){
   const base=baseTDEE(); if(!base.tdee) return null;
-  const raw=rawGoal(base.tdee), target=applyGoal(base.tdee);
-  const floored=target>raw;   // 下限有生效 → 要讓使用者知道為什麼跟他選的強度對不上
+  const raw=rawGoal(base.tdee), auto=applyGoal(base.tdee);
+  // 強制模式：不管算出來多少，一律吃 MIN_GOAL_KCAL。留給「臨時有需求」的短期使用，
+  // 例如活動前想壓一下。EA 卡片照常示警，這裡不擋——這是使用者的明確決定。
+  const forced=val("kcalMode")==="floor";
+  const target=forced?MIN_GOAL_KCAL:auto;
+  const floored=!forced && target>raw;   // 下限有生效 → 要讓使用者知道為什麼跟他選的強度對不上
   const w=effectiveWeight()||60;
   // 蛋白質依「目標 × 體脂」分級（實證：減脂赤字保肌肉需求最高，增肌夠用即可）
   //   有填體脂→用瘦體重(LBM)更準；否則退回體重。
@@ -547,6 +553,7 @@ function goalTargets(){
   const fatKcal=target*fatPct, fat=Math.round(fatKcal/9);
   const carb=Math.round(Math.max(0,target-protein*4-fatKcal)/4);
   return {kcal:target, protein, fat, carb, base, proteinBasis, fatPct, macroStyle:style, floored, raw,
+          forced, autoKcal:auto,
           proteinCustom, proteinLow, proteinFloor:floor, proteinAutoBasis:basisName, proteinBasisKg:basis};
 }
 /* ---------- 能量可用性 EA（女性專屬） ---------- */
@@ -745,6 +752,16 @@ function calcGoal(){
   const target=(dailyKcalTarget(t)||{}).kcal ?? t.kcal;
   set("goalKcal", target.toLocaleString()+" kcal");
   let basis=`基準：${base.src} ${base.tdee.toLocaleString()} kcal · ${({cut:"減脂",maintain:"維持",bulk:"增肌"})[goal]}`;
+  if(t.forced){
+    basis=`🔒 強制 ${MIN_GOAL_KCAL.toLocaleString()} kcal（已覆蓋自動計算的 ${t.autoKcal.toLocaleString()}）`+
+      `　·　蛋白 ${t.proteinBasis}　·　${({low:"低碳",balanced:"均衡",high:"高碳"})[t.macroStyle]||"均衡"}（脂肪${Math.round(t.fatPct*100)}%）`+
+      `<br><span style="color:var(--warm)">這是短期用的手動設定。長期壓在這條線上，微量營養素會吃不夠、恢復與經期都可能受影響；`+
+      `想恢復自動計算，把上面的「熱量模式」切回去即可。</span>`;
+    set("goalBasis", basis);
+    drawMacroBar("goalBar","goalLeg",protein,fat,carb);
+    renderProteinHint(t); renderGoalEa(t);   // 與下方自動模式走同一組渲染
+    return;
+  }
   if(base.mode==="base") basis+=`　→ 已加回你平均每天的運動消耗 ${Math.round(base.avgBurn||0).toLocaleString()} kcal。`;
   basis+="　這個數字每天一樣，不會因為今天練得多就變多——運動熱量是估的，跟著它上下反而抓不準。";
   const styleName={low:"低碳",balanced:"均衡",high:"高碳"}[t.macroStyle]||"均衡";

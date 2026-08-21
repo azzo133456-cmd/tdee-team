@@ -144,6 +144,11 @@
           <option value="balanced" selected>均衡（脂肪25%）</option>
           <option value="high">高碳（脂肪18%・運動量大）</option>
         </select>
+        <label>熱量模式</label>
+        <select id="kcalMode">
+          <option value="auto" selected>依目標自動計算</option>
+          <option value="floor">強制 1200 kcal（短期用）</option>
+        </select>
         <label>蛋白質係數（留空＝自動）</label>
         <input id="proteinPerKg" type="number" step="0.1" inputmode="decimal" placeholder="留空由系統依目標與體脂決定">
         <div id="proteinHint"></div>
