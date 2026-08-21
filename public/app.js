@@ -257,6 +257,75 @@ function calcMifflin(){
      ② 全歷史體重趨勢 ×7700 —— 沒有體脂資料時退而求其次
      ③ 生理週期對齊視窗 —— 前兩者資料不足時使用；短視窗才追得上近期變化
    實測四位使用者，①與②收斂在 1～5%，交叉驗證通過。 */
+/* ---------- 體重趨勢：Holt 線性趨勢（雙指數平滑） ----------
+   為什麼不用「全歷史畫一條直線」：等權重最小平方法裡，十週前的那一天和昨天一樣重，
+   所以資料越累積，新的一天越推不動它。實測真實 TDEE 階梯上升 300 kcal 時，它 30 天
+   只追上 21%、90 天才 58%——不是穩定，是幾乎不反應。當時「肉」被低估了 225 kcal，
+   建議攝取因此被壓到 1200 的地板。
+   Holt 改成每天在既有估計上修正一點，越舊的資料影響越淡：用上全部歷史，但會遺忘。
+   同一個階梯測試 30 天追上 81%、45 天 95%，而每日跳動只有短視窗法的六成。
+   （也試過指數加權的最小平方法，30 天只追上 39%——久遠的點權重雖低，在線性擬合裡
+   槓桿仍大，還是把斜率釘住。Holt 沒有這個問題。） */
+const TDEE_ALPHA=0.15;       // 水準平滑：新體重佔多少
+const TDEE_BETA=0.05;        // 趨勢平滑：斜率修正得多快
+const TDEE_INTAKE_HL=21;     // 平均攝取的半衰期（天）
+const TDEE_MAX_STEP=25;      // 採用值每天最多移動幾 kcal（見下方說明）
+const TDEE_OUTLIER_PCT=0.015;// 單日體重偏離預測超過體重的 1.5% 就視為離群，只採信到門檻
+/* 逐日重算整條 TDEE 序列，並限制它每天最多移動 TDEE_MAX_STEP。
+   限流是為了「每天滾動、但不要跳出誇張的數字」：實測四人，設 25 時最終值與不限流
+   的 Holt 只差 0～7 kcal（設 20 以下就開始扭曲，YiJin −37、肉 −129）。
+   整條序列都是從歷史重算的，沒有存任何狀態，所以每次開 App 都會得到同一個結果。
+   體重只在有紀錄的日子才有；中間缺的日子線性內插，否則間隔會把平滑扭曲。 */
+function holtTdee(recs, ks){
+  if(recs.length<14) return null;
+  const dayOf=d=>new Date(d.slice(0,10)).getTime()/86400000;
+  const kByDate={}; ks.forEach(r=>{ kByDate[r.date.slice(0,10)]=+r.kcal; });
+  // 展開成逐日體重（缺的日子在前後兩筆之間線性內插）
+  const w=[], dates=[];
+  for(let i=0;i<recs.length;i++){
+    const d=recs[i].date.slice(0,10), wi=+recs[i].weight;
+    w.push(wi); dates.push(d);
+    if(i+1<recs.length){
+      const gap=Math.round(dayOf(recs[i+1].date)-dayOf(d));
+      const wn=+recs[i+1].weight;
+      for(let k=1;k<gap;k++){
+        w.push(wi+(wn-wi)*k/gap);
+        dates.push(new Date((dayOf(d)+k)*86400000).toISOString().slice(0,10));
+      }
+    }
+  }
+  if(w.length<14) return null;
+  // 穩健初始化：水準取前 7 天平均、趨勢取前 14 天的最小平方斜率。
+  // （若用頭兩天的差當初始趨勢，一個雜訊點會被記很久，實測會算出 533 這種荒謬值。）
+  let L=w.slice(0,7).reduce((a,b)=>a+b,0)/7;
+  let T=slopePerDay(w.slice(0,14).map((_,i)=>i), w.slice(0,14));
+  if(T==null) return null;
+  const lam=Math.pow(0.5, 1/TDEE_INTAKE_HL);
+  let eK=null, nK=0, adopted=null, raw=null;
+  for(let i=0;i<w.length;i++){
+    const k=kByDate[dates[i]];
+    if(k!=null){ eK = eK==null ? k : lam*eK+(1-lam)*k; nK++; }
+    if(i<7) continue;                      // 前 7 天只拿來定初值
+    const pL=L, pred=L+T;
+    // 離群值鉗制：單日體重跟預測差太多（打錯字、量測失誤、極端水腫）就只採信到門檻為止。
+    // 實測 RU 8/17 有一筆 64.2（前後都在 62.5 上下），沒有這道鉗制會讓 TDEE 移動 43 kcal。
+    const dev=w[i]-pred, lim=pred*TDEE_OUTLIER_PCT;
+    const obs=pred+Math.max(-lim, Math.min(lim, dev));
+    L = TDEE_ALPHA*obs + (1-TDEE_ALPHA)*pred;
+    T = TDEE_BETA*(L-pL) + (1-TDEE_BETA)*T;
+    if(eK==null||nK<3) continue;
+    raw = Math.round(eK) + Math.round(-T*7700);
+    adopted = adopted==null ? raw
+            : adopted + Math.max(-TDEE_MAX_STEP, Math.min(TDEE_MAX_STEP, raw-adopted));
+  }
+  if(adopted==null) return null;
+  // 卡片上寫的是「平均攝取 ＋ 每日淨釋出 ＝ TDEE」。限流動到的是採用值，所以淨釋出要
+  // 從採用值回推，三個數字才會真的加得起來；體重趨勢也一併對齊，不然會出現「這裡說
+  // 每週掉 0.5、那裡的赤字卻對不上」的老問題。（限流只在變化快時暫時偏離，穩態下差 0～7 kcal。）
+  const tdee=Math.round(adopted), release=tdee-Math.round(eK);
+  return {tdee, raw, avgK:Math.round(eK), release,
+          slopeWk:-release/7700*7, capped:Math.abs(tdee-raw)>1};
+}
 /* ---------- 分析期間：單一真相來源 ----------
    實測 TDEE 的計算範圍前後改過數次（28 筆視窗 → 週期對齊 → 全歷史體組成），而週邊
    的引用點各自框自己的期間，於是接連出現三個「數字本身沒錯、但兩處取自不同範圍」的
@@ -299,10 +368,16 @@ function analysisPeriod(){
       }
     }
   }
-  // ② 全歷史體重趨勢 ×7700
-  if(recs.length>=14 && avgK!=null && ks.length>=10 && wSlope!=null){
-    const release=Math.round(-wSlope*7700);
-    return {...base, src:"lifetime", release, tdee:avgK+release, comp};
+  // ② 體重趨勢 ×7700（Holt 平滑，見上方說明）
+  if(recs.length>=14 && avgK!=null && ks.length>=10){
+    const H=holtTdee(recs, ks);
+    if(H) return {...base, src:"holt", release:H.release, tdee:H.tdee, rawTdee:H.raw,
+                  avgK:H.avgK, slopeWk:H.slopeWk, capped:H.capped, comp};
+    // 平滑算不出來（例如資料太散）→ 退回等權重的全歷史直線
+    if(wSlope!=null){
+      const release=Math.round(-wSlope*7700);
+      return {...base, src:"lifetime", release, tdee:avgK+release, comp};
+    }
   }
   // ③ 生理週期對齊視窗（資料還不足以做全歷史時；也是唯一追得上近期變化的）
   const R=calcReal(store.records, store.exercises);
@@ -630,7 +705,7 @@ function renderPlan(){
     title="🔥 執行赤字中";
     const slow=(ph.obs!=null && P.weeklyTargetKg!=null && ph.obs>-Math.abs(P.weeklyTargetKg)*0.6);
     body=`用實測 TDEE 抓赤字、蛋白吃滿（目標 ${num(P.target&&P.target.protein)}g）。每日攝取目標 <b>${num(P.target&&P.target.kcal)} kcal</b>（赤字約 ${num(P.dailyDeficitTarget)}）。`+
-      `<br><span style="color:var(--sub)">TDEE 為全歷史估計；實際速度採 ${P.trendWindow}。</span>`+
+      `<br><span style="color:var(--sub)">TDEE 取自全部紀錄、近期權重較高；實際速度採 ${P.trendWindow}。</span>`+
       `目標週速度 ${P.weeklyTargetKg!=null?(-Math.abs(P.weeklyTargetKg))+"kg":"—"}、實際 <b>${wkObs}</b>。`+
       (slow?`<br>⚠ 下降偏慢，可再收緊一點攝取或增加活動量。`:`<br>✅ 方向不錯，穩住就好。`);
     actions=[`每週看一次「實際 vs 目標週速度」，差很多才調`,`別靠運動硬湊赤字；重訓保肌、有氧加成`];
@@ -3306,7 +3381,8 @@ function renderReal(){
   if(R.tdee){
     // 顯示「校正後採用值」（與目標建議、減重計畫一致），不再顯示未夾限的原始反推，避免四處數字打架
     set("realTdee",gross!=null?gross.toLocaleString():"—"); set("realTdeeBase",base!=null?base.toLocaleString():"—");
-    const srcTxt = M&&M.src==="lifetime"&&M.measured ? `全部 ${M.measured.detail.days} 天紀錄，體重趨勢反推`
+    const srcTxt = M&&(M.src==="holt"||M.src==="lifetime")&&M.measured
+                 ? `全部 ${M.measured.detail.days} 天紀錄，體重趨勢反推（近期權重較高）`
                  : `近期 ${recentTrendLabel(R)}`;
     const recent=`近期體重速度另以 ${recentTrendLabel(R)} 顯示於進度與 ETA。`;
     set("realDetail", (M.corrected
