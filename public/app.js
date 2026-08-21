@@ -198,10 +198,28 @@ async function changeName(){
 }
 
 /* ---------- profile ---------- */
-const pIds=["sex","age","height","weight","act","goal","goalRate","tdeeBasis","targetWeight","targetDate","macroStyle","proteinPerKg","kcalMode"];
+// tdeeBasis 不在此列：全隊統一「不含運動」，不從 profile 讀也不寫回去
+// （舊值仍留在資料庫，日後要重新開放個別切換時可以直接接回來）
+const pIds=["sex","age","height","weight","act","goal","goalRate","targetWeight","targetDate","macroStyle","proteinPerKg","kcalMode"];
 // 在伺服器的真實 profile 套進表單「之前」，絕不可儲存：否則會把空白/預設表單 PUT 上去，蓋掉雲端真資料。
 let profileReady=false;
-function applyProfile(p){ pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; }); profileReady=true; }
+function applyProfile(p){
+  pIds.forEach(id=>{ if(p && p[id]!=null) document.getElementById(id).value=p[id]; });
+  const tb=document.getElementById("tdeeBasis"); if(tb) tb.value="base";   // 全隊統一，見 pIds 上方註解
+  profileReady=true;
+}
+/* 有設目標日期時，赤字是由「還差幾公斤 ÷ 剩幾天」反推的，強度那個下拉根本不會被讀到。
+   實測四位使用者，10%／20%／25% 三個值算出來的目標完全一樣。留一個永遠不生效的控制項
+   只會讓人以為自己調得動，所以有日期就收起來；清掉日期它會自動回來（那時它真的有用）。 */
+function syncGoalRateVis(){
+  // 條件要跟 rawGoal() 裡真正忽略強度的那一行一致，否則會出現「藏起來了但其實有用」
+  // 或反過來的情形（例如目標日期已經過期，那時強度會重新生效）。
+  const b=baseTDEE(), P=(val("goal")==="cut"&&b&&b.tdee)?datePlan(b.tdee):null;
+  const byDate=!!(P && P.deficit!=null && P.status!=="past");
+  ["goalRateWrap","goalRateTip"].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display=byDate?"none":"";
+  });
+}
 function readProfile(){
   const o={};
   // 數值類欄位若為空字串就「不送」，避免空值覆蓋雲端既有資料（防止再次發生 profile 被洗白）
@@ -3648,7 +3666,7 @@ function syncProfileWeight(){
   document.getElementById("weight").value=d.eff;
   saveProfile();
 }
-function renderDerived(){ calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); renderWeightHint(); renderLeanGoal(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
+function renderDerived(){ syncGoalRateVis(); calcMifflin(); calcGoal(); renderExRec(); renderEta(); renderTargetHint(); renderDatePlan(); renderWeightHint(); renderLeanGoal(); if(typeof renderPeriod==="function") renderPeriod(); if(store.records){ renderDay(); renderPlan(); if(typeof renderBodyComp==="function") renderBodyComp(); renderReport(); renderDashboard(); } }
 function renderAll(){
   set("curName",session.username);
   // 每個區塊獨立 try/catch：任一區塊渲染出錯也不會中斷其他區塊（避免單一錯誤讓整頁看起來「資料全不見」）

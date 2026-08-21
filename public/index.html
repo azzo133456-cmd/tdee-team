@@ -128,16 +128,21 @@
           <div><label>目標</label>
             <select id="goal"><option value="cut">減脂</option><option value="maintain" selected>維持</option><option value="bulk">增肌</option></select>
           </div>
-          <div><label>強度</label>
+          <div id="goalRateWrap"><label>強度</label>
             <select id="goalRate"><option value="0.1">溫和 10%</option><option value="0.2" selected>標準 20%</option><option value="0.25">積極 25%</option></select>
           </div>
         </div>
-        <div class="hint tip">強度＝熱量增減幅度：溫和10%／標準20%／積極25%。</div>
-        <label>TDEE 基準</label>
-        <select id="tdeeBasis">
-          <option value="gross" selected>含運動（運動算在計畫裡・準時達標）</option>
-          <option value="base">不含運動（運動是額外赤字・提早達標）</option>
-        </select>
+        <div class="hint tip" id="goalRateTip">強度＝熱量增減幅度：溫和10%／標準20%／積極25%。</div>
+        <!-- TDEE 基準：全隊統一「不含運動」（運動＝額外賺到的赤字），不開放個別切換，
+             否則一鍵就能多吃 64～95 kcal、隊內標準不一致。留在 DOM 裡是為了日後要
+             重新開放時直接拿掉 display:none 即可。 -->
+        <div id="tdeeBasisWrap" style="display:none">
+          <label>TDEE 基準</label>
+          <select id="tdeeBasis">
+            <option value="gross">含運動（運動算在計畫裡・準時達標）</option>
+            <option value="base" selected>不含運動（運動是額外赤字・提早達標）</option>
+          </select>
+        </div>
         <label>碳水風格</label>
         <select id="macroStyle">
           <option value="low">低碳（脂肪40%・易餓穩血糖）</option>
