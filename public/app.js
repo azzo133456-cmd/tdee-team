@@ -1126,7 +1126,18 @@ function addGMeal(){
 }
 function delGBuy(id){ if(!store.grocery) return; store.grocery.buys=(store.grocery.buys||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
 function delGMeal(id){ if(!store.grocery) return; store.grocery.meals=(store.grocery.meals||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
-const SUBSIDY_PER_DAY=200;
+/* 公司補給的費率有調整過，所以按日期分段：改制前的日子仍用舊費率結算，
+   不能拿新費率回頭重算歷史（那會憑空多出一筆從沒申請過的補給）。
+   之後再調整就往陣列前面加一段，from 是「開始適用」的那天。 */
+const SUBSIDY_RATES=[
+  {from:"2026-08-24", amount:300},   // 改為平日每次 $300
+  {from:"0000-01-01", amount:200},   // 原費率
+];
+function subsidyFor(dstr){
+  const d=String(dstr||"").slice(0,10);
+  const hit=SUBSIDY_RATES.find(r=>d>=r.from);
+  return hit?hit.amount:0;
+}
 function isWeekday(dstr){ const d=new Date(dstr+"T00:00:00"); const w=d.getDay(); return w>=1&&w<=5; }   // 週一~五
 function addGSettle(){
   const date=val("gSetDate")||todayStr(), amount=Math.round(+val("gSetAmount")||0), note=(val("gSetNote")||"").trim();
@@ -1182,7 +1193,8 @@ function renderGrocery(){
   // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
   const settles=g.settles||[];
   const cookWeekdays=new Set(); meals.forEach(x=>{ if(x.date&&isWeekday(x.date)) cookWeekdays.add(x.date); });
-  const accrued=cookWeekdays.size*SUBSIDY_PER_DAY;
+  let accrued=0, rateSplit={};
+  cookWeekdays.forEach(d=>{ const a=subsidyFor(d); accrued+=a; rateSplit[a]=(rateSplit[a]||0)+1; });
   const claimed=settles.reduce((a,s)=>a+(+s.amount||0),0);
   const balance=accrued-claimed;
   const sbx=document.getElementById("gSubsidyBox");
@@ -1193,7 +1205,7 @@ function renderGrocery(){
     const balLabel=balance>0?"還沒領（可申請）":(balance<0?"多領了⚠️":"已結清");
     // 每月分解：累計依當月平日煮餐天數計算；已領按申請日期所在月份計算（跟現金流法一致，用實際入帳月）
     const subMonths={};
-    cookWeekdays.forEach(d=>{ const m=gMonth(d); if(!m) return; (subMonths[m]=subMonths[m]||{accrued:0,claimed:0}).accrued+=SUBSIDY_PER_DAY; });
+    cookWeekdays.forEach(d=>{ const m=gMonth(d); if(!m) return; (subMonths[m]=subMonths[m]||{accrued:0,claimed:0}).accrued+=subsidyFor(d); });
     settles.forEach(s=>{ const m=gMonth(s.date); if(!m) return; (subMonths[m]=subMonths[m]||{accrued:0,claimed:0}).claimed+=(+s.amount||0); });
     const subKeys=Object.keys(subMonths).sort((a,b)=>b.localeCompare(a));
     const subRows=subKeys.map(m=>{
@@ -1204,7 +1216,7 @@ function renderGrocery(){
     const subTable=subKeys.length?`<div class="gtblwrap" style="margin-top:10px"><table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">補給</th><th style="text-align:right">已領</th><th style="text-align:right">結餘</th></tr></thead><tbody>${subRows}</tbody></table></div>`:"";
     sbx.innerHTML=
       `<div class="subgrid">`+
-        `<div class="subcell"><div class="subnum">$${accrued.toLocaleString()}</div><div class="sublab">累計補給<br><span class="hint">平日煮 ${cookWeekdays.size} 天×200</span></div></div>`+
+        `<div class="subcell"><div class="subnum">$${accrued.toLocaleString()}</div><div class="sublab">累計補給<br><span class="hint">${Object.keys(rateSplit).sort((a,b)=>a-b).map(r=>`${rateSplit[r]} 天×${r}`).join("　＋　")}</span></div></div>`+
         `<div class="subcell"><div class="subnum">$${claimed.toLocaleString()}</div><div class="sublab">已申請現金</div></div>`+
         `<div class="subcell"><div class="subnum" style="color:${balColor}">$${balance.toLocaleString()}</div><div class="sublab">${balLabel}</div></div>`+
       `</div>`+
