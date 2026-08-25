@@ -1130,12 +1130,12 @@ function addGMeal(){
 }
 function delGBuy(id){ if(!store.grocery) return; store.grocery.buys=(store.grocery.buys||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
 function delGMeal(id){ if(!store.grocery) return; store.grocery.meals=(store.grocery.meals||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
-/* 公司補給的費率有調整過，所以按日期分段：改制前的日子仍用舊費率結算，
-   不能拿新費率回頭重算歷史（那會憑空多出一筆從沒申請過的補給）。
-   之後再調整就往陣列前面加一段，from 是「開始適用」的那天。 */
+/* 公司補給費率。做成按日期分段是為了「之後再調整時，改制前的日子仍用舊費率結算」——
+   拿新費率回頭重算歷史，會憑空多出從沒核准過的補給。
+   這次 $200→$300 是公司回溯適用（先前的差額一併補發），所以只留一段、全期都是 300。
+   下次若是「某天起才適用」，就往陣列前面加一段，from 是開始適用的那天。 */
 const SUBSIDY_RATES=[
-  {from:"2026-08-24", amount:300},   // 改為平日每次 $300
-  {from:"0000-01-01", amount:200},   // 原費率
+  {from:"0000-01-01", amount:300},   // 平日每次 $300（公司回溯適用，先前的 $200 一併補齊）
 ];
 function subsidyFor(dstr){
   const d=String(dstr||"").slice(0,10);
