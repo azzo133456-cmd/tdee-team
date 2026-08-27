@@ -1568,6 +1568,135 @@ async function coachDaily(){
     box.innerHTML=coachHtml(r);
   }catch(e){ box.innerHTML=`建議失敗：${e.message} <button class="ghost sm" onclick="coachDaily()">🔁 再試</button>`; }
 }
+/* ---------- 還能吃什麼：從真實資料推薦 ----------
+   先前是丟給 AI 憑空生品項：慢（3–6 秒）、要花額度、給的東西不一定買得到，
+   而且完全沒用到我們手上已經有的三份資料。改成本地計算，秒出、離線也能用。
+   候選來自三個地方，同名以「吃過的」優先（那份量是他真的吃下去的）：
+     🕘 吃過的 —— store.meals 聚合，帶著他自己的習慣份量
+     👥 共享／內建食物庫 —— foodData() ＋ statG() 換算成一份
+     📖 食譜 —— 每份營養
+   評分是「加入這一份之後，離四項目標更近還是更遠」，四項都算，不是只看熱量。 */
+const REC_W={k:1.0, p:1.8, f:0.5, c:0.5};   // 蛋白權重最高：減脂期最該補滿的是它
+// 名稱裡常帶著當初記錄的克數（「魷魚 120g」）與舊 AI 版留下的 ✨ 前綴。
+// 乘上份量之後那個克數就不對了，所以顯示時剝掉，實際克數由我們自己乘。
+function recCleanName(n){ return String(n||"").replace(/^✨\s*/,"").replace(/\s*\d+(?:\.\d+)?\s*g\s*$/i,"").trim()||String(n||""); }
+const REC_OVER=2.0;                          // 超過目標比沒吃滿更該罰（尤其熱量）
+// 與目標的加權距離；v 是「還差多少」，負值代表已經超過
+function recDist(v, t){
+  let d=0;
+  for(const m of ["k","p","f","c"]){
+    const tg=t[m]||1, x=v[m]/tg;
+    d += REC_W[m] * x*x * (v[m]<0 ? REC_OVER : 1);
+  }
+  return d;
+}
+// 蒐集候選：{name, per:{k,p,f,c}, grams, src, seen}
+function recCandidates(){
+  const out=new Map();
+  const put=(name, per, grams, src, seen)=>{
+    if(!name || !(per.k>0)) return;
+    const old=out.get(name);
+    if(old){ old.seen=Math.max(old.seen, seen||0); return; }   // 先到先贏（吃過的最先放）
+    out.set(name, {name, per, grams, src, seen:seen||0});
+  };
+  // ① 吃過的：同名取平均每次的份量與營養
+  const hist={};
+  (store.meals||[]).forEach(m=>{
+    const n=(m.name||"").trim(); if(!n || !(+m.kcal>0)) return;
+    const h=hist[n]||(hist[n]={n:0,k:0,p:0,f:0,c:0});
+    h.n++; h.k+=+m.kcal||0; h.p+=+m.protein||0; h.f+=+m.fat||0; h.c+=+m.carb||0;
+  });
+  Object.entries(hist).forEach(([n,h])=>
+    put(n, {k:h.k/h.n, p:h.p/h.n, f:h.f/h.n, c:h.c/h.n}, mealGramOf(n)||null, "hist", h.n));
+  // ② 食譜：換算成一人份
+  (store.recipes||[]).forEach(r=>{
+    const sv=Math.max(1, +r.servings||1);
+    put(r.name, {k:(+r.kcal||0)/sv, p:(+r.protein||0)/sv, f:(+r.fat||0)/sv, c:(+r.carb||0)/sv}, null, "recipe", 0);
+  });
+  // ③ 食物庫（共享優先，其次自訂/內建）：用預設份量換算成一份
+  const names=new Set([...SHARED_NAMES, ...Object.keys(FOODS_DYN), ...Object.keys(FOODS)]);
+  names.forEach(n=>{
+    const d=foodData(n); if(!d) return;
+    const g=statG(n)||100, f=g/100;
+    put(n, {k:d[0]*f, p:(d[1]||0)*f, f:(d[2]||0)*f, c:(d[3]||0)*f}, g,
+        SHARED_NAMES.has(n)?"shared":"db", (FOOD_STATS[n]&&FOOD_STATS[n].c)||0);
+  });
+  return [...out.values()];
+}
+// 主要補到哪一項 → 一句話理由
+function recReason(item, gap){
+  const cover=m=>gap[m]>0 ? Math.min(1, item[m]/gap[m]) : 0;
+  const best=["p","c","f"].sort((a,b)=>cover(b)-cover(a))[0];
+  const label={p:"蛋白", c:"碳水", f:"脂肪"}[best];
+  const pct=Math.round(cover(best)*100);
+  if(pct>=15) return `補${label} ${Math.round(item[best])}g（缺口的 ${pct}%）`;
+  if(gap.k>0 && item.k<=gap.k) return "熱量還放得下";
+  return "份量小、好收尾";
+}
+const REC_PORTIONS=[0.5, 0.75, 1, 1.5, 2];
+function recommendFoods(date){
+  const t=goalTargets(); if(!t) return null;
+  const d=dayNutrition(date||selDate());
+  const daily=dailyKcalTarget(t);
+  const target={k:daily.kcal, p:t.protein, f:t.fat, c:t.carb};
+  const gap={k:target.k-d.k, p:t.protein-d.p, f:t.fat-d.f, c:t.carb-d.c};
+  const base=recDist(gap, target);
+  const ate=new Set((store.meals||[]).filter(m=>m.date.slice(0,10)===(date||selDate()))
+    .map(m=>recCleanName(m.name)));
+  const scored=[];
+  for(const cd of recCandidates()){
+    if(ate.has(recCleanName(cd.name))) continue;      // 今天吃過了就不再推同一樣
+    let best=null;
+    for(const q of REC_PORTIONS){
+      const it={k:cd.per.k*q, p:cd.per.p*q, f:cd.per.f*q, c:cd.per.c*q};
+      if(it.k<20) continue;                                   // 太小的份量沒意義
+      const after=recDist({k:gap.k-it.k, p:gap.p-it.p, f:gap.f-it.f, c:gap.c-it.c}, target);
+      const gainRaw=base-after;
+      if(gainRaw<=0) continue;                                // 吃了反而離目標更遠
+      // 兩個微調，都刻意做小，不足以蓋過營養契合度：
+      //   常吃的往前排一點；蛋白密度高的往前排一點
+      //   （沒有第二項的話，缺口只剩碳水時整排會是米果仙貝——數學沒錯但建議很爛）
+      const dens=it.k>0 ? it.p/(it.k/100) : 0;          // 每 100 kcal 幾克蛋白
+      const gain=gainRaw*(1+0.12*Math.log(1+cd.seen))*(1+0.20*Math.min(1,dens/8));
+      if(!best||gain>best.gain) best={gain, q, it};
+    }
+    if(best) scored.push({...cd, ...best});
+  }
+  scored.sort((a,b)=>b.gain-a.gain);
+  // 同一個名字只留最好的份量；再限制單一來源不要洗版
+  const picked=[], cnt={};
+  for(const s of scored){
+    if(picked.length>=6) break;
+    if((cnt[s.src]=(cnt[s.src]||0))>=4) continue;
+    cnt[s.src]++; picked.push(s);
+  }
+  return {gap, target, items:picked};
+}
+const REC_SRC={hist:"🕘 吃過", recipe:"📖 食譜", shared:"👥 共享", db:"🍽 食物庫"};
+function renderRemain(){
+  const box=document.getElementById("coachBox");
+  const R=recommendFoods(); if(!R){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
+  const {gap, items}=R;
+  const chip=(lab,v,unit)=>`<span style="display:inline-block;margin-right:10px">${lab} <b style="color:${v<0?"#b5564e":"var(--accent)"}">${v>=0?"":"超"}${Math.abs(Math.round(v))}</b>${unit}</span>`;
+  const head=`<div style="margin-bottom:8px;line-height:1.9">還可以吃：`+
+    chip("熱量",gap.k,"kcal")+chip("蛋白",gap.p,"g")+chip("脂肪",gap.f,"g")+chip("碳水",gap.c,"g")+`</div>`;
+  if(!items.length){
+    box.innerHTML=head+`<div class="hint">四項都差不多滿了，沒有加了會更接近目標的選擇。真的餓的話挑無糖飲品或蔬菜。</div>`;
+    return;
+  }
+  window.__remain=items.map(s=>({name:recCleanName(s.name)+(s.q!==1?`（${s.q} 份）`:""), kcal:Math.round(s.it.k),
+    protein:+s.it.p.toFixed(1), fat:+s.it.f.toFixed(1), carb:+s.it.c.toFixed(1),
+    grams:s.grams?Math.round(s.grams*s.q):null, raw:s.name}));
+  box.innerHTML=head+items.map((s,i)=>{
+    const g=s.grams?` · ${Math.round(s.grams*s.q)}g`:(s.q!==1?` · ${s.q} 份`:"");
+    return `<div class="foodrow"><span class="nm">${REC_SRC[s.src]||""} ${recCleanName(s.name)}${s.q!==1?`　<span style="color:var(--sub)">×${s.q}</span>`:""}<br>`+
+      `<span style="color:var(--sub);font-size:11px">${Math.round(s.it.k)}kcal · P${s.it.p.toFixed(1)} F${s.it.f.toFixed(1)} C${s.it.c.toFixed(1)}${g} · ${recReason(s.it,gap)}</span></span>`+
+      `<span class="x" style="color:var(--accent)" onclick="addRemainItem(${i})">＋加入</span></div>`;
+  }).join("")+
+  `<div class="hint" style="margin-top:8px">依你吃過的紀錄、共享食物庫與食譜，挑「加進去之後四項離目標最近」的組合。`+
+  `<button class="ghost sm" style="margin-left:8px" onclick="coachRemain()">🤖 改用 AI 想新點子</button></div>`;
+}
+// 舊的 AI 版保留成備援：想要「沒吃過的新點子」時才用
 async function coachRemain(){
   const box=document.getElementById("coachBox");
   const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
@@ -1589,9 +1718,13 @@ async function coachRemain(){
 // 把 AI 推薦的一項加入下方食物清單（以一份=其重量近似 100g 帶入）
 function addRemainItem(i){
   const it=(window.__remain||[])[i]; if(!it) return;
-  const name="✨ "+it.name;
-  FOODS_DYN[name]=[it.kcal,it.protein,it.fat,it.carb]; SERVINGS[name]=100;
-  addToCart(name,100);
+  // 本地推薦：品項本來就在食物庫裡，直接用原名與實際克數加入，不要再造一筆「✨」重複資料
+  if(it.raw && foodData(it.raw) && it.grams>0){ addToCart(it.raw, it.grams); }
+  else{
+    const name=(it.raw&&foodData(it.raw))?it.raw:("✨ "+it.name);
+    FOODS_DYN[name]=[it.kcal,it.protein,it.fat,it.carb]; SERVINGS[name]=100;
+    addToCart(name,100);
+  }
   document.getElementById("foodTotal").scrollIntoView({behavior:"smooth"});
 }
 async function coachReport(){
