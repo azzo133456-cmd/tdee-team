@@ -542,6 +542,21 @@ app.delete("/api/meal/:mid/photo", auth, async (req, res) => {
   }
 });
 
+/* 整批改名：改食物名稱時,過去的餐點紀錄也要跟著改。
+   不然「吃過的紀錄」那條候選來源仍然帶著舊名字 —— 使用者明明改好了,
+   推薦清單卻還是認不出它,或是同一樣東西以新舊兩個名字各出現一次。 */
+app.post("/api/meal/rename", auth, async (req, res) => {
+  try {
+    const from = String(req.body.from || "").trim(), to = String(req.body.to || "").trim();
+    if (!from || !to || from === to) return res.status(400).json({ error: "名稱不正確" });
+    if (to.length > 60) return res.status(400).json({ error: "名稱太長" });
+    const r = await pool.query("UPDATE meals SET name=$1 WHERE user_id=$2 AND name=$3", [to, req.user.id, from]);
+    res.json({ ok: true, updated: r.rowCount });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
 app.delete("/api/meal/:mid", auth, async (req, res) => {
   try {
     await pool.query("DELETE FROM meals WHERE id=$1 AND user_id=$2", [req.params.mid, req.user.id]);

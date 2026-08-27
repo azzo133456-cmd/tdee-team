@@ -1038,6 +1038,14 @@ function renderFood(){
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
 // 改商品名稱（拍標示/AI/自訂食物）：同步更新動態食物表、購物車、最愛與共享庫
+/* 把過去餐點紀錄裡的舊名字換成新的（本地先改、再送伺服器；失敗不擋改名本身） */
+async function renameInHistory(oldName, newName){
+  const hit=(store.meals||[]).filter(m=>m.name===oldName);
+  if(!hit.length) return;
+  hit.forEach(m=>{ m.name=newName; });
+  try{ await api("/api/meal/rename",{method:"POST",body:JSON.stringify({from:oldName,to:newName})}); }
+  catch(e){ console.warn("歷史紀錄改名失敗，下次重新載入會還原：",e.message); }
+}
 function renameFood(i){
   const it=foodCart[i]; if(!it) return;
   const prefix=/^✨\s*/.test(it.n)?"✨ ":"";   // 保留 AI 標記
@@ -1057,6 +1065,9 @@ function renameFood(i){
   if(store.favorites){ let changed=false; store.favorites.forEach(f=>{ if(f.n===oldName){ f.n=finalName; changed=true; } }); if(changed){ saveFavs(); if(typeof renderFavs==="function") renderFavs(); } }
   // 非 AI 暫存項（拍標示/自訂）用新名稱重新上傳共享庫
   if(!prefix && FOODS_DYN[finalName]) shareFood(finalName,FOODS_DYN[finalName],SERVINGS[finalName]||100,"food");
+  // 過去的餐點紀錄一起改。不然「吃過的紀錄」那條候選來源還是帶著舊名字，
+  // 使用者明明改好了、推薦清單卻仍然認不出它。
+  renameInHistory(oldName, finalName);
   renderFood();
 }
 function selDate(){ return val("foodDate")||todayStr(); }
@@ -3508,14 +3519,22 @@ function renderDashboard(){
   const stat=(v,k,col)=>`<div><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="k">${k}</div></div>`;
   let html="";
   if(t){
+    // 四項都顯示「還剩多少」（先前只有熱量與蛋白，脂肪碳水要切到飲食頁才看得到，
+    // 但「還能吃什麼」的推薦是四項一起算的，首頁只給兩項會對不起來）
     const daily=dailyKcalTarget(t);
     const remain=Math.round(daily.kcal-nut.k);
-    const pLeft=Math.max(0,Math.round(t.protein-nut.p));
+    const left={p:Math.round(t.protein-nut.p), f:Math.round(t.fat-nut.f), c:Math.round(t.carb-nut.c)};
+    // 蛋白吃不夠是問題，脂肪碳水吃超過才是問題 → 顏色邏輯相反
+    const macro=(v,lab,lowIsBad)=>stat((v<0?"超"+Math.abs(v):v),lab,
+      lowIsBad ? (v>0?"var(--warm)":"var(--green)") : (v<0?"#b5564e":"var(--green)"));
     html+=`<div class="stat-row" style="margin-top:2px;">`+
       stat((remain>=0?"":"")+remain.toLocaleString(),"還可吃 kcal",remain<0?"#b5564e":"var(--green)")+
-      stat(nut.p+"/"+t.protein,"蛋白(g)",pLeft>0?"var(--warm)":"var(--green)")+
-      stat(Math.round(water/waterGoal*100)+"%","飲水",water>=waterGoal?"var(--green)":"")+
-      stat(nut.k>0?"✓":"—","今日打卡",nut.k>0?"var(--green)":"var(--sub)")+`</div>`;
+      macro(left.p,"蛋白還缺(g)",true)+
+      macro(left.f,"脂肪還剩(g)",false)+
+      macro(left.c,"碳水還剩(g)",false)+`</div>`+
+      `<div class="hint" style="margin-top:6px;">`+
+      `💧 飲水 ${Math.round(water/waterGoal*100)}%（${water.toLocaleString()}/${waterGoal.toLocaleString()} ml）`+
+      `　·　今日打卡 ${nut.k>0?"✅ 已記錄":"⬜ 還沒記"}</div>`;
   }else{
     html+=`<div class="hint">先在下方 ①②填基本資料與目標，這裡就會顯示「今天還能吃多少、蛋白、飲水、打卡」。</div>`;
   }
