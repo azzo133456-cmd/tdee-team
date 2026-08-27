@@ -1319,7 +1319,10 @@ function addCustom(){
    不知道那是什麼，而且會直接出現在「還能吃什麼」的推薦清單上。 */
 function badFoodName(n){
   const s=String(n||"").trim();
-  if(s.length<2) return true;
+  if(!s) return true;
+  // 中文食物名可以只有一個字（蝦、蛋、薑、蒜、麵、粥），只有單一個英數符號才算沒名字。
+  // 先前一律 length<2 就擋，把 zen 第 5 常吃的「蝦」(24 次) 靜靜丟掉了。
+  if(s.length<2 && !/[一-鿿]/.test(s)) return true;
   if(/^商品\d*\s/.test(s)) return true;                    // 我們自己編的預設名
   if(/(上午|下午)\s*\d|\d{1,2}\s*[:：]\s*\d/.test(s)) return true;   // 名稱裡混進時間＝自動編的
   if(/^[\s\d:：.\-_]+$/.test(s)) return true;              // 純數字或符號
@@ -1644,15 +1647,24 @@ function recCandidates(){
     if(old){ old.seen=Math.max(old.seen, seen||0); return; }   // 先到先贏（吃過的最先放）
     out.set(name, {name, per, grams, src, seen:seen||0});
   };
-  // ① 吃過的：同名取平均每次的份量與營養
+  /* ① 吃過的：用「去掉克數的名稱」當聚合鍵。
+     品名裡帶著當初記錄的克數（「雞腿(去皮) 137g」），若拿原始名稱當鍵，同一樣東西
+     秤了不同重量就變成不同候選 —— 實測「肉」的雞腿(去皮)有 44 種寫法、合計 52 次，
+     但演算法只看到最多 3 次，於是她最常吃的主食蛋白被當成陌生食物。
+     切碎的又全是秤重的原型食物（雞腿、蝦、毛豆），固定包裝（奶綠 20g）反而不受影響，
+     所以偏誤是系統性的：低估自煮食材、高估包裝零食。
+     合併後取「平均每次」的營養與克數 —— 樣本變多，反而更接近他真正的習慣份量。 */
   const hist={};
   (store.meals||[]).forEach(m=>{
-    const n=(m.name||"").trim(); if(!n || !(+m.kcal>0)) return;
-    const h=hist[n]||(hist[n]={n:0,k:0,p:0,f:0,c:0});
+    const raw=(m.name||"").trim(); if(!raw || !(+m.kcal>0)) return;
+    const key=recCleanName(raw);
+    const h=hist[key]||(hist[key]={n:0,k:0,p:0,f:0,c:0,g:0,gn:0});
     h.n++; h.k+=+m.kcal||0; h.p+=+m.protein||0; h.f+=+m.fat||0; h.c+=+m.carb||0;
+    const g=mealGramOf(raw); if(g>0){ h.g+=g; h.gn++; }
   });
   Object.entries(hist).forEach(([n,h])=>
-    put(n, {k:h.k/h.n, p:h.p/h.n, f:h.f/h.n, c:h.c/h.n}, mealGramOf(n)||null, "hist", h.n));
+    put(n, {k:h.k/h.n, p:h.p/h.n, f:h.f/h.n, c:h.c/h.n},
+        h.gn?Math.round(h.g/h.gn):null, "hist", h.n));
   // ② 食譜：換算成一人份
   (store.recipes||[]).forEach(r=>{
     const sv=Math.max(1, +r.servings||1);
@@ -1686,11 +1698,10 @@ function recommendFoods(date, topN){
   const target={k:daily.kcal, p:t.protein, f:t.fat, c:t.carb};
   const gap={k:target.k-d.k, p:t.protein-d.p, f:t.fat-d.f, c:t.carb-d.c};
   const base=recDist(gap, target);
-  const ate=new Set((store.meals||[]).filter(m=>m.date.slice(0,10)===(date||selDate()))
-    .map(m=>recCleanName(m.name)));
+  // 今天吃過的照樣可以再推：雞腿、蛋、四季豆這類主食本來就天天吃、一天吃兩次也正常。
+  // 先前排除掉，結果 zen 最常吃的前四名全被擋在外面，清單看起來完全不像她的習慣。
   const scored=[];
   for(const cd of recCandidates()){
-    if(ate.has(recCleanName(cd.name))) continue;      // 今天吃過了就不再推同一樣
     if(badFoodName(recCleanName(cd.name))) continue;  // 舊資料留下的「商品 下午12:」之類，推了也認不出是什麼
     let best=null;
     for(const q of REC_PORTIONS){
@@ -1717,7 +1728,21 @@ function recommendFoods(date, topN){
     if((cnt[s.src]=(cnt[s.src]||0))>=capPerSrc) continue;
     cnt[s.src]++; picked.push(s);
   }
-  return {gap, target, items:picked};
+  return {gap, target, items:picked, scored};
+}
+/* 送給 AI 的候選池：單項評分的前幾名，再「保證」把他最常吃的幾樣也放進去。
+   為什麼要後面這半段：單項評分假設一項要自己把缺口填完，所以熱量低的東西吃虧。
+   實測 zen 的「蝦」——她第 5 常吃、92kcal/22g 蛋白，蛋白補得剛剛好，但 2 份才 185kcal，
+   填不滿 453kcal 的缺口，單項排到第 60 名。現實中她會「蝦配一點別的」，
+   那是組合問題，正好是 AI 在行、而營養算式看不到的部分 —— 前提是它看得到蝦。 */
+const AI_POOL_BY_SCORE=25, AI_POOL_BY_HABIT=15, AI_POOL_MAX=40;
+function aiPool(scored){
+  const out=[], seenName=new Set();
+  const push=x=>{ const n=recCleanName(x.name);
+    if(seenName.has(n)||out.length>=AI_POOL_MAX) return; seenName.add(n); out.push(x); };
+  scored.slice(0, AI_POOL_BY_SCORE).forEach(push);
+  scored.slice().sort((a,b)=>b.seen-a.seen).slice(0, AI_POOL_BY_HABIT).forEach(push);
+  return out;
 }
 const REC_SRC={hist:"🕘 吃過", recipe:"📖 食譜", shared:"👥 共享", db:"🍽 食物庫"};
 // 現在大概是哪一餐（給 AI 當情境用；純粹看時間，猜錯也不影響營養計算）
@@ -1737,9 +1762,9 @@ function recToCandidates(items){
 let __recPool=[];        // 本地算出來的前 20 名，AI 排序時要對回去
 function renderRemain(){
   const box=document.getElementById("coachBox");
-  const R=recommendFoods(null, 20); if(!R){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
-  __recPool=R.items;
-  drawRemain(R.gap, R.items.slice(0,6), null);
+  const R=recommendFoods(null, 6); if(!R){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
+  __recPool=aiPool(R.scored);
+  drawRemain(R.gap, R.items, null);
   // 本地結果先秒出（離線也有東西看），再請 AI 從同一批候選裡挑 —— 它多的是
   // 「搭不搭、會不會膩、這個時段合不合適」這種營養算式看不出來的判斷。
   aiPickRemain(R.gap);

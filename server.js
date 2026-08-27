@@ -1039,7 +1039,7 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
     })();
     // 候選清單由前端本地算好（吃過的紀錄＋共享食物庫＋食譜，四項營養都比對過）再送上來。
     // AI 只負責從裡面挑與排序，不准發明品項 —— 這樣建議才會是他買得到、也真的在吃的東西。
-    const cands = (Array.isArray(b.candidates) ? b.candidates : []).slice(0, 20)
+    const cands = (Array.isArray(b.candidates) ? b.candidates : []).slice(0, 40)
       .map((c, i) => ({
         id: i,
         name: String(c.name || "").slice(0, 40),
