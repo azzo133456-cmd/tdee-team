@@ -987,7 +987,7 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });
     const b = req.body || {};
-    const mode = ["daily", "report", "remain", "shopping"].includes(b.mode) ? b.mode : "daily";
+    const mode = ["daily", "report", "remain", "shopping", "pick"].includes(b.mode) ? b.mode : "daily";
     const goalName = { cut: "減脂", maintain: "維持", bulk: "增肌" }[b.goal] || "維持";
     const j = (o) => JSON.stringify(o || {});
     // 減重計畫脈絡（前端 planContext）→ 轉成給 AI 的白話描述，讓建議對準進度而非泛泛營養
@@ -1022,8 +1022,37 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
       }
       return "【減重計畫脈絡】" + parts.join("；") + "。";
     })();
+    // 候選清單由前端本地算好（吃過的紀錄＋共享食物庫＋食譜，四項營養都比對過）再送上來。
+    // AI 只負責從裡面挑與排序，不准發明品項 —— 這樣建議才會是他買得到、也真的在吃的東西。
+    const cands = (Array.isArray(b.candidates) ? b.candidates : []).slice(0, 20)
+      .map((c, i) => ({
+        id: i,
+        name: String(c.name || "").slice(0, 40),
+        kcal: Math.round(+c.kcal || 0), protein: +c.protein || 0, fat: +c.fat || 0, carb: +c.carb || 0,
+        portion: String(c.portion || "").slice(0, 20),
+        src: c.src === "hist" ? "他常吃" : c.src === "recipe" ? "他的食譜" : "食物庫",
+        seen: Math.max(0, Math.round(+c.seen || 0)),
+      }))
+      .filter((c) => c.name && c.kcal > 0);
+    const candLine = cands.length
+      ? "候選清單（只能從這裡挑，id 要照抄）：" +
+        j(cands.map((c) => ({ id: c.id, 品名: c.name, 份量: c.portion, kcal: c.kcal, 蛋白: c.protein, 脂: c.fat, 碳: c.carb, 來源: c.src, 他吃過次數: c.seen })))
+      : "";
+
     let prompt;
-    if (mode === "remain") {
+    if (mode === "pick") {
+      if (!cands.length) return res.status(400).json({ error: "沒有候選可挑" });
+      prompt =
+        "你是營養師兼台灣飲食教練。" + planLine +
+        "使用者今天還剩下的額度（目標−已吃）=" + j(b.remain) + "。目標類型：" + goalName + "。" +
+        (b.meal ? "現在要吃的是「" + String(b.meal).slice(0, 6) + "」。" : "") +
+        candLine +
+        "這些候選在營養上都填得進剩餘額度（已用熱量/蛋白/脂肪/碳水四項算過），所以你不必再算一次營養。" +
+        "請改從『搭配得起來嗎、口味會不會膩、這個時段吃合不合適、是不是他平常真的會吃的東西』去挑 3～4 項並排序。" +
+        "優先他吃過次數多的；同類型的（例如兩種飯糰）不要重複挑；如果幾項湊起來剛好是一餐，就挑成一組並在 reason 說明怎麼配。" +
+        "絕對不可以發明清單以外的品項，id 必須是清單裡的數字。只回傳 JSON、不要說明文字或 markdown：" +
+        '{"picks":[{"id":候選id,"reason":"為何挑它/怎麼配，25字內"}],"note":"一句整體提醒(25字內，可省略)"}。';
+    } else if (mode === "remain") {
       // 剩餘額度 → 推薦具體品項（以台灣超商/手搖/常見食物為主）
       prompt =
         "你是營養師兼台灣飲食教練。使用者今天還剩下這些可吃額度（剩餘=目標−已攝取）：" + j(b.remain) +
@@ -1059,6 +1088,8 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
         "你是專屬減重教練。" + planLine +
         "使用者今天到目前的攝取=" + j(b.today) + "，每日目標=" + j(b.target) +
         "，今天運動消耗=" + (b.burn || 0) + " kcal。" +
+        (Array.isArray(b.prefs) && b.prefs.length ? "他常吃的東西：" + b.prefs.slice(0, 15).join("、") + "。" : "") +
+        (candLine ? candLine + "舉例時請盡量從這份候選裡舉（那是他自己的食物庫與吃過的紀錄），不要憑空舉他沒在吃的東西。" : "") +
         "請針對他的減重計畫給今天剩餘時間的建議：對照目標還能吃多少熱量、蛋白質還缺多少（要吃夠以保留肌肉）、下一餐怎麼安排才不會破壞當天的熱量赤字。" +
         "若 TDEE 仍是公式估算（資料不足）就順帶鼓勵他持續記錄、滿幾天後目標會更精準。" +
         "口語、簡短、具體（可引用數字、給台灣常見食物例子），繁體中文。只回傳 JSON：" +
@@ -1070,6 +1101,16 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
     const parsed = extractJson(txt);
     if (!parsed) return res.status(502).json({ error: "無法解析 AI 回應" });
     const num = (v) => (Number.isFinite(+v) ? Math.round(+v * 10) / 10 : 0);
+    if (mode === "pick") {
+      const allow = new Set(cands.map((c) => c.id));
+      const seen = new Set();
+      const picks = (Array.isArray(parsed.picks) ? parsed.picks : [])
+        .map((x) => ({ id: Math.round(+(x && x.id)), reason: String((x && x.reason) || "").slice(0, 40) }))
+        .filter((x) => allow.has(x.id) && !seen.has(x.id) && seen.add(x.id))   // 只收清單裡的 id，且不重複
+        .slice(0, 4);
+      if (!picks.length) return res.status(502).json({ error: "AI 沒有挑出可用的品項" });
+      return res.json({ ok: true, picks, note: String(parsed.note || "").slice(0, 40) });
+    }
     if (mode === "remain") {
       const arr = Array.isArray(parsed.items) ? parsed.items : [];
       const items = arr.filter((p) => p && p.name).slice(0, 4).map((p) => ({

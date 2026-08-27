@@ -1591,10 +1591,14 @@ async function coachDaily(){
   const daily=dailyKcalTarget(t);
   box.textContent="🤖 AI 教練思考中…約 3–6 秒";
   try{
+    // 一併送上「他自己的食物庫裡填得進今天缺口的選擇」與常吃品項，
+    // 讓建議舉的例子是他真的會吃、也真的買得到的東西，而不是泛泛的「來份雞胸肉」。
+    const R=recommendFoods(null,12);
     const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"daily",
       today:{kcal:d.k,protein:d.p,fat:d.f,carb:d.c},
       target:{kcal:daily.kcal,protein:t.protein,fat:t.fat,carb:t.carb},
-      burn, goal:val("goal"), plan:planContext()})});
+      burn, goal:val("goal"), plan:planContext(),
+      prefs:topFoods(15), candidates:R?recToCandidates(R.items):[]})});
     box.innerHTML=coachHtml(r);
   }catch(e){ box.innerHTML=`建議失敗：${e.message} <button class="ghost sm" onclick="coachDaily()">🔁 再試</button>`; }
 }
@@ -1664,7 +1668,7 @@ function recReason(item, gap){
   return "份量小、好收尾";
 }
 const REC_PORTIONS=[0.5, 0.75, 1, 1.5, 2];
-function recommendFoods(date){
+function recommendFoods(date, topN){
   const t=goalTargets(); if(!t) return null;
   const d=dayNutrition(date||selDate());
   const daily=dailyKcalTarget(t);
@@ -1676,6 +1680,7 @@ function recommendFoods(date){
   const scored=[];
   for(const cd of recCandidates()){
     if(ate.has(recCleanName(cd.name))) continue;      // 今天吃過了就不再推同一樣
+    if(badFoodName(recCleanName(cd.name))) continue;  // 舊資料留下的「商品 下午12:」之類，推了也認不出是什麼
     let best=null;
     for(const q of REC_PORTIONS){
       const it={k:cd.per.k*q, p:cd.per.p*q, f:cd.per.f*q, c:cd.per.c*q};
@@ -1694,19 +1699,42 @@ function recommendFoods(date){
   }
   scored.sort((a,b)=>b.gain-a.gain);
   // 同一個名字只留最好的份量；再限制單一來源不要洗版
+  const want=topN||6, capPerSrc=Math.max(4, Math.ceil(want*0.7));
   const picked=[], cnt={};
   for(const s of scored){
-    if(picked.length>=6) break;
-    if((cnt[s.src]=(cnt[s.src]||0))>=4) continue;
+    if(picked.length>=want) break;
+    if((cnt[s.src]=(cnt[s.src]||0))>=capPerSrc) continue;
     cnt[s.src]++; picked.push(s);
   }
   return {gap, target, items:picked};
 }
 const REC_SRC={hist:"🕘 吃過", recipe:"📖 食譜", shared:"👥 共享", db:"🍽 食物庫"};
+// 現在大概是哪一餐（給 AI 當情境用；純粹看時間，猜錯也不影響營養計算）
+function currentMealName(){
+  const h=new Date().getHours();
+  return h<10?"早餐":h<14?"午餐":h<17?"點心":h<21?"晚餐":"宵夜";
+}
+// 把本地算出來的候選整理成 AI 看得懂的格式
+function recToCandidates(items){
+  return items.map(s=>({
+    name:recCleanName(s.name),
+    portion:s.grams?Math.round(s.grams*s.q)+"g":(s.q!==1?s.q+" 份":"1 份"),
+    kcal:Math.round(s.it.k), protein:+s.it.p.toFixed(1), fat:+s.it.f.toFixed(1), carb:+s.it.c.toFixed(1),
+    src:s.src, seen:s.seen,
+  }));
+}
+let __recPool=[];        // 本地算出來的前 20 名，AI 排序時要對回去
 function renderRemain(){
   const box=document.getElementById("coachBox");
-  const R=recommendFoods(); if(!R){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
-  const {gap, items}=R;
+  const R=recommendFoods(null, 20); if(!R){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
+  __recPool=R.items;
+  drawRemain(R.gap, R.items.slice(0,6), null);
+  // 本地結果先秒出（離線也有東西看），再請 AI 從同一批候選裡挑 —— 它多的是
+  // 「搭不搭、會不會膩、這個時段合不合適」這種營養算式看不出來的判斷。
+  aiPickRemain(R.gap);
+}
+function drawRemain(gap, items, ai){
+  const box=document.getElementById("coachBox"); if(!box) return;
   const chip=(lab,v,unit)=>`<span style="display:inline-block;margin-right:10px">${lab} <b style="color:${v<0?"#b5564e":"var(--accent)"}">${v>=0?"":"超"}${Math.abs(Math.round(v))}</b>${unit}</span>`;
   const head=`<div style="margin-bottom:8px;line-height:1.9">還可以吃：`+
     chip("熱量",gap.k,"kcal")+chip("蛋白",gap.p,"g")+chip("脂肪",gap.f,"g")+chip("碳水",gap.c,"g")+`</div>`;
@@ -1717,13 +1745,41 @@ function renderRemain(){
   window.__remain=items.map(s=>({name:recCleanName(s.name)+(s.q!==1?`（${s.q} 份）`:""), kcal:Math.round(s.it.k),
     protein:+s.it.p.toFixed(1), fat:+s.it.f.toFixed(1), carb:+s.it.c.toFixed(1),
     grams:s.grams?Math.round(s.grams*s.q):null, raw:s.name}));
+  const reasons=(ai&&ai.reasons)||{};
   box.innerHTML=head+items.map((s,i)=>{
     const g=s.grams?` · ${Math.round(s.grams*s.q)}g`:(s.q!==1?` · ${s.q} 份`:"");
+    const why=reasons[i]||recReason(s.it,gap);
     return `<div class="foodrow"><span class="nm">${REC_SRC[s.src]||""} ${recCleanName(s.name)}${s.q!==1?`　<span style="color:var(--sub)">×${s.q}</span>`:""}<br>`+
-      `<span style="color:var(--sub);font-size:11px">${Math.round(s.it.k)}kcal · P${s.it.p.toFixed(1)} F${s.it.f.toFixed(1)} C${s.it.c.toFixed(1)}${g} · ${recReason(s.it,gap)}</span></span>`+
+      `<span style="color:var(--sub);font-size:11px">${Math.round(s.it.k)}kcal · P${s.it.p.toFixed(1)} F${s.it.f.toFixed(1)} C${s.it.c.toFixed(1)}${g} · ${why}</span></span>`+
       `<span class="x" style="color:var(--accent)" onclick="addRemainItem(${i})">＋加入</span></div>`;
   }).join("")+
-  `<div class="hint" style="margin-top:8px">依你吃過的紀錄、共享食物庫與食譜，挑「加進去之後四項離目標最近」的組合。</div>`;
+  (ai
+    ? `<div class="hint" style="margin-top:8px">${ai.note?`💬 ${ai.note}<br>`:""}`+
+      `本地先用四項營養篩出你食物庫裡填得進缺口的選擇，再由 AI 依搭配、口味與現在是「${ai.meal}」重新排序。`+
+      `<button class="ghost sm" style="margin-left:8px" onclick="renderRemain()">🔁 換一批</button></div>`
+    : `<div class="hint" style="margin-top:8px">依你吃過的紀錄、共享食物庫與食譜，挑「加進去之後四項離目標最近」的組合。`+
+      `<span id="recAiWait" style="color:var(--sub)">　🤖 AI 排序中…</span></div>`);
+}
+/* AI 排序：候選一律由本地算好再送上去，AI 只能從裡面挑、不准發明品項。
+   先前那版是把「還剩多少額度」丟給 AI 憑空生食物，它看不到使用者的食物庫與習慣，
+   給的東西不一定買得到，也對不上旁邊的本地清單。 */
+async function aiPickRemain(gap){
+  if(!__recPool.length) return;
+  const meal=currentMealName();
+  try{
+    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"pick",
+      candidates:recToCandidates(__recPool), meal, goal:val("goal"),
+      remain:{kcal:Math.round(gap.k),protein:Math.round(gap.p),fat:Math.round(gap.f),carb:Math.round(gap.c)},
+      plan:planContext()})});
+    const picks=(r.picks||[]).filter(p=>__recPool[p.id]);
+    if(!picks.length) return;                      // AI 沒挑出東西 → 保留本地排序
+    const items=picks.map(p=>__recPool[p.id]);
+    const reasons={}; picks.forEach((p,i)=>{ if(p.reason) reasons[i]=p.reason; });
+    drawRemain(gap, items, {reasons, note:r.note, meal});
+  }catch(e){
+    const w=document.getElementById("recAiWait");
+    if(w) w.innerHTML=`　<span style="color:var(--warm)">AI 排序失敗（${e.message}），以上是本地結果</span>`;
+  }
 }
 /* 這裡原本還有一個 coachRemain()：按鈕叫「AI 想新點子」，把剩餘額度丟給 AI 生品項。
    移除原因是它跟本地推薦不同調——AI 看不到使用者的食物庫、食譜與吃過的紀錄，
