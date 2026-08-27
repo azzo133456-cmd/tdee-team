@@ -1285,6 +1285,7 @@ function addCustom(){
   const n=val("cfName").trim();
   let k=parseFloat(val("cfK")), p=parseFloat(val("cfP")), f=parseFloat(val("cfF")), c=parseFloat(val("cfC"));
   if(!n){ alert("請輸入食物名稱"); return; }
+  if(badFoodName(n)){ alert("請給一個認得出來的品名（不要只有數字、時間或「商品…」，之後在食物庫裡會找不到）"); return; }
   if(isNaN(k)){ alert("至少要有熱量"); return; }
   p=isNaN(p)?0:p; f=isNaN(f)?0:f; c=isNaN(c)?0:c;
   let defGram=100;
@@ -1301,6 +1302,30 @@ function addCustom(){
   document.getElementById("customBox").style.display="none";
 }
 // 建立一個食物：登記、存最愛、選用，並上傳到共享食物庫
+/* 拍標示／掃碼建立食物時，一定要有認得出來的品名。
+   先前讀不到名稱就自動編一個（"商品 "+toLocaleTimeString().slice(0,5)），結果食物庫裡
+   留下「商品 下午12:」「商品 下午8:1」這種東西——當下沒人在意，一個月後連自己都
+   不知道那是什麼，而且會直接出現在「還能吃什麼」的推薦清單上。 */
+function badFoodName(n){
+  const s=String(n||"").trim();
+  if(s.length<2) return true;
+  if(/^商品\d*\s/.test(s)) return true;                    // 我們自己編的預設名
+  if(/(上午|下午)\s*\d|\d{1,2}\s*[:：]\s*\d/.test(s)) return true;   // 名稱裡混進時間＝自動編的
+  if(/^[\s\d:：.\-_]+$/.test(s)) return true;              // 純數字或符號
+  return false;
+}
+// 回傳可用的品名；使用者取消或堅持不填就回 null（呼叫端要放棄新增，不要硬塞預設名）
+function askFoodName(suggest, hint){
+  let v=String(suggest||"").trim();
+  if(badFoodName(v)) v="";
+  for(let i=0;i<3;i++){
+    if(!badFoodName(v)) return v;
+    const msg=(hint?hint+"\n\n":"")+"請輸入品名。\n（辨識不到名稱；沒有名字的話，之後在食物庫和推薦清單裡會認不出這是什麼）";
+    v=(prompt(msg, v)||"").trim();
+    if(!v) return null;                                     // 按取消或留空 → 放棄
+  }
+  return badFoodName(v)?null:v;
+}
 function registerFood(n,d,defGram){
   FOODS_DYN[n]=d; SERVINGS[n]=defGram||100;
   store.favorites=store.favorites||[];
@@ -1368,7 +1393,7 @@ async function onBarcode(code){
       pendingBarcode=code;
       alert("查到商品「"+r.n+"」但沒有營養數值，請照標籤手動填或拍標示，建立後會自動記住此條碼。");
     }else{
-      document.getElementById("cfName").value="商品 "+code;
+      document.getElementById("cfName").value="";   // 不預填「商品+條碼」，逼使用者給真名字
       document.getElementById("customBox").style.display="block";
       pendingBarcode=code;
       alert("資料庫查無此條碼（"+code+"）。可改按「📋 拍營養標示」用 AI 自動帶入，或手動填，建立後會記住此條碼，下次秒帶。");
@@ -1434,13 +1459,16 @@ async function onLabelPick(ev){
     const imgs=await Promise.all(files.slice(0,6).map(compressImg));
     const r=await api("/api/labels",{method:"POST",body:JSON.stringify({images:imgs})});
     const items=r.items||[]; let added=0;
+    let skipped=0;
     items.forEach((it,i)=>{
       if(!(it.kcal>0)) return;
-      const name=(it.name&&it.name.trim())?it.name.trim():("商品"+(i+1)+" "+new Date().toLocaleTimeString().slice(0,5));
+      const name=askFoodName(it.name, `第 ${i+1} 張標示：${it.kcal}kcal／蛋${it.protein} 脂${it.fat} 碳${it.carb}`);
+      if(!name){ skipped++; return; }                 // 沒給名字就不建立，不要硬塞預設名
       const serv=it.serving>0?it.serving:100;
       registerFood(name,[it.kcal,it.protein,it.fat,it.carb],serv); added++;
     });
     h.innerHTML=`已建立 <b>${added}</b> 項食物（共讀 ${items.length} 張），都已加入下方清單與共享庫，可逐筆改克數，名稱不對按 <b>✏️</b> 改。`+
+      (skipped?`　<span style="color:var(--warm)">${skipped} 項因為沒填品名而略過。</span>`:"")+
       (files.length>6?`（一次最多 6 張，多的略過）`:"");
   }catch(e){
     h.innerHTML=`批次辨識失敗：${e.message} <button class="ghost sm" onclick="document.getElementById('labelInput').click()">🔁 重選</button>`;
@@ -1453,7 +1481,8 @@ async function runLabel(){
   try{
     const r=await api("/api/label",{method:"POST",body:JSON.stringify({image:lastLabelImg})});
     // 直接建立食物並加入清單（預設帶「一份」的克數，沒讀到就 100g）；不必再碰 100g/份 切換
-    const name=(r.name&&r.name.trim())?r.name.trim():("商品 "+new Date().toLocaleTimeString().slice(0,5));
+    const name=askFoodName(r.name, `辨識結果：每100g ${r.kcal}kcal／蛋${r.protein} 脂${r.fat} 碳${r.carb}`);
+    if(!name){ h.innerHTML=`沒有填品名，這筆沒有建立。<button class="ghost sm" onclick="runLabel()">🔁 重新辨識</button>`; return; }
     const serv=r.serving>0?r.serving:100;
     registerFood(name,[r.kcal,r.protein,r.fat,r.carb],serv);   // per100g，預設份量=一份
     saveBarcode(name,r.kcal,r.protein,r.fat,r.carb);           // 若是掃碼後拍標示，存回條碼庫
@@ -1530,7 +1559,8 @@ function saveAiFoods(){
   if(!ai.length){ alert("沒有 AI 辨識的項目可存"); return; }
   let saved=0;
   ai.forEach(it=>{
-    const clean=it.n.replace(/^✨\s*/,"").trim(); if(!clean) return;
+    let clean=it.n.replace(/^✨\s*/,"").trim();
+    if(badFoodName(clean)){ clean=askFoodName(clean, `這一項要存成自訂食物：${it.base[0]}kcal/100g`); if(!clean) return; }
     FOODS_DYN[clean]=it.base.slice(); SERVINGS[clean]=it.g||100;
     store.favorites=store.favorites||[];
     if(!store.favorites.find(x=>x.n===clean)){ store.favorites.push({n:clean,d:it.base.slice()}); }
@@ -1693,29 +1723,12 @@ function renderRemain(){
       `<span style="color:var(--sub);font-size:11px">${Math.round(s.it.k)}kcal · P${s.it.p.toFixed(1)} F${s.it.f.toFixed(1)} C${s.it.c.toFixed(1)}${g} · ${recReason(s.it,gap)}</span></span>`+
       `<span class="x" style="color:var(--accent)" onclick="addRemainItem(${i})">＋加入</span></div>`;
   }).join("")+
-  `<div class="hint" style="margin-top:8px">依你吃過的紀錄、共享食物庫與食譜，挑「加進去之後四項離目標最近」的組合。`+
-  `<button class="ghost sm" style="margin-left:8px" onclick="coachRemain()">🤖 改用 AI 想新點子</button></div>`;
+  `<div class="hint" style="margin-top:8px">依你吃過的紀錄、共享食物庫與食譜，挑「加進去之後四項離目標最近」的組合。</div>`;
 }
-// 舊的 AI 版保留成備援：想要「沒吃過的新點子」時才用
-async function coachRemain(){
-  const box=document.getElementById("coachBox");
-  const t=goalTargets(); if(!t){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
-  const d=dayNutrition(selDate()), burn=burnByDate(selDate());
-  const daily=dailyKcalTarget(t);
-  const remain={kcal:Math.round(daily.kcal-d.k), protein:Math.round(t.protein-d.p), fat:Math.round(t.fat-d.f), carb:Math.round(t.carb-d.c)};
-  box.textContent="🍱 AI 依你剩餘額度找選擇中…約 3–6 秒";
-  try{
-    const r=await api("/api/coach",{method:"POST",body:JSON.stringify({mode:"remain",remain,goal:val("goal"),prefs:topFoods(10)})});
-    const items=r.items||[];
-    if(!items.length){ box.innerHTML="AI 沒有給出建議，稍後再試。"; return; }
-    window.__remain=items;
-    box.innerHTML=`<div style="margin-bottom:6px;">今天還剩 <b>${remain.kcal.toLocaleString()} kcal</b>`+
-      `（蛋白還缺 ${Math.max(0,remain.protein)}g）。AI 推薦：</div>`+
-      items.map((it,i)=>`<div class="foodrow"><span class="nm">${it.name}<br><span style="color:var(--sub);font-size:11px">${it.kcal}kcal · P${it.protein} F${it.fat} C${it.carb}${it.reason?" · "+it.reason:""}</span></span>`+
-        `<span class="x" style="color:var(--accent)" onclick="addRemainItem(${i})">＋加入</span></div>`).join("");
-  }catch(e){ box.innerHTML=`推薦失敗：${e.message} <button class="ghost sm" onclick="coachRemain()">🔁 再試</button>`; }
-}
-// 把 AI 推薦的一項加入下方食物清單（以一份=其重量近似 100g 帶入）
+/* 這裡原本還有一個 coachRemain()：按鈕叫「AI 想新點子」，把剩餘額度丟給 AI 生品項。
+   移除原因是它跟本地推薦不同調——AI 看不到使用者的食物庫、食譜與吃過的紀錄，
+   生出來的東西不一定買得到、也不是他的習慣，反而讓人不知道該信哪一邊。
+   伺服器的 mode:"remain" 仍在，日後若要做成「AI 從真實候選裡挑」再接回來。 */
 function addRemainItem(i){
   const it=(window.__remain||[])[i]; if(!it) return;
   // 本地推薦：品項本來就在食物庫裡，直接用原名與實際克數加入，不要再造一筆「✨」重複資料
