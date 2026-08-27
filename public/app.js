@@ -1738,10 +1738,13 @@ function recommendFoods(date, topN){
 const AI_POOL_BY_SCORE=25, AI_POOL_BY_HABIT=15, AI_POOL_MAX=40;
 function aiPool(scored){
   const out=[], seenName=new Set();
-  const push=x=>{ const n=recCleanName(x.name);
-    if(seenName.has(n)||out.length>=AI_POOL_MAX) return; seenName.add(n); out.push(x); };
-  scored.slice(0, AI_POOL_BY_SCORE).forEach(push);
-  scored.slice().sort((a,b)=>b.seen-a.seen).slice(0, AI_POOL_BY_HABIT).forEach(push);
+  // tier 一定要跟著送：池子裡兩種東西的性質完全不同，混在一起會讓 AI 誤判。
+  //   main  = 營養上真的填得進缺口
+  //   side  = 純粹因為他常吃才附上，營養未必填得滿（香油 44kcal 全脂、白飯幾乎純碳水）
+  const push=(x,tier)=>{ const n=recCleanName(x.name);
+    if(seenName.has(n)||out.length>=AI_POOL_MAX) return; seenName.add(n); out.push({...x, tier}); };
+  scored.slice(0, AI_POOL_BY_SCORE).forEach(x=>push(x,"main"));
+  scored.slice().sort((a,b)=>b.seen-a.seen).slice(0, AI_POOL_BY_HABIT).forEach(x=>push(x,"side"));
   return out;
 }
 const REC_SRC={hist:"🕘 吃過", recipe:"📖 食譜", shared:"👥 共享", db:"🍽 食物庫"};
@@ -1756,7 +1759,7 @@ function recToCandidates(items){
     name:recCleanName(s.name),
     portion:s.grams?Math.round(s.grams*s.q)+"g":(s.q!==1?s.q+" 份":"1 份"),
     kcal:Math.round(s.it.k), protein:+s.it.p.toFixed(1), fat:+s.it.f.toFixed(1), carb:+s.it.c.toFixed(1),
-    src:s.src, seen:s.seen,
+    src:s.src, seen:s.seen, tier:s.tier||"main",
   }));
 }
 let __recPool=[];        // 本地算出來的前 20 名，AI 排序時要對回去

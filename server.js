@@ -1045,13 +1045,14 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
         name: String(c.name || "").slice(0, 40),
         kcal: Math.round(+c.kcal || 0), protein: +c.protein || 0, fat: +c.fat || 0, carb: +c.carb || 0,
         portion: String(c.portion || "").slice(0, 20),
+        tier: c.tier === "side" ? "side" : "main",
         src: c.src === "hist" ? "他常吃" : c.src === "recipe" ? "他的食譜" : "食物庫",
         seen: Math.max(0, Math.round(+c.seen || 0)),
       }))
       .filter((c) => c.name && c.kcal > 0);
     const candLine = cands.length
       ? "候選清單（只能從這裡挑，id 要照抄）：" +
-        j(cands.map((c) => ({ id: c.id, 品名: c.name, 份量: c.portion, kcal: c.kcal, 蛋白: c.protein, 脂: c.fat, 碳: c.carb, 來源: c.src, 他吃過次數: c.seen })))
+        j(cands.map((c) => ({ id: c.id, 品名: c.name, 份量: c.portion, kcal: c.kcal, 蛋白: c.protein, 脂: c.fat, 碳: c.carb, 來源: c.src, 他吃過次數: c.seen, 定位: c.tier === "side" ? "配角" : "主角" })))
       : "";
 
     let prompt;
@@ -1062,9 +1063,14 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
         "使用者今天還剩下的額度（目標−已吃）=" + j(b.remain) + "。目標類型：" + goalName + "。" +
         (b.meal ? "現在要吃的是「" + String(b.meal).slice(0, 6) + "」。" : "") +
         candLine +
-        "這些候選在營養上都填得進剩餘額度（已用熱量/蛋白/脂肪/碳水四項算過），所以你不必再算一次營養。" +
-        "請改從『搭配得起來嗎、口味會不會膩、這個時段吃合不合適、是不是他平常真的會吃的東西』去挑 3～4 項並排序。" +
-        "優先他吃過次數多的；同類型的（例如兩種飯糰）不要重複挑；如果幾項湊起來剛好是一餐，就挑成一組並在 reason 說明怎麼配。" +
+        "清單分兩種，務必分清楚：" +
+        "『主角』是營養上真的填得進剩餘額度的（已用熱量/蛋白/脂肪/碳水四項算過），這種不必你再算一次營養；" +
+        "『配角』只是因為他很常吃才附上，營養上填不滿缺口（例如只有幾十大卡、或幾乎純油純澱粉），" +
+        "只能拿來搭配主角、增加熟悉感，絕對不可以單獨當答案。" +
+        "請從『搭配得起來嗎、口味會不會膩、這個時段吃合不合適、是不是他平常真的會吃的東西』去挑 3～4 項並排序。" +
+        "第一項一定要是主角；配角最多挑 1～2 項，而且 reason 要寫清楚它是配著哪一項吃。" +
+        "同樣是主角時，優先他吃過次數多的；同類型的（例如兩種飯糰）不要重複挑；" +
+        "如果幾項湊起來剛好是一餐，就挑成一組並在 reason 說明怎麼配。" +
         "絕對不可以發明清單以外的品項，id 必須是清單裡的數字。只回傳 JSON、不要說明文字或 markdown：" +
         '{"picks":[{"id":候選id,"reason":"為何挑它/怎麼配，25字內"}],"note":"一句整體提醒(25字內，可省略)"}。';
     } else if (mode === "remain") {
@@ -1124,6 +1130,14 @@ app.post("/api/coach", auth, aiLimit, async (req, res) => {
         .filter((x) => allow.has(x.id) && !seen.has(x.id) && seen.add(x.id))   // 只收清單裡的 id，且不重複
         .slice(0, 4);
       if (!picks.length) return res.status(502).json({ error: "AI 沒有挑出可用的品項" });
+      // 後端再守一次：配角營養上填不滿缺口,整份建議不能全是配角。
+      // (prompt 已經寫了「第一項一定要是主角」,但這是模型輸出,不能只靠它自律。)
+      const byId = new Map(cands.map((c) => [c.id, c]));
+      if (!picks.some((p) => byId.get(p.id) && byId.get(p.id).tier === "main")) {
+        const firstMain = cands.find((c) => c.tier === "main");
+        if (firstMain) picks.unshift({ id: firstMain.id, reason: "主要補足今天的缺口" });
+        picks.length = Math.min(picks.length, 4);
+      }
       return res.json({ ok: true, picks, note: String(parsed.note || "").slice(0, 40) });
     }
     if (mode === "remain") {
