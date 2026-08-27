@@ -1032,8 +1032,21 @@ function renderFood(){
   const tot=foodCart.reduce((a,b)=>{const m=cartMacros(b);return {k:a.k+m.k,p:a.p+m.p,f:a.f+m.f,c:a.c+m.c};},{k:0,p:0,f:0,c:0});
   const el=document.getElementById("foodTotal"), sb=document.getElementById("cartSaveBtns");
   const mb=document.getElementById("mealAddBox"); if(mb) mb.classList.toggle("on", foodCart.length>0);   // 有東西才把存餐列固定置底
+  if(typeof renderRecPool==="function") renderRecPool();   // 缺口變了，池子要重排
   if(foodCart.length){ el.style.display="block"; sb.style.display="block";
-    el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`;
+    // 合計旁邊直接寫「加進去之後離今天的目標還剩多少」——這行就是撈魚的手感：
+    // 每加一樣、每調一次克數，四個數字往零收斂，超過就變紅字。
+    const tg=goalTargets();
+    let leftLine="";
+    if(tg){
+      const dn=dayNutrition(selDate()), dk=dailyKcalTarget(tg);
+      const L={k:dk.kcal-dn.k-tot.k, p:tg.protein-dn.p-tot.p, f:tg.fat-dn.f-tot.f, c:tg.carb-dn.c-tot.c};
+      const one=(lab,v,u)=>`<span style="display:inline-block;margin-right:9px">${lab} `+
+        `<b style="color:${v<0?"#b5564e":"var(--green)"}">${v<0?"超"+Math.abs(Math.round(v)):Math.round(v)}</b>${u}</span>`;
+      leftLine=`<div class="hint" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);line-height:1.8">`+
+        `加入後還剩：`+one("熱量",L.k,"")+one("蛋白",L.p,"g")+one("脂肪",L.f,"g")+one("碳水",L.c,"g")+`</div>`;
+    }
+    el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`+leftLine;
   }else{ el.style.display="none"; sb.style.display="none"; }
 }
 function rmFood(i){ foodCart.splice(i,1); renderFood(); }
@@ -1691,12 +1704,19 @@ function recReason(item, gap){
   return "份量小、好收尾";
 }
 const REC_PORTIONS=[0.5, 0.75, 1, 1.5, 2];
+const REC_KCAL_SLACK=50;      // 容許稍微超出剩餘熱量，抓不到剛好的份量時才不會整個沒東西
 function recommendFoods(date, topN){
   const t=goalTargets(); if(!t) return null;
   const d=dayNutrition(date||selDate());
   const daily=dailyKcalTarget(t);
   const target={k:daily.kcal, p:t.protein, f:t.fat, c:t.carb};
-  const gap={k:target.k-d.k, p:t.protein-d.p, f:t.fat-d.f, c:t.carb-d.c};
+  // 購物車裡是「正要吃的」，一併扣掉 —— 每加一樣，排序就變成「配這個吃什麼好」，
+  // 於是組合這件事由人來做、我們只做算術，不必寫組合演算法。
+  const cart=(typeof cartTotals==="function")?cartTotals():{k:0,p:0,f:0,c:0};
+  const gap={k:target.k-d.k-cart.k, p:t.protein-d.p-cart.p,
+             f:t.fat-d.f-cart.f, c:t.carb-d.c-cart.c};
+  // 熱量已經吃滿（或超支）就不該再推東西 —— 這時候任何「建議吃什麼」都是錯的
+  if(gap.k<=0) return {gap, target, items:[], scored:[], full:true};
   const base=recDist(gap, target);
   // 今天吃過的照樣可以再推：雞腿、蛋、四季豆這類主食本來就天天吃、一天吃兩次也正常。
   // 先前排除掉，結果 zen 最常吃的前四名全被擋在外面，清單看起來完全不像她的習慣。
@@ -1707,6 +1727,10 @@ function recommendFoods(date, topN){
     for(const q of REC_PORTIONS){
       const it={k:cd.per.k*q, p:cd.per.p*q, f:cd.per.f*q, c:cd.per.c*q};
       if(it.k<20) continue;                                   // 太小的份量沒意義
+      // 熱量是硬限制，不是「距離的其中一項」。純粹用加權距離的話會發生這種事：
+      // 已經超出熱量 43 kcal、但脂肪還差 9g → 算出「吃 2g 香油有改善」，於是推一排純油。
+      // 人不會這樣想，人想的是「我還剩 180 大卡，什麼塞得進去」。
+      if(it.k > gap.k + REC_KCAL_SLACK) continue;
       const after=recDist({k:gap.k-it.k, p:gap.p-it.p, f:gap.f-it.f, c:gap.c-it.c}, target);
       const gainRaw=base-after;
       if(gainRaw<=0) continue;                                // 吃了反而離目標更遠
@@ -1762,11 +1786,80 @@ function recToCandidates(items){
     src:s.src, seen:s.seen, tier:s.tier||"main",
   }));
 }
+/* ---------- 候選池：自己撈、自己配 ----------
+   為什麼要有這個：單項評分假設「一項要自己把缺口填完」，所以熱量低的東西永遠吃虧
+   （zen 的蝦 92kcal/22g 蛋白，蛋白補得剛剛好卻排到第 60）。真實吃法是「蝦配一點別的」，
+   那是組合問題 —— 與其寫組合演算法，不如讓人自己撈：我們只負責即時把四項算給他看。
+   撈的過程完全在本地算，不呼叫 AI；AI 只在按「還能吃什麼」時排一次序。 */
+let __poolItems=[], __poolFilter="all", __poolOpen=false;
+// 購物車裡的東西是「正要吃的」，所以缺口要把它們一起扣掉 —— 這樣每加一樣，
+// 池子就會重新排成「配這個吃什麼好」，不必再算組合。
+function cartTotals(){
+  return (foodCart||[]).reduce((a,it)=>{ const m=cartMacros(it);
+    return {k:a.k+m.k, p:a.p+m.p, f:a.f+m.f, c:a.c+m.c}; },{k:0,p:0,f:0,c:0});
+}
+const POOL_FILTERS=[
+  {id:"all",     label:"全部",   fn:()=>true},
+  {id:"protein", label:"補蛋白", fn:s=>s.it.k>0 && s.it.p/(s.it.k/100)>=8},
+  {id:"carb",    label:"補碳水", fn:s=>s.it.k>0 && s.it.c*4/s.it.k>=0.5},
+  {id:"side",    label:"配菜",   fn:s=>s.it.k<=120},
+  {id:"often",   label:"常吃",   fn:s=>s.seen>=3},
+  {id:"recipe",  label:"食譜",   fn:s=>s.src==="recipe"},
+];
+function setPoolFilter(id){ __poolFilter=id; renderRecPool(); }
+function renderRecPool(){
+  const box=document.getElementById("recPool"); if(!box) return;
+  const R=recommendFoods(null, 200);
+  if(!R || !R.scored.length){ box.innerHTML=""; return; }
+  __poolItems=R.scored;
+  const f=(POOL_FILTERS.find(x=>x.id===__poolFilter)||POOL_FILTERS[0]).fn;
+  const list=__poolItems.filter(f).slice(0,60);
+  const inCart=new Set((foodCart||[]).map(x=>recCleanName(x.n)));
+  const chips=POOL_FILTERS.map(x=>{
+    const n=__poolItems.filter(x.fn).length;
+    return `<button class="ghost sm${x.id===__poolFilter?" on":""}" style="padding:4px 9px;font-size:12px"`+
+      ` onclick="setPoolFilter('${x.id}')">${x.label} ${n}</button>`;
+  }).join(" ");
+  const rows=list.map((s,i)=>{
+    const idx=__poolItems.indexOf(s);
+    const nm=recCleanName(s.name);
+    const per=s.grams?`${s.grams}g`:"1 份";
+    const tick=inCart.has(nm)?`<span style="color:var(--green)">✓ </span>`:"";
+    const qs=[0.5,1,2].map(q=>`<button class="ghost sm" style="padding:3px 7px;font-size:11px" `+
+      `onclick="addPoolItem(${idx},${q})">×${q}</button>`).join("");
+    return `<div class="foodrow" style="align-items:center">`+
+      `<span class="nm">${tick}${REC_SRC[s.src]||""} ${nm}<br>`+
+      `<span style="color:var(--sub);font-size:11px">每${per} ${Math.round(s.per.k)}kcal · `+
+      `P${s.per.p.toFixed(1)} F${s.per.f.toFixed(1)} C${s.per.c.toFixed(1)}`+
+      `${s.seen?` · 吃過 ${s.seen} 次`:""}</span></span>`+
+      `<span style="display:flex;gap:3px">${qs}</span></div>`;
+  }).join("");
+  box.innerHTML=`<details class="gdet" style="margin-top:10px" ${__poolOpen?"open":""} ontoggle="__poolOpen=this.open">`+
+    `<summary class="ghd">🎣 候選池 ${__poolItems.length} 項　<span style="font-weight:400;color:var(--sub)">自己撈、自己配</span></summary>`+
+    `<div class="chipbar" style="margin:8px 0">${chips}</div>`+
+    (list.length?rows:`<div class="hint">這個分類目前沒有符合的。</div>`)+
+    `<div class="hint" style="margin-top:8px">按 ×0.5／×1／×2 直接加進下方購物車，加完看「加入後還剩」那行把四個數字收到接近 0 就好。每加一樣，池子會重新排成「配這個吃什麼好」。</div>`+
+    `</details>`;
+}
+function addPoolItem(idx, q){
+  const s=__poolItems[idx]; if(!s) return;
+  const nm=recCleanName(s.name);
+  if(s.grams>0 && foodData(nm)) addToCart(nm, Math.round(s.grams*q));
+  else if(s.grams>0 && foodData(s.name)) addToCart(s.name, Math.round(s.grams*q));
+  else{
+    // 沒有克數基準（食譜、或歷史紀錄沒寫克數）→ 用「一份」建成 100g 的等價項目
+    const nmq=nm+(q!==1?`（${q} 份）`:"");
+    FOODS_DYN[nmq]=[Math.round(s.per.k*q), +(s.per.p*q).toFixed(1), +(s.per.f*q).toFixed(1), +(s.per.c*q).toFixed(1)];
+    SERVINGS[nmq]=100; addToCart(nmq,100);
+  }
+}
+
 let __recPool=[];        // 本地算出來的前 20 名，AI 排序時要對回去
 function renderRemain(){
   const box=document.getElementById("coachBox");
   const R=recommendFoods(null, 6); if(!R){ box.innerHTML="先在①②填基本資料與目標，才能推薦。"; return; }
   __recPool=aiPool(R.scored);
+  renderRecPool();
   drawRemain(R.gap, R.items, null);
   // 本地結果先秒出（離線也有東西看），再請 AI 從同一批候選裡挑 —— 它多的是
   // 「搭不搭、會不會膩、這個時段合不合適」這種營養算式看不出來的判斷。
@@ -1778,7 +1871,10 @@ function drawRemain(gap, items, ai){
   const head=`<div style="margin-bottom:8px;line-height:1.9">還可以吃：`+
     chip("熱量",gap.k,"kcal")+chip("蛋白",gap.p,"g")+chip("脂肪",gap.f,"g")+chip("碳水",gap.c,"g")+`</div>`;
   if(!items.length){
-    box.innerHTML=head+`<div class="hint">四項都差不多滿了，沒有加了會更接近目標的選擇。真的餓的話挑無糖飲品或蔬菜。</div>`;
+    box.innerHTML=head+`<div class="hint">`+
+      (gap.k<=0
+        ? `今天的熱量已經吃滿了。真的餓的話選無糖飲品、蔬菜或清湯，它們幾乎不佔額度。`
+        : `剩下的額度湊不出合適的組合了。真的餓的話挑無糖飲品或蔬菜。`)+`</div>`;
     return;
   }
   window.__remain=items.map(s=>({name:recCleanName(s.name)+(s.q!==1?`（${s.q} 份）`:""), kcal:Math.round(s.it.k),
