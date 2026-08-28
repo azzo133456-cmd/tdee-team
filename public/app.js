@@ -1043,8 +1043,18 @@ function renderFood(){
       const L={k:dk.kcal-dn.k-tot.k, p:tg.protein-dn.p-tot.p, f:tg.fat-dn.f-tot.f, c:tg.carb-dn.c-tot.c};
       const one=(lab,v,u)=>`<span style="display:inline-block;margin-right:9px">${lab} `+
         `<b style="color:${v<0?"#b5564e":"var(--green)"}">${v<0?"超"+Math.abs(Math.round(v)):Math.round(v)}</b>${u}</span>`;
+      /* 熱量跟三大營養素不會剛好對得起來，這是營養標示的本質、不是算錯：
+         膳食纖維算在碳水裡，但它幾乎不產生熱量（約 2 kcal/g 而非 4），所以「碳水×4」
+         會高估。實測 zen 某天已吃的部分,標示熱量 764、用 4/9/4 加起來卻是 806，
+         差 42 全來自芭樂、四季豆、桂圓饅頭這些高纖的東西。標示的熱量才是量出來的。
+         差距大的時候講一句，不然每次看到都會以為壞掉。 */
+      const implied=L.p*4+L.f*9+L.c*4, mismatch=Math.round(L.k-implied);
+      const note=Math.abs(mismatch)>=25
+        ? `<br><span style="color:var(--sub)">熱量與三大營養素相差 ${Math.abs(mismatch)} kcal：`+
+          `高纖食物（水果、蔬菜、全穀）的碳水含膳食纖維，×4 會高估。以熱量為準。</span>`
+        : "";
       leftLine=`<div class="hint" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);line-height:1.8">`+
-        `加入後還剩：`+one("熱量",L.k,"")+one("蛋白",L.p,"g")+one("脂肪",L.f,"g")+one("碳水",L.c,"g")+`</div>`;
+        `加入後還剩：`+one("熱量",L.k,"")+one("蛋白",L.p,"g")+one("脂肪",L.f,"g")+one("碳水",L.c,"g")+note+`</div>`;
     }
     el.innerHTML=`<div class="lbl">合計</div><div class="big">${Math.round(tot.k)} kcal</div><div class="hint">蛋白 ${tot.p.toFixed(0)}g · 脂肪 ${tot.f.toFixed(0)}g · 碳水 ${tot.c.toFixed(0)}g</div>`+leftLine;
   }else{ el.style.display="none"; sb.style.display="none"; }
