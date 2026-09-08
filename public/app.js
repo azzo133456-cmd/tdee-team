@@ -2705,34 +2705,79 @@ async function addMeal(){
   }catch(e){ alert(e.message); }
 }
 // 複製某天的飲食到目前選的日期（不含照片）
-async function copyDayFrom(fromDate){
+/* meal 只帶某一餐（不給就整天）；toMeal 可以換餐別（昨天的晚餐複製成今天的午餐）。
+   來源與目標同一天時只有「換餐別」才有意義，否則等於原地複製一份。 */
+async function copyDayFrom(fromDate, meal, toMeal){
   const to=selDate();
-  if(fromDate===to){ alert("來源與目標是同一天"); return; }
-  const src=(store.meals||[]).filter(m=>m.date.slice(0,10)===fromDate && m.name!=="📷 照片紀錄");
-  if(!src.length){ alert(fromDate+" 沒有可複製的飲食"); return; }
-  if(!confirm(`把 ${fromDate} 的 ${src.length} 筆飲食複製到 ${to}？`)) return;
+  if(fromDate===to && (!meal || !toMeal || toMeal===meal)){ alert("來源與目標是同一天"); return; }
+  let src=(store.meals||[]).filter(m=>m.date.slice(0,10)===fromDate && m.name!=="📷 照片紀錄");
+  if(meal) src=src.filter(m=>m.meal===meal);
+  if(!src.length){ alert(`${fromDate} 的${meal||"飲食"}沒有可複製的內容`); return; }
+  const what=meal?`${meal}（${src.length} 項）`:`${src.length} 筆飲食`;
+  const dest=meal?`${to} 的 ${toMeal||meal}`:to;
+  if(!confirm(`把 ${fromDate} 的 ${what} 複製到 ${dest}？`)) return;
   const byMeal={};
-  src.forEach(m=>{ (byMeal[m.meal]=byMeal[m.meal]||[]).push({name:m.name,kcal:m.kcal,protein:m.protein,fat:m.fat,carb:m.carb}); });
+  src.forEach(m=>{ const k=meal?(toMeal||meal):m.meal;
+    (byMeal[k]=byMeal[k]||[]).push({name:m.name,kcal:m.kcal,protein:m.protein,fat:m.fat,carb:m.carb}); });
   try{
-    for(const meal in byMeal){ await api("/api/meal",{method:"POST",body:JSON.stringify({date:to,meal,items:byMeal[meal]})}); }
+    for(const mt in byMeal){ await api("/api/meal",{method:"POST",body:JSON.stringify({date:to,meal:mt,items:byMeal[mt]})}); }
     await reload();
-    alert("已複製到 "+to);
+    const box=document.getElementById("copyPanel");
+    if(box){ box.dataset.open="0"; box.innerHTML=""; }
+    alert("已複製到 "+dest);
   }catch(e){ alert(e.message); }
 }
-function copyDay(daysBack){
-  const d=new Date(selDate()); d.setDate(d.getDate()-daysBack);
-  const o=d.getTimezoneOffset(); copyDayFrom(new Date(d-o*60000).toISOString().slice(0,10));
-}
-function copyDayPrompt(){
-  const f=prompt("要複製哪一天？（格式 2026-06-08）", selDate());
-  if(f&&/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) copyDayFrom(f.trim());
-}
-// 預設帶昨天，可改成任一天
+/* ---------- 複製某天飲食 ----------
+   原本只能整天複製，而且日期是用 prompt 打字輸入，看不到那天到底吃了什麼就要先決定。
+   改成一個小面板：選日期 → 直接列出那天有哪幾餐、各幾項幾卡 → 要哪一餐就複製哪一餐，
+   還可以換到別的餐別（昨天的晚餐複製成今天的午餐）。 */
 function copyMealPrompt(){
+  const box=document.getElementById("copyPanel"); if(!box) return;
+  if(box.dataset.open==="1"){ box.dataset.open="0"; box.innerHTML=""; return; }
+  box.dataset.open="1";
   const d=new Date(selDate()); d.setDate(d.getDate()-1);
-  const o=d.getTimezoneOffset(), y=new Date(d-o*60000).toISOString().slice(0,10);
-  const f=prompt("複製哪一天的飲食到今天？（預設昨天，格式 2026-06-08）", y);
-  if(f&&/^\d{4}-\d{2}-\d{2}$/.test(f.trim())) copyDayFrom(f.trim());
+  const o=d.getTimezoneOffset();
+  renderCopyPanel(new Date(d-o*60000).toISOString().slice(0,10));
+}
+function renderCopyPanel(from){
+  const box=document.getElementById("copyPanel"); if(!box) return;
+  const to=selDate();
+  const src=(store.meals||[]).filter(m=>m.date.slice(0,10)===from && m.name!=="📷 照片紀錄");
+  const byMeal={};
+  src.forEach(m=>{ (byMeal[m.meal]=byMeal[m.meal]||[]).push(m); });
+  const opts=MEAL_ORDER.map(x=>`<option value="${x}">${x}</option>`).join("");
+  const rows=MEAL_ORDER.filter(x=>byMeal[x]&&byMeal[x].length).map(mt=>{
+    const g=byMeal[mt];
+    const k=Math.round(g.reduce((a,b)=>a+(+b.kcal||0),0));
+    const names=g.map(x=>recCleanName(x.name)).slice(0,3).join("、")+(g.length>3?`⋯`:"");
+    return `<div class="foodrow" style="align-items:center">`+
+      `<span class="nm"><b>${mt}</b>　${g.length} 項 · ${k} kcal<br>`+
+      `<span style="color:var(--sub);font-size:11px">${names}</span></span>`+
+      `<span style="display:flex;gap:4px;align-items:center">`+
+      `<select id="cpTo-${mt}" style="padding:4px;font-size:12px;width:auto">`+
+        opts.replace(`value="${mt}"`,`value="${mt}" selected`)+`</select>`+
+      `<button class="ghost sm" style="padding:4px 9px" onclick="copyDayFrom('${from}','${mt}',val('cpTo-${mt}'))">複製</button>`+
+      `</span></div>`;
+  }).join("");
+  const total=src.length;
+  box.innerHTML=`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px">`+
+    `<div class="row" style="margin:0 0 8px;align-items:flex-end">`+
+      `<div style="flex:1 1 auto"><label style="margin:0 0 2px">複製哪一天到 ${to}</label>`+
+      `<input type="date" id="cpFrom" value="${from}" onchange="renderCopyPanel(this.value)"></div>`+
+      `<button class="ghost sm" onclick="copyShiftDay(-1)">前一天</button>`+
+      `<button class="ghost sm" onclick="copyShiftDay(1)">後一天</button>`+
+    `</div>`+
+    (total
+      ? rows+`<button class="ghost sm" style="width:100%;margin-top:8px" onclick="copyDayFrom('${from}')">`+
+        `📋 整天都複製（${total} 項）</button>`
+      : `<div class="hint">${from} 沒有飲食紀錄。用上面的日期或前後天按鈕找找。</div>`)+
+    `</div>`;
+}
+function copyShiftDay(n){
+  const cur=val("cpFrom")||selDate();
+  const d=new Date(cur); d.setDate(d.getDate()+n);
+  const o=d.getTimezoneOffset();
+  renderCopyPanel(new Date(d-o*60000).toISOString().slice(0,10));
 }
 let editingMeal=null;
 function mealGramOf(name){ const m=String(name).match(/(\d+(?:\.\d+)?)\s*g\b/); return m?+m[1]:0; }

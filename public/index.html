@@ -310,8 +310,9 @@
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <label style="margin:0;">日期</label>
           <input id="foodDate" type="date" onchange="renderDay()">
-          <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天飲食</button>
+          <button class="ghost sm" onclick="copyMealPrompt()" style="margin-left:auto;">📋 複製某天／某餐</button>
         </div>
+        <div id="copyPanel" data-open="0"></div>
         <div class="rings" id="rings" style="margin-top:12px;"></div>
         <div id="pSplit"></div>
         <div class="chipbar">
