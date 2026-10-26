@@ -182,6 +182,8 @@ function aFightDone(){
     if(r.dexShinyNew) bits.push(`<br>✨ 第一次打倒閃光${m.name}（🦴+10）`);
     if(r.levelUps) bits.push(`<br>⬆️ 升到 Lv.${AS.level}！`);
     if(r.levelUps&&AS.skillSlots>v.preSlots) bits.push(`<br>🌀 解鎖第 ${AS.skillSlots} 個技能欄，到「技能」分頁裝上吧！`);
+    if(r.rush) bits.push(`<br>🔥 確變中（掉落 +1 階、金幣 ×2）${r.rushLeft?`・還剩 ${r.rushLeft} 關`:"・確變結束"}`);
+    if(r.rushStart) bits.push(`<br>🎰 確變突入！接下來 ${r.rushLeft} 關掉落 +1 階、金幣 ×2`);
     if(r.kind==="fight"&&AS.next.shiny) bits.push(`<br>✨ 下一關出現閃光怪！`);
     if(r.kind==="fight"&&r.stage%10===0) bits.push(`<br>🗺️ 新區域「${AS.next.region}」開放了！`);
     aMsg=bits.join("　");
@@ -210,9 +212,10 @@ async function aChest(){
     if(res){
       if(res.error) aMsg=`⚠️ ${res.error}`;
       else{
+        await aChestReel(res);
         const r=aItem(res.drop), i=AS.board.indexOf(null);
         if(i>=0){ AS.board[i]=res.drop; aQueue(); }
-        aMsg=`🎁 連續第 ${res.streak} 天！開出 ${r.e} ${r.n}（${res.drop[1]} 階）`+(i<0?"，但背包滿了沒放進去":"")+`　🦴+${res.coins}　💰+${res.gold}`;
+        aMsg=(res.up===2?"🎉 777！":res.up===1?"✨ 升階！":"")+`🎁 連續第 ${res.streak} 天！開出 ${r.e} ${r.n}（${res.drop[1]} 階）`+(i<0?"，但背包滿了沒放進去":"")+`　🦴+${res.coins}　💰+${res.gold}`;
       }
     }
   }finally{ aBusy=false; advDraw(); }
@@ -303,13 +306,9 @@ const aSet=(id,html)=>{ const el=document.getElementById(id); if(el) el.innerHTM
 const aGlyph=(size)=>(typeof petGlyph==="function"&&typeof petData!=="undefined"&&petData)?petGlyph(petData,size):`<span style="font-size:${Math.round(size*0.65)}px">🐾</span>`;
 function advDraw(){
   if(!AS||!AD){ aSet("advBox",`<div class="hint" style="text-align:center;padding:40px">${aMsg||"載入中…"}</div>`); return; }
-  const v=aFightView, P=v?v.pre:AS;
-  // ── 上方狀態列 ──
-  aSet("advHud",`<div class="advhud-row"><button class="ghost sm advback" onclick="advClose()">‹ 返回</button>`+
-    `<div class="advhud-lv"><div style="display:flex;justify-content:space-between;font-weight:800;font-size:13px"><span>Lv.${P.level}</span>`+
-    `<span class="hint" style="font-weight:400;font-size:11px">${P.xp}/${P.need}</span></div>${aBar(P.xp,P.need,"var(--accent)",5)}</div>`+
-    `<div class="advhud-res"><span title="能量">⚡${AS.energy}</span><span title="金幣">💰${P.gold}</span><span title="藥水">🧪${P.potions}</span>`+
-    `<span title="今天的骨頭幣" class="hint">🦴${P.coinToday}/${AS.coinCap}</span></div></div>`);
+  const v=aFightView;
+  aSet("advHud",advHudHtml());
+
   // ── 下方分頁 ──
   const q=AS.daily||{quests:[],claimed:true}, qDone=q.quests.filter(x=>x.done).length;
   const qDot=!q.claimed&&qDone===q.quests.length?`<i class="advdot"></i>`:"";
@@ -320,6 +319,15 @@ function advDraw(){
   const body=aTab==="map"?advMapHtml():aTab==="town"?advTownHtml():aTab==="quest"?advQuestHtml():aTab==="skill"?advSkillHtml()
     :aTab==="dex"?advDexHtml():aTab==="rank"?advRankHtml():advBattleHtml();
   aSet("advBox",msg+body);
+}
+
+function advHudHtml(){
+  const v=aFightView, P=v?v.pre:aPachiView?{...AS,gold:aPachiView.gold}:AS;
+  return `<div class="advhud-row"><button class="ghost sm advback" onclick="advClose()">‹ 返回</button>`+
+    `<div class="advhud-lv"><div style="display:flex;justify-content:space-between;font-weight:800;font-size:13px"><span>Lv.${P.level}</span>`+
+    `<span class="hint" style="font-weight:400;font-size:11px">${P.xp}/${P.need}</span></div>${aBar(P.xp,P.need,"var(--accent)",5)}</div>`+
+    `<div class="advhud-res"><span title="能量">⚡${AS.energy}</span><span title="金幣">💰${P.gold}</span><span title="藥水">🧪${P.potions}</span>`+
+    `<span title="今天的骨頭幣" class="hint">🦴${P.coinToday}/${AS.coinCap}</span></div></div>`;
 }
 
 function advBattleHtml(){
@@ -340,8 +348,9 @@ function advBattleHtml(){
   }
   const skillTxt=H.skills&&H.skills.length?H.skills.map(id=>{ const k=AD.skills.find(x=>x.id===id); return k?k.e+k.name:""; }).join(" "):"";
   const where=v&&v.res.kind==="explore"?"🔍 探索・":"";
-  const arena=`<div class="advarena${flash?" advflash":""}" style="background:${m.bg}">`+
+  const arena=`<div class="advarena${flash?" advflash":""}${(AS.rush&&!v)||(v&&v.res.rush)?" advrush":""}" style="background:${m.bg}">`+
     `<div class="advarena-title">${where}${m.region}・第 ${m.stage} 關${m.boss?" 👑頭目":""}${m.shiny?" ✨閃光怪":""}</div>`+
+    (AS.rush&&!v||v&&v.res.rush?`<div class="advrushbar">🔥 確變時間　${v?"":`剩 ${AS.rush} 關・`}掉落 +1 階、金幣 ×2</div>`:"")+
     `<div class="advarena-vs">`+
     `<div class="advfighter"><div class="advsprite${shake==="hero"?" advshake":""}${v&&v.res.events[v.i-1]&&v.res.events[v.i-1][0]==="h"?" advlunge-r":""}">${glyph}</div>`+
     `<div class="advhp">❤️ ${hHp}/${H.hp}${H.potions?`　🧪${H.potions}`:""}</div>${aBar(hHp,H.hp,"#2f9e44",9)}</div>`+
@@ -365,10 +374,8 @@ function advBattleHtml(){
         `<div style="font-size:12px">${it?`${it[1]} ${t}階`:"空"}</div>`+
         `<div style="font-size:10px;color:var(--sub)">${t?aStatText(ch.id,t):"&nbsp;"}</div></div>`;
     }).join("")+`</div>`;
-  // ── 產生器 ──
-  const gens=`<div class="advsec">點一下花 1 點能量，掉一件裝備到背包</div><div class="advgrid3">`+
-    AD.chains.map(c=>`<button class="ghost advgen" ${AS.energy>0&&!v?"":"disabled"} onclick="aSpawn(${c.id})">`+
-      `<div style="font-size:26px">${c.gen}</div><div style="font-size:11px">${c.genName}・${c.slot}</div></button>`).join("")+`</div>`;
+  // ── 產生器：點擊或彈珠（自由切換） ──
+  const gens=advGenHtml();
   // ── 背包 ──
   const board=`<div class="advsec">🎒 背包</div>`+advBoardHtml(i=>`aTap(${i})`, i=>i===aSel, true);
   let selBar=`<div class="hint" style="margin-top:6px;text-align:center">點一件選取，再點另一件一樣的就合成；點空格可以移動。▲＝比身上穿的好。</div>`;
@@ -471,7 +478,8 @@ function advTownHtml(){
   const shop2=`<div class="advsec">🛠️ 工坊</div><div style="display:flex;gap:4px;margin-bottom:6px">`+
     modes.map(([k,l])=>`<button class="ghost sm${aTown.mode===k?" on":""}" style="width:auto;padding:5px 10px" onclick="aTownMode('${k}')">${l}</button>`).join("")+`</div>`+
     panel+advBoardHtml(i=>`aTownPick(${i})`, i=>aTown.picks.includes(i), false);
-  return `<div class="advcardrow" style="font-size:15px"><b style="white-space:nowrap">💰 ${AS.gold} 金幣</b><span class="hint">打怪、探索、賣東西、每日寶箱都會拿到</span></div>`+
+  return `<div class="advsec">🎰 遊樂場（只能用金幣）</div><div id="advPachi">${advPachiHtml()}</div>`+
+    `<div class="advcardrow" style="font-size:15px"><b style="white-space:nowrap">💰 ${aPachiView?aPachiView.gold:AS.gold} 金幣</b><span class="hint">打怪、探索、賣東西、每日寶箱都會拿到</span></div>`+
     `<div class="advsplit"><div>${shop}${smith}</div><div>${shop2}</div></div>`;
 }
 
@@ -492,7 +500,7 @@ function advQuestHtml(){
     `<br>${g.yesterday.includes("kcal_hit")?"✅":"⬜"} 昨天熱量達標（熱量要等一天過完才算數，所以隔天才發）`+
     `<br>另外每 10 分鐘自動回 1 點，最多回到 ${AS.regenCap}。${regen}</div>`;
   return `<div style="font-size:14px;margin-top:4px">🔥 連續 <b>${q.streak}</b> 天　<span class="hint">每天開寶箱就會累積；越連續，寶箱越好（裝備最高 6 階）。斷一天從頭算。</span></div>`+
-    rows+chest+`<div class="hint" style="margin-top:6px">任務每天換一次，大家同一天的任務一樣。</div>`+src;
+    rows+chest+`<div id="advChestReel">${advChestReelHtml()}</div>`+`<div class="hint" style="margin-top:6px">任務每天換一次，大家同一天的任務一樣。開箱時會轉一次：聽牌成功寶箱升一階，777 升兩階。</div>`+src;
 }
 function advSkillHtml(){
   const slots=AS.skillSlots, cur=(AS.skills||[]).slice(0,slots), next=AD.skillSlots.find(l=>l>AS.level);
@@ -529,4 +537,144 @@ function advRankHtml(){
   return `<div class="hint" style="margin:6px 0">比打過的最高關卡，同關比等級。</div>`+aRank.map((x,i)=>
     `<div class="advcardrow${x.me?" on":""}" style="justify-content:space-between">`+
     `<span style="font-size:15px">${medal(i)} ${x.name}</span><span style="font-size:13px">第 ${x.cleared} 關　Lv.${x.level}　📖${x.dex}</span></div>`).join("");
+}
+
+/* ================= 柏青哥 ================= */
+const aSleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+let aPachiView=null, aChestView=null, aDropView=null, aAim=0;
+let aGenMode=(()=>{ try{ return localStorage.getItem("advGenMode")||"tap"; }catch(e){ return "tap"; } })();
+function aSetGenMode(m){ aGenMode=m; try{ localStorage.setItem("advGenMode",m); }catch(e){} advDraw(); }
+function aSetAim(c){ aAim=c; aSet("advPlinko",advPlinkoHtml()); }
+// 三格轉盤：shown 是目前停下來的數字（null＝還在轉）
+function aReelsHtml(shown,reach,win,big){
+  return `<div class="advreels${win?" win":""}${big?" big":""}">`+shown.map(x=>`<div class="advreel${x==null?" spin":""}">${x==null?"":x}</div>`).join("")+`</div>`+
+    (win?`<div class="advreel-msg win">大當り！！</div>`:reach?`<div class="advreel-msg reach">リーチ！</div>`:`<div class="advreel-msg">&nbsp;</div>`);
+}
+
+/* ---------- A：遊樂場 ---------- */
+async function aPachi(){
+  if(aBusy||aPachiView||!AS) return;
+  const pz=AS.pachi, cost=pz.price*pz.perPlay;
+  if(pz.ballsToday+pz.perPlay>pz.daily){ aMsg=`今天的珠子打完了（每天 ${pz.daily} 顆）`; advDraw(); return; }
+  if(AS.gold<cost){ aMsg=`💰 金幣不夠（要 ${cost}）`; advDraw(); return; }
+  aBusy=true; aMsg="";
+  const pre=AS.gold;
+  try{
+    const res=await aSync("pachi");
+    if(!res) return;
+    if(res.error){ aMsg=`⚠️ ${res.error}`; return; }
+    aPachiView={res, i:0, hold:0, shown:[null,null,null], reach:false, win:false, gold:pre-cost, ball:null, banner:"", kaku:0};
+    for(const it of res.items){ const k=AS.board.indexOf(null); if(k>=0) AS.board[k]=it; }   // 777 送的裝備
+    if(res.items.length) aQueue();
+    advDraw();
+    const v=aPachiView;
+    for(const ev of res.events){
+      if(!aPachiView) break;                                  // 按了跳過
+      if(ev[0]==="ball"){
+        v.ball={p:ev[1], k:(v.ball?v.ball.k:0)+1};
+        if(ev[1]===2) v.hold++;
+        if(ev[1]===1||ev[1]===3) v.gold+=3;
+        aPachiDrawPart(); await aSleep(230);
+      }else{
+        const [,r,reach,win,prize,enter,kaku]=ev;
+        v.hold=Math.max(0,v.hold-1); v.shown=[null,null,null]; v.reach=false; v.win=false; v.banner="";
+        aPachiDrawPart(); await aSleep(380);
+        v.shown=[r[0],null,null]; aPachiDrawPart(); await aSleep(260);
+        v.shown=[r[0],r[1],null]; v.reach=r[0]===r[1]; aPachiDrawPart();
+        if(v.reach) aVibe(30);
+        await aSleep(v.reach?1100:260);
+        v.shown=r.slice(); v.win=win; v.kaku=kaku;
+        if(win){ v.gold+=prize; v.banner=`💰+${prize}`+(r[0]===7?" ＋4 階裝備！":"")+(enter?"　🔥確變突入！":""); aVibe([80,40,80]); }
+        aPachiDrawPart(); await aSleep(win?1200:300);
+      }
+    }
+    if(aPachiView) aPachiDone();
+  }finally{ aBusy=false; if(!aPachiView) advDraw(); }
+}
+function aPachiSkip(){ if(aPachiView) aPachiDone(); }
+function aPachiDone(){
+  const r=aPachiView.res;
+  aPachiView=null;
+  aMsg=r.wins?`🎰 這輪大當 ${r.wins} 次！金幣 +${r.gold}（花 ${r.cost}）`+(r.items.length?`，送 ${r.items.length} 件 4 階裝備`:""):`🎰 這輪沒中，退回 ${r.gold} 金幣（花 ${r.cost}）`;
+  advDraw();
+}
+function aPachiDrawPart(){ aSet("advPachi",advPachiHtml()); aSet("advHud",advHudHtml()); }
+function advPachiHtml(){
+  const pz=AS.pachi, v=aPachiView, kaku=v?v.kaku:pz.kaku, hold=v?v.hold:0;
+  const pocketX=[12,30,50,70,50], ball=v&&v.ball?`<i class="advpball" style="--x:${pocketX[v.ball.p]}%" data-k="${v.ball.k}"></i>`:"";
+  const lamps=[0,1,2,3].map(i=>`<i class="advhold${i<hold?" on":""}"></i>`).join("");
+  const cost=pz.price*pz.perPlay;
+  return `<div class="advmachine${kaku?" kaku":""}">`+
+    `<div class="advmachine-top"><b>🎰 健康機台</b><span>${kaku?`<b class="advkaku">確變中 ${kaku}</b>`:"通常"}</span></div>`+
+    `<div class="advmachine-face">${aReelsHtml(v?v.shown:[7,7,7],v&&v.reach&&!v.win,v&&v.win,true)}`+
+    `<div class="advbanner">${v&&v.banner?v.banner:"&nbsp;"}</div><div class="advholds">保留 ${lamps}</div></div>`+
+    `<div class="advpins">${ball}<div class="advpockets"><span>退3</span><span></span><span class="start">入賞</span><span></span><span>退3</span></div></div>`+
+    `<div class="advmachine-foot">`+
+    (v?`<button class="ghost" onclick="aPachiSkip()">跳過 ⏩</button>`
+      :`<button ${aBusy||AS.gold<cost||pz.ballsToday+pz.perPlay>pz.daily?"disabled":""} onclick="aPachi()">發射 ${pz.perPlay} 顆（💰${cost}）</button>`)+
+    `<div class="hint" style="margin-top:4px">今天 ${pz.ballsToday}/${pz.daily} 顆。珠子掉進中央入賞口就轉一次，三個一樣大當（💰40，7 是 💰100＋4 階裝備）；奇數大當進確變，接下來 5 轉更容易中。長期算下來是會輸的，玩玩就好。</div></div></div>`;
+}
+
+/* ---------- B：寶箱轉盤（開箱時播） ---------- */
+async function aChestReel(res){
+  aChestView={res, shown:[null,null,null], reach:false, win:false};
+  const v=aChestView, r=res.reels, draw=()=>aSet("advChestReel",advChestReelHtml());
+  draw(); await aSleep(500);
+  v.shown=[r[0],null,null]; draw(); await aSleep(350);
+  v.shown=[r[0],r[1],null]; v.reach=r[0]===r[1]; draw(); await aSleep(v.reach?1200:350);
+  v.shown=r.slice(); v.win=res.up>0; draw(); if(v.win) aVibe([80,40,80]);
+  await aSleep(v.win?900:300);
+  aChestView=null;
+}
+function advChestReelHtml(){
+  const v=aChestView; if(!v) return "";
+  const up=v.win?(v.res.up===2?"🎉 777！寶箱升兩階！":"✨ 寶箱升一階！"):"";
+  return `<div class="advmachine" style="margin-top:12px">${aReelsHtml(v.shown,v.reach&&!v.win,v.win,true)}<div class="advbanner">${up||"&nbsp;"}</div></div>`;
+}
+
+/* ---------- C：彈珠產生器 ---------- */
+async function aDrop(){
+  if(aBusy||aFightView||aDropView||!AS) return false;
+  if(AS.energy<1){ aMsg="⚡ 能量用完了。記錄飲食、運動、喝水都會補能量，也會隨時間慢慢回來。"; advDraw(); return false; }
+  if(AS.board.indexOf(null)<0){ aMsg="背包滿了：先合成，或到城鎮把用不到的賣掉。"; advDraw(); return false; }
+  aBusy=true; aMsg="";
+  try{
+    const res=await aSync("drop",false,{chain:aAim});
+    if(!res||res.error){ if(res) aMsg=`⚠️ ${res.error}`; return false; }
+    aDropView={res, step:0};
+    for(let s=1;s<=6;s++){ aDropView.step=s; aSet("advPlinko",advPlinkoHtml()); await aSleep(120); }
+    const i=AS.board.indexOf(null), r=aItem(res.item);
+    if(i>=0){ AS.board[i]=res.item; aFlash=i; aQueue(); }
+    aMsg=res.item[1]>=3?`🎯 掉進邊邊的洞！${r.e} ${r.n}（${res.item[1]} 階）`:"";
+    if(res.item[1]>=3) aVibe([60,30,60]);
+    return true;
+  }finally{ aDropView=null; aBusy=false; advDraw(); }
+}
+async function aDropMany(n){ for(let k=0;k<n;k++){ if(!(await aDrop())) break; } }
+function advPlinkoHtml(){
+  const v=aDropView, ch=AD.chains[aAim], T=AS.dropTiers||[3,2,1,1,1,2,3];
+  let ball="";
+  if(v){
+    const s=v.step, sum=v.res.path.slice(0,s).reduce((a,b)=>a+b,0);
+    const x=50+(sum-s/2)*(100/7), y=8+s*13;
+    ball=`<i class="advpl-ball" style="left:${x}%;top:${y}%"></i>`;
+  }
+  const pins=[];
+  for(let r=0;r<6;r++) for(let k=0;k<=r;k++) pins.push(`<i class="advpl-pin" style="left:${50+(k-r/2)*(100/7)}%;top:${14+r*13}%"></i>`);
+  const pockets=T.map((t,k)=>`<div class="advpl-pocket${t>=3?" hot":""}${v&&v.step===6&&v.res.pocket===k?" hit":""}"><span>${ch.items[t-1][0]}</span><small>${t}階</small></div>`).join("");
+  return `<div class="advplinko"><div class="advpl-field">${pins.join("")}${ball}</div><div class="advpl-pockets">${pockets}</div></div>`;
+}
+function advGenHtml(){
+  const v=aFightView;
+  const tog=`<div style="display:flex;gap:4px;margin:14px 0 6px;align-items:center"><span class="advsec" style="margin:0;flex:1">產生裝備（每次 1⚡）</span>`+
+    [["tap","👆 點擊"],["plinko","🎯 彈珠"]].map(([k,l])=>`<button class="ghost sm${aGenMode===k?" on":""}" style="width:auto;padding:4px 10px" onclick="aSetGenMode('${k}')">${l}</button>`).join("")+`</div>`;
+  if(aGenMode!=="plinko")
+    return tog+`<div class="advgrid3">`+AD.chains.map(c=>`<button class="ghost advgen" ${AS.energy>0&&!v?"":"disabled"} onclick="aSpawn(${c.id})">`+
+      `<div style="font-size:26px">${c.gen}</div><div style="font-size:11px">${c.genName}・${c.slot}</div></button>`).join("")+`</div>`;
+  const aim=`<div class="advgrid3">`+AD.chains.map(c=>`<button class="ghost sm${aAim===c.id?" on":""}" onclick="aSetAim(${c.id})">瞄準 ${c.items[0][0]} ${c.slot}</button>`).join("")+`</div>`;
+  return tog+aim+`<div id="advPlinko">${advPlinkoHtml()}</div>`+
+    `<div class="advgrid3" style="grid-template-columns:2fr 1fr;margin-top:6px">`+
+    `<button ${aBusy||v||AS.energy<1?"disabled":""} onclick="aDrop()">🎯 發射 −1⚡</button>`+
+    `<button class="ghost" ${aBusy||v||AS.energy<5?"disabled":""} onclick="aDropMany(5)">連發 ×5</button></div>`+
+    `<div class="hint" style="margin-top:4px">珠子掉進哪個洞決定幾階，兩邊的洞最難掉進去（3 階）。種類是你瞄準的那一種。</div>`;
 }

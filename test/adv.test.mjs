@@ -303,6 +303,89 @@ const empty = () => Array(A.CELLS).fill(null);
   eq("寶箱也給金幣（20×連續天數）", A.openChest(ch, T, () => 0.5).gold, 20);
 }
 
+/* ---------- 柏青哥 A：遊樂場 ---------- */
+{
+  const seeded = (seed) => { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  const st = A.newState(NOW);
+  eq("金幣不夠不能打", A.runAction(st, { action: "pachi" }, T).error, "金幣不夠（要 20）");
+  st.gold = 1000;
+  const r = A.pachiPlay(st, T, seeded(1));
+  const balls = r.events.filter((e) => e[0] === "ball"), spins = r.events.filter((e) => e[0] === "spin");
+  eq("一輪 10 顆、扣 20 金幣", [balls.length, r.cost], [10, 20]);
+  eq("每顆入賞（沒滿）都會轉一次", spins.length, balls.filter((e) => e[1] === 2).length);
+  eq("中獎＝三格一樣；聽牌＝前兩格一樣但沒中", spins.every((e) => (e[3] ? e[1][0] === e[1][1] && e[1][1] === e[1][2] : !(e[1][0] === e[1][1] && e[1][1] === e[1][2])) && e[2] === (!e[3] && e[1][0] === e[1][1])), true);
+  eq("金幣帳對得起來", st.gold, 1000 - 20 + r.gold);
+  // 長期期望值：打很多輪，回收率要落在 70%～95%（長期一定是輸，但不會輸太快）
+  const sim = A.newState(NOW); sim.gold = 1e9; let spent = 0, back = 0, wins = 0, kakuWins = 0, rand = seeded(42);
+  for (let day = 0; day < 3000; day++) {
+    const today = "d" + day;
+    for (let k = 0; k < 20; k++) {
+      const before = sim.gold;
+      const x = A.pachiPlay(sim, today, rand);
+      spent += x.cost; back += x.gold + x.items.reduce((a, it) => a + A.sellPrice(it[1]), 0);
+      wins += x.wins;
+      kakuWins += x.events.filter((e) => e[0] === "spin" && e[3] && e[6] >= 0 && e[5]).length;
+    }
+  }
+  const rtp = back / spent;
+  console.log(`      （遊樂場模擬 600,000 輪：回收率 ${(rtp * 100).toFixed(1)}%，平均每 ${(spent / 2 / wins).toFixed(0)} 顆珠子中一次大當）`);
+  eq("回收率 70%～95%", rtp > 0.7 && rtp < 0.95, true);
+  st.pachi.balls = 195;
+  eq("每天最多 200 顆", A.runAction(st, { action: "pachi" }, T).error, "今天的珠子打完了（每天 200 顆）");
+  eq("隔天重算", !!A.runAction(st, { action: "pachi" }, "2026-10-28").events, true);
+  // 確變：奇數大當後下 5 轉中獎率 1/3
+  const k = A.newState(NOW); k.gold = 100; k.pachi = { day: T, balls: 0, kaku: 5 };
+  let seq = [0.1, 0.9, 0.2, 0.9, 0.3];   // 第一顆入賞 → 之後的亂數
+  const rk = A.pachiPlay(k, T, () => (seq.length ? seq.shift() : 0.99));
+  const s0 = rk.events.find((e) => e[0] === "spin");
+  eq("確變中：亂數 0.2 < 1/3 → 中", s0[3], true);
+}
+
+/* ---------- 柏青哥 B：寶箱轉盤、確變時間 ---------- */
+{
+  const mk = () => {
+    const ch = A.newState(NOW); ch.energy = 150;
+    A.grantHealth(ch, [{ date: T, logged: 1, protein_hit: 1, water_hit: 1 }], T);
+    const bb = empty(); for (let i = 0; i < 25; i++) bb[i] = [0, 1];
+    A.applySync(ch, { board: bb, equip: [0, 0, 0], spent: 25 }, T);
+    for (let i = 0; i < 3; i++) A.fight(ch, T, () => 0.5);
+    A.train(ch, T);
+    return ch;
+  };
+  const r777 = A.openChest(mk(), T, () => 0.01);
+  eq("寶箱 777：升兩階、金幣 ×3", [r777.reels, r777.up, r777.drop[1], r777.gold], [[7, 7, 7], 2, 5, 60]);
+  const r1 = A.openChest(mk(), T, () => 0.1);
+  eq("聽牌成功：三格一樣、升一階", [r1.reels[0] === r1.reels[1] && r1.reels[1] === r1.reels[2], r1.up, r1.drop[1]], [true, 1, 4]);
+  const r0 = A.openChest(mk(), T, () => 0.6);
+  eq("沒中：照原本階數", [r0.up, r0.drop[1], r0.reels[0] === r0.reels[1] && r0.reels[1] === r0.reels[2]], [0, 3, false]);
+
+  const st = A.newState(NOW); st.equip = [10, 10, 10]; st.level = 30; st.dex = { 大老鼠: [1, 0], 蝙蝠: [1, 0], 毒蛇: [1, 0], 毒蜘蛛: [1, 0], 野狼: [1, 0] };
+  const a = A.fight(st, T, () => 0.05);                // 0.05 < 8% → 突入確變
+  eq("打贏後突入確變時間（剩 3 關）", [a.rushStart, st.rush], [true, 3]);
+  st.shiny = false;                                    // 上一場也抽到閃光了，這裡先排除
+  const b = A.fight(st, T, () => 0.5);
+  eq("確變中：掉落高一階、金幣 ×2、剩 2 關", [b.rush, b.drop[1], b.gold, st.rush], [true, 2, 2 * (5 + 2), 2]);
+  A.fight(st, T, () => 0.5); A.fight(st, T, () => 0.5);
+  eq("3 關後結束", st.rush, 0);
+}
+
+/* ---------- 柏青哥 C：彈珠產生器 ---------- */
+{
+  const st = A.newState(NOW); st.energy = 2;
+  const r = A.runAction(st, { action: "drop", chain: 1 }, T, () => 0.1);   // 六排都往左 → 最左邊的洞
+  eq("全部往左 → 最邊邊的洞、3 階、瞄準的種類", [r.path.join(""), r.pocket, r.item], ["000000", 0, [1, 3]]);
+  eq("扣 1 能量、記成額度、算進花能量任務", [st.energy, st.credit, st.daily.spent], [1, 4, 1]);
+  const m = A.runAction(st, { action: "drop", chain: 0 }, T, (() => { const s = [0.1, 0.9, 0.1, 0.9, 0.1, 0.9]; return () => s.shift(); })());
+  eq("左右各半 → 中間的洞、1 階", [m.pocket, m.item], [3, [0, 1]]);
+  eq("能量用完不能打", A.runAction(st, { action: "drop", chain: 0 }, T).error, "能量用完了");
+  const b = empty(); b[0] = [1, 3]; b[1] = [0, 1];
+  A.applySync(st, { board: b, equip: [0, 0, 0], spent: 0 }, T);
+  eq("掉出來的東西放進背包，存檔被接受", st.value, 5);
+  // 平均每點能量換到的價值：比點產生器（1.15）略高，但要等珠子掉下來
+  const ev = [1, 6, 15, 20, 15, 6, 1].reduce((a, w, i) => a + w / 64 * A.tierValue(A.DROP_TIERS[i]), 0);
+  eq(`彈珠每點能量平均價值 ${ev.toFixed(2)}（1.15～1.4 之間）`, ev > 1.15 && ev < 1.4, true);
+}
+
 /* ---------- 排行榜 ---------- */
 {
   const g = (stage, level, dex = {}) => ({ adv: { v: 1, stage, level, dex } });

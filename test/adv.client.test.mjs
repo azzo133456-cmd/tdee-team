@@ -40,7 +40,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
     const copy = JSON.parse(JSON.stringify(st));
     try { A.applySync(copy, body, TODAY); } catch (e) { const err = new Error(e.message); err.status = 400; throw err; }
     server.st = copy;
-    const result = A.runAction(copy, body, TODAY, () => 0.2);   // 0.2：掉武器、下一關不閃光
+    const result = A.runAction(copy, body, TODAY, server.rand || (() => 0.2));   // 0.2：掉武器、下一關不閃光
     return { state: A.publicState(copy, TODAY, now), result, pet: result && result.coins ? { coins: 1 } : null };
   };
   const sb = {
@@ -62,7 +62,17 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   vm.runInContext(code + "\nglobalThis.__get=()=>({AS,aSel,aMsg,aPend,aFightView,aBusy,aOpen,aTab});", sb);
   // 跑完所有排隊中的計時器（存檔延遲、戰鬥動畫）
   const flush = async () => { for (let n = 0; n < 200 && timers.size; n++) { const [id, f] = timers.entries().next().value; timers.delete(id); await f(); } await sb.aChain; };
-  return { sb, server, html, flush, get: () => sb.__get(), advance: (ms) => { now += ms; } };
+  // 跑一個會等動畫（setTimeout）的動作：一直觸發計時器，直到它結束
+  const run = async (p) => {
+    let done = false; p.then(() => { done = true; }, () => { done = true; });
+    for (let n = 0; n < 2000 && !done; n++) {
+      const e = timers.entries().next().value;
+      if (e) { timers.delete(e[0]); await e[1](); }
+      await new Promise((r) => setImmediate(r));
+    }
+    return p;
+  };
+  return { sb, server, html, flush, run, get: () => sb.__get(), advance: (ms) => { now += ms; } };
 }
 
 /* ---------- 載入與健康能量 ---------- */
@@ -175,7 +185,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   await w.sb.loadAdvGame();
   w.sb.aSetTab("quest");
   eq("任務分頁畫出三個任務、寶箱還不能開", [w.html.advBox.match(/⬜|✅/g).length >= 3, w.html.advBox.includes('disabled onclick="aChest()"')], [true, true]);
-  await w.sb.aChest();
+  await w.run(w.sb.aChest());
   eq("沒做完硬開 → 伺服器回錯誤訊息", w.get().aMsg.includes("三個任務都完成"), true);
   for (let i = 0; i < 25; i++) w.sb.aSpawn(i % 3);
   await w.flush();
@@ -186,7 +196,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("任務全部完成", w.get().AS.daily.quests.every((q) => q.done), true);
   w.sb.aSetTab("quest");
   const before = w.get().AS.board.filter(Boolean).length;
-  await w.sb.aChest();
+  await w.run(w.sb.aChest());
   eq("開寶箱：3 階裝備放進背包、連續 1 天", [w.get().AS.board.filter(Boolean).length - before, w.get().aMsg.includes("連續第 1 天")], [1, true]);
   await w.flush();
   eq("寶箱裝備存檔被接受", w.server.st.credit, 0);
@@ -280,6 +290,73 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("探索：伺服器扣 3 能量、切回冒險分頁播動畫", [e0 - w.server.st.energy, w.get().aTab, !!w.get().aFightView], [3, "battle", true]);
   w.sb.aSkip();
   eq("探索打贏：有金幣、關卡不會前進", [w.get().aMsg.includes("💰+"), w.server.st.stage], [true, 2]);
+}
+
+/* ---------- 柏青哥 A：遊樂場 ---------- */
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame();
+  w.sb.aSetTab("town");
+  eq("城鎮最上面是遊樂場、金幣不夠按鈕不能按", [w.html.advBox.includes("健康機台"), w.html.advBox.includes(`disabled onclick="aPachi()"`)], [true, true]);
+  w.server.st.gold = 100; await w.sb.loadAdvGame();
+  // 第 1 顆入賞、轉盤中 7（大當＋4 階裝備＋確變），其他珠子都掉出去
+  // 第 1 顆入賞、第 2、3 顆掉出去；第 3 顆時轉保留：中（0.0）、數字 7（0.9）、裝備種類（0.0）
+  const seq = [0.1, 0.99, 0.99, 0.0, 0.9, 0.0];
+  w.server.rand = () => (seq.length ? seq.shift() : 0.99);
+  const p = w.sb.aPachi();
+  await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r));
+  eq("動畫中：狀態列金幣先顯示扣掉 20 之後的", w.html.advHud.includes("💰80"), true);
+  await w.run(p);
+  const S = w.get().AS;
+  eq("播完：大當訊息、金幣 100−20+100", [w.get().aMsg.includes("大當 1 次"), S.gold, w.server.st.gold], [true, 180, 180]);
+  eq("777 送的 4 階裝備放進背包", S.board.filter(Boolean).map((x) => x[1]), [4]);
+  await w.flush();
+  eq("存檔被接受（額度用掉）", w.server.st.credit, 0);
+  eq("7 是奇數 → 確變中 5 轉", [S.pachi.kaku, w.html.advBox.includes("確變中 5")], [5, true]);
+  eq("今天打了 10 顆", S.pachi.ballsToday, 10);
+}
+
+/* ---------- 柏青哥 B：寶箱轉盤、確變時間 ---------- */
+{
+  const w = makeWorld({ startEnergy: 60, rows: [{ date: "2026-10-27", logged: 1, protein_hit: 1, water_hit: 1 }] });
+  await w.sb.loadAdvGame();
+  for (let i = 0; i < 25; i++) w.sb.aSpawn(i % 3);
+  await w.flush();
+  for (let i = 0; i < 3; i++) { await w.sb.aFight(); w.sb.aSkip(); }
+  await w.sb.aTrain(); await w.flush();
+  w.sb.aSetTab("quest");
+  w.server.rand = () => 0.01;                          // 777
+  const before = w.get().AS.board.filter(Boolean).length;
+  await w.run(w.sb.aChest());
+  eq("寶箱 777：升兩階（3→5 階）、訊息", [w.get().aMsg.includes("777"), w.get().AS.board.filter(Boolean).length - before], [true, 1]);
+  eq("背包裡多了一件 5 階", w.get().AS.board.some((x) => x && x[1] === 5), true);
+
+  const r = makeWorld();
+  await r.sb.loadAdvGame();
+  r.server.rand = () => 0.05;                          // 打贏後突入確變
+  await r.sb.aFight(); r.sb.aSkip();
+  eq("確變突入：訊息、戰場上出現確變條", [r.get().aMsg.includes("確變突入"), r.html.advBox.includes("確變時間"), r.get().AS.rush], [true, true, 3]);
+}
+
+/* ---------- 柏青哥 C：彈珠產生器 ---------- */
+{
+  const w = makeWorld({ startEnergy: 10 });
+  await w.sb.loadAdvGame();
+  eq("預設是點擊產生", w.html.advBox.includes(`onclick="aSpawn(0)"`), true);
+  w.sb.aSetGenMode("plinko");
+  eq("切到彈珠：出現彈珠台和瞄準", [w.html.advBox.includes("advPlinko"), w.html.advBox.includes(`onclick="aSetAim(2)"`), w.html.advBox.includes(`onclick="aSpawn(0)"`)], [true, true, false]);
+  w.sb.aSetAim(2);
+  w.server.rand = () => 0.1;                            // 六排都往左 → 3 階
+  const ok = await w.run(w.sb.aDrop());
+  eq("發射：掉進邊邊的洞 → 3 階飾品放進背包", [ok, w.get().AS.board[0], w.get().aMsg.includes("邊邊")], [true, [2, 3], true]);
+  eq("伺服器扣 1 能量（本機也是）", [w.server.st.energy, w.get().AS.energy], [9, 9]);
+  await w.flush();
+  eq("存檔被接受", [w.server.st.value, w.server.st.credit], [4, 0]);
+  w.server.rand = () => 0.6;
+  await w.run(w.sb.aDropMany(5));
+  eq("連發 5 顆：背包多 5 件、能量 −5", [w.get().AS.board.filter(Boolean).length, w.server.st.energy], [6, 4]);
+  w.sb.aSetGenMode("tap");
+  eq("切回點擊", w.html.advBox.includes(`onclick="aSpawn(0)"`), true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -52,7 +52,7 @@ export function newState(now) {
     v: 1, board: Array(CELLS).fill(null), energy: ENERGY_START, regenAt: now, granted: {},
     equip: Array(SLOTS).fill(0), level: 1, xp: 0, stage: 1, wins: 0, shiny: false, skills: [], dex: {},
     daily: null, streak: { last: "", n: 0 },
-    gold: 0, potions: 0, enh: Array(SLOTS).fill(0),
+    gold: 0, potions: 0, enh: Array(SLOTS).fill(0), rush: 0, pachi: null,
     value: 0, credit: 0, coinDay: "", coinToday: 0,
   };
 }
@@ -310,11 +310,14 @@ export function openChest(st, today, rand = Math.random) {
   const n = nextStreak(st, today);
   st.streak = { last: today, n };
   d.claimed = true;
-  const drop = giveItem(st, Math.floor(rand() * SLOTS), chestTier(n));
+  // 開箱轉盤：5% 出 777 升兩階、20% 聽牌成功升一階，其他照原本的階數
+  const x = rand(), up = x < 0.05 ? 2 : x < 0.25 ? 1 : 0;
+  const r = up === 2 ? [7, 7, 7] : reels(up === 1, 1 + Math.floor(rand() * 6), rand);
+  const drop = giveItem(st, Math.floor(rand() * SLOTS), Math.min(8, chestTier(n) + up));
   const coins = 5 + Math.min(n, 7);                     // 寶箱的骨頭幣不算在打怪的每日封頂裡
-  const gold = 20 * n;
+  const gold = 20 * n * (up === 2 ? 3 : 1);
   st.gold = (st.gold || 0) + gold;
-  return { kind: "chest", streak: n, drop, coins, gold };
+  return { kind: "chest", streak: n, drop, coins, gold, reels: r, up, base: chestTier(n) };
 }
 
 /* ---------- 技能 ---------- */
@@ -340,6 +343,7 @@ export const DEX_LIST = (() => {
   return out;
 })();
 export const SHINY_CHANCE = 0.12;
+export const RUSH_CHANCE = 0.08, RUSH_STAGES = 3;
 export const EXPLORE_SHINY_CHANCE = 0.2;
 function recordDex(st, mon, res) {
   st.dex = st.dex || {};
@@ -360,11 +364,17 @@ export function fight(st, today, rand = Math.random) {
   res.xp = stageXp(st.stage) + (mon.shiny ? 10 : 0);
   res.levelUps = addXp(st, res.xp);
   Object.assign(res, payCoins(st, today, mon.boss ? 15 : mon.shiny ? 8 : 3));
-  res.gold = stageGold(st.stage) * (mon.boss ? 3 : 1); st.gold = (st.gold || 0) + res.gold;
-  res.drop = giveItem(st, Math.floor(rand() * SLOTS), Math.min(4, 1 + Math.floor(st.stage / 10)) + (mon.shiny ? 1 : 0));
+  // 確變時間：打贏後偶爾突入，接下來 3 關掉落高一階、金幣 ×2
+  const rush = (st.rush || 0) > 0;
+  res.rush = rush;
+  res.gold = stageGold(st.stage) * (mon.boss ? 3 : 1) * (rush ? 2 : 1); st.gold = (st.gold || 0) + res.gold;
+  res.drop = giveItem(st, Math.floor(rand() * SLOTS), Math.min(4, 1 + Math.floor(st.stage / 10)) + (mon.shiny ? 1 : 0) + (rush ? 1 : 0));
   recordDex(st, mon, res);
   st.stage++; st.wins = (st.wins || 0) + 1;
   st.shiny = st.stage % 10 !== 0 && rand() < SHINY_CHANCE;   // 下一關會不會是閃光怪，現在就決定（重打不會變）
+  if (rush) st.rush--;
+  else if (!mon.boss && rand() < RUSH_CHANCE) { st.rush = RUSH_STAGES; res.rushStart = true; }
+  res.rushLeft = st.rush;
   return res;
 }
 
@@ -431,6 +441,85 @@ export function enhance(st, slot) {
   return { kind: "enhance", slot, level: lv + 1, cost };
 }
 
+/* ---------- 柏青哥 ----------
+   三個地方用到同一套「轉盤」：遊樂場機台（A）、開寶箱（B）、彈珠產生器（C）。
+   結果全部由伺服器決定，前端只負責把動畫「演」到那個結果；前端改不了中獎。 */
+export const PACHI = {
+  ballPrice: 2, perPlay: 10, dailyBalls: 200, holdMax: 4,
+  pStart: 0.18,            // 掉進中央入賞口（啟動轉盤、存一個保留）
+  pReturn: 0.15, returnGold: 3,   // 掉進兩側小口：退 3 金幣
+  pWin: 1 / 17, pWinKaku: 1 / 3, kakuSpins: 5,
+  prize: 40, prize7: 100,
+};
+// 三格轉盤的數字。中獎三格一樣；沒中有時故意做出「前兩格一樣」的聽牌，增加緊張感
+export function reels(win, sym, rand) {
+  const r = () => 1 + Math.floor(rand() * 7);
+  if (win) return [sym, sym, sym];
+  const a = r();
+  if (rand() < 0.3) { let c = r(); if (c === a) c = (a % 7) + 1; return [a, a, c]; }   // 聽牌落空
+  let b = r(); if (b === a) b = (a % 7) + 1;
+  return [a, b, r()];
+}
+function pachiDay(st, today) {
+  if (!st.pachi || st.pachi.day !== today) st.pachi = { day: today, balls: 0, kaku: (st.pachi && st.pachi.kaku) || 0 };
+  return st.pachi;
+}
+/* A：遊樂場打一輪（10 顆）。回傳時間軸：
+     ["ball", 落點]   落點 0＝外、1＝左退幣口、2＝中央入賞口、3＝右退幣口、4＝入賞但保留滿了
+     ["spin", [三格], 是否聽牌, 是否中, 獎金, 中獎後是否確變, 確變剩幾轉]
+   每 3 顆珠子的時間轉一次保留；打完再把剩下的保留轉完。 */
+export function pachiPlay(st, today, rand = Math.random) {
+  const P = PACHI, d = pachiDay(st, today), cost = P.ballPrice * P.perPlay;
+  if (d.balls + P.perPlay > P.dailyBalls) throw new Error(`今天的珠子打完了（每天 ${P.dailyBalls} 顆）`);
+  if ((st.gold || 0) < cost) throw new Error(`金幣不夠（要 ${cost}）`);
+  st.gold -= cost; d.balls += P.perPlay;
+  const events = [], res = { kind: "pachi", events, gold: 0, items: [], wins: 0, cost };
+  let hold = 0;
+  const spin = () => {
+    hold--;
+    const kaku = d.kaku > 0, win = rand() < (kaku ? P.pWinKaku : P.pWin);
+    if (kaku) d.kaku--;
+    const sym = 1 + Math.floor(rand() * 7), r = reels(win, sym, rand);
+    let prize = 0, enter = false;
+    if (win) {
+      res.wins++;
+      prize = sym === 7 ? P.prize7 : P.prize;
+      if (sym === 7) res.items.push(giveItem(st, Math.floor(rand() * SLOTS), 4));
+      enter = sym % 2 === 1;                   // 奇數大當 → 確變（接下來 5 轉中獎率 1/3）
+      if (enter) d.kaku = P.kakuSpins;
+      res.gold += prize;
+    }
+    events.push(["spin", r, !win && r[0] === r[1], win, prize, enter, d.kaku]);
+  };
+  for (let i = 0; i < P.perPlay; i++) {
+    const x = rand();
+    let pocket = 0;
+    if (x < P.pStart) { pocket = hold < P.holdMax ? 2 : 4; if (hold < P.holdMax) hold++; }
+    else if (x < P.pStart + P.pReturn) { pocket = rand() < 0.5 ? 1 : 3; res.gold += P.returnGold; }
+    events.push(["ball", pocket]);
+    if (i % 3 === 2 && hold > 0) spin();
+  }
+  while (hold > 0) spin();
+  st.gold += res.gold;
+  res.kaku = d.kaku; res.ballsToday = d.balls;
+  return res;
+}
+
+/* C：彈珠產生器。花 1 點能量，珠子穿過 6 排釘子掉進 7 個洞，洞決定階數（兩邊最難掉進去、階數最高），
+   種類是玩家瞄準的那一種。path 是每一排往左（0）或往右（1）。 */
+export const DROP_TIERS = [3, 2, 1, 1, 1, 2, 3];
+export function dropBall(st, chain, today, rand = Math.random) {
+  chain = Math.round(+chain);
+  if (!(chain >= 0 && chain < SLOTS)) throw new Error("沒有這個種類");
+  if (st.energy < 1) throw new Error("能量用完了");
+  st.energy -= 1;
+  if (today) dailyRoll(st, today).spent += 1;
+  const path = []; for (let i = 0; i < 6; i++) path.push(rand() < 0.5 ? 0 : 1);
+  const pocket = path.reduce((a, b) => a + b, 0);
+  const item = giveItem(st, chain, DROP_TIERS[pocket]);
+  return { kind: "drop", path, pocket, item };
+}
+
 /* 存檔之後要做的動作。失敗（能量不夠、寶箱還不能開…）只回在 result.error，不影響存檔。
    注意：sell／brew 的東西在存檔檢查時已經確認拿掉了，這裡失敗的話東西不會回來 —— 前端要先擋。 */
 export function runAction(st, body, today, rand = Math.random) {
@@ -445,6 +534,8 @@ export function runAction(st, body, today, rand = Math.random) {
     if (action === "brew") return brew(st, body.items);
     if (action === "buy") return buyPotion(st);
     if (action === "enhance") return enhance(st, body.slot);
+    if (action === "pachi") return pachiPlay(st, today, rand);
+    if (action === "drop") return dropBall(st, body.chain, today, rand);
   } catch (e) { return { kind: action, error: e.message }; }
   return null;
 }
@@ -473,5 +564,9 @@ export function publicState(st, today, now) {
     regenCap: REGEN_CAP, energyMax: ENERGY_MAX, energyPer: ENERGY_PER_BEHAVIOR,
     trainCost: TRAIN_COST, trainXp: trainXp(st), exploreCost: EXPLORE_COST,
     potionMax: POTION_MAX, potionPrice: POTION_PRICE, enhMax: ENH_MAX,
+    rush: st.rush || 0,
+    pachi: { ballsToday: st.pachi && st.pachi.day === today ? st.pachi.balls : 0, kaku: (st.pachi && st.pachi.kaku) || 0,
+      price: PACHI.ballPrice, perPlay: PACHI.perPlay, daily: PACHI.dailyBalls },
+    dropTiers: DROP_TIERS,
   };
 }
