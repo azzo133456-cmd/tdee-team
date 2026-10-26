@@ -87,9 +87,9 @@ function makeWorld({ rows = [], startEnergy = 30 } = {}) {
   eq("不同的東西點下去 → 只是改選，不會合成", [S().board[0], S().board[10]], [[1, 1], [0, 2]]);
   eq("而且選取換到新的那格", w.get().mSel, 10);
   // 最高階不能再合
-  S().board[20] = [3, 7]; S().board[21] = [3, 7];
-  w.sb.mTap(20); w.sb.mTap(21);
-  eq("最高階不能再合成", [S().board[20], S().board[21]], [[3, 7], [3, 7]]);
+  S().board[24] = [3, 7]; S().board[25] = [3, 7];
+  w.sb.mTap(24); w.sb.mTap(25);
+  eq("最高階不能再合成", [S().board[24], S().board[25]], [[3, 7], [3, 7]]);
 }
 
 /* ---------- 能量用完、棋盤滿了 ---------- */
@@ -155,12 +155,12 @@ function makeWorld({ rows = [], startEnergy = 30 } = {}) {
   await w.sb.loadMergeGame();
   const S = () => w.get().MS;
   const o = S().orders[0];
-  o.need.forEach(([c, t], i) => { S().board[30 + i] = [c, t]; });
+  o.need.forEach(([c, t], i) => { S().board[20 + i] = [c, t]; });
   const before = w.server.st.stars;
   await w.sb.mDeliver(o.id);
   await new Promise((r) => setImmediate(r));
   eq("交單後伺服器星星增加", w.server.st.stars - before, o.stars);
-  eq("訂單要的東西從棋盤拿走", o.need.every((_, i) => S().board[30 + i] === null), true);
+  eq("訂單要的東西從棋盤拿走", o.need.every((_, i) => S().board[20 + i] === null), true);
   eq("訂單補回 3 張", S().orders.length, 3);
   eq("交過的單不在了", S().orders.some((x) => x.id === o.id), false);
   eq("有交單成功的提示", w.get().mMsg.includes("交單成功"), true);

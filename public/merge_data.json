@@ -1,7 +1,7 @@
 {
   "_comment": "合成小屋的遊戲資料，前後端共用同一份（前端 fetch、後端 merge_logic.js 讀取）。改這裡兩邊一起生效。chains 的順序就是 id，不要中途插入，否則存檔裡的 [鏈, 階] 會對錯。",
-  "cols": 7,
-  "rows": 8,
+  "cols": 6,
+  "rows": 5,
   "chains": [
     {
       "id": 0,

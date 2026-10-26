@@ -105,6 +105,21 @@ export function ensureOrders(st, rand = Math.random) {
   while (st.orders.length < ORDER_SLOTS) st.orders.push(makeOrder(st, rand));
 }
 
+/* 棋盤尺寸改過（7×8 → 6×5）。讀到舊尺寸的存檔時轉成新尺寸：
+   依階數由高到低保留，放不下的退成能量 —— 一個 t 階物品是用 2^(t-1) 點能量合出來的，
+   照這個退，不會有人因為改版吃虧。只在讀存檔時做一次，之後存檔就是新尺寸了。 */
+export function fitBoard(st) {
+  if (Array.isArray(st.board) && st.board.length === CELLS) return 0;
+  const items = (Array.isArray(st.board) ? st.board : []).filter(validCellItem);
+  items.sort((a, b) => b[1] - a[1]);                    // 高階優先，同階維持原順序
+  const keep = items.slice(0, CELLS), extra = items.slice(CELLS);
+  const refund = extra.reduce((a, [, t]) => a + 2 ** (t - 1), 0);
+  st.board = keep.concat(Array(CELLS - keep.length).fill(null));
+  st.energy = Math.min(ENERGY_MAX, (st.energy || 0) + refund);
+  return refund;
+}
+function validCellItem(x) { return x !== null && validCell(x); }
+
 function validCell(x) {
   if (x === null) return true;
   return Array.isArray(x) && x.length === 2

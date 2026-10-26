@@ -1687,7 +1687,9 @@ async function loadMerge(userId) {
   const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
   if (!r.rowCount) return null;
   const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-  return (games.merge && games.merge.v === 1) ? games.merge : MERGE.newState(Date.now());
+  const st = (games.merge && games.merge.v === 1) ? games.merge : MERGE.newState(Date.now());
+  MERGE.fitBoard(st);   // 棋盤尺寸改過時，把舊存檔轉成新尺寸（放不下的退成能量）
+  return st;
 }
 // 只改 games.merge 這一個鍵：同步很頻繁，若整包覆寫 games，會蓋掉同一時間其他小遊戲寫進去的結果
 async function saveMerge(userId, st, coins) {

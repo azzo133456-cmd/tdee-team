@@ -32,7 +32,7 @@ eq("廚房會用到食物鏈（兩種主題混在一起）",
 
 /* ---------- 新存檔 ---------- */
 const s0 = M.newState(T0, seeded(1));
-eq("棋盤 7×8＝56 格、全空", [s0.board.length, s0.board.every((x) => x === null)], [56, true]);
+eq("棋盤 6×5＝30 格、全空", [s0.board.length, s0.board.every((x) => x === null)], [30, true]);
 eq("起始能量 30", s0.energy, 30);
 eq("一開始就有 3 張訂單", s0.orders.length, 3);
 
@@ -168,6 +168,40 @@ throws("不存在的鏈 → 擋", () => {
   const all = M.DATA.rooms.flatMap((r) => r.tasks.map((t) => t.id));
   s.home.done = [...all];
   eq("全部做完 → 沒有下一個任務", M.nextTask(s), null);
+}
+
+/* ---------- 舊尺寸存檔轉換（7×8 → 6×5） ---------- */
+{
+  const s = M.newState(T0); s.energy = 10;
+  s.board = Array(56).fill(null);
+  s.board[0] = [0, 1]; s.board[40] = [3, 5]; s.board[55] = [1, 2];
+  eq("物品放得下 → 不退能量", M.fitBoard(s), 0);
+  eq("轉成 30 格", s.board.length, 30);
+  eq("三個物品都留著，高階在前", s.board.slice(0, 3), [[3, 5], [1, 2], [0, 1]]);
+  eq("能量不變", s.energy, 10);
+  eq("已經是新尺寸 → 什麼都不做", M.fitBoard(s), 0);
+}
+{
+  const s = M.newState(T0); s.energy = 10;
+  s.board = Array(56).fill(null);
+  for (let i = 0; i < 30; i++) s.board[i] = [0, 3];      // 30 個 3 階
+  s.board[40] = [2, 1]; s.board[41] = [2, 2]; s.board[42] = [4, 4];   // 再 3 個
+  const refund = M.fitBoard(s);
+  eq("留下階數最高的 30 個（4 階那個一定在）", s.board.some((x) => x && x[0] === 4 && x[1] === 4), true);
+  eq("放不下的照合成成本退能量：1 階 1 點＋2 階 2 點＋擠掉的一個 3 階 4 點", refund, 1 + 2 + 4);
+  eq("能量加上去", s.energy, 17);
+  eq("棋盤剛好滿 30 格", s.board.filter(Boolean).length, 30);
+}
+{
+  const s = M.newState(T0); s.energy = 148;
+  s.board = Array(56).fill([0, 7]);
+  M.fitBoard(s);
+  eq("退能量也不會超過上限 150", s.energy, M.ENERGY_MAX);
+}
+{
+  const s = M.newState(T0); s.board = Array(56).fill(null); s.board[3] = [0, 99];
+  M.fitBoard(s);
+  eq("轉換時順便丟掉壞掉的格子", s.board.every((x) => x === null), true);
 }
 
 /* ---------- 回給前端的資料 ---------- */
