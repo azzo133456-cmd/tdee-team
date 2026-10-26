@@ -248,7 +248,7 @@
       <input id="foodPick" placeholder="輸入食物，或描述一餐…" autocomplete="off" oninput="foodSuggest()" onfocus="foodSuggest()">
       <div id="foodFilters" class="chipbar">
         <button class="ghost sm fbtn on" data-f="" onclick="setFoodFilter('',this)">全部</button>
-        <button class="ghost sm fbtn" data-f="drink" onclick="setFoodFilter('drink',this)">🧋手搖</button>
+        <button class="ghost sm fbtn" data-f="drink" onclick="setFoodFilter('drink',this)">🥤手搖</button>
         <button class="ghost sm fbtn" data-f="meal" onclick="setFoodFilter('meal',this)">🍱便當麵飯</button>
         <button class="ghost sm fbtn" data-f="store" onclick="setFoodFilter('store',this)">🏪超商</button>
         <button class="ghost sm fbtn" data-f="raw" onclick="setFoodFilter('raw',this)">🥗原型</button>
@@ -578,7 +578,7 @@
   <!-- ===== 分頁：遊戲 ===== -->
   <div class="tabpage hidden" id="page-games">
     <div class="card" style="border:none;background:transparent;padding:6px 2px 0;">
-      <div class="hint">玩遊戲賺骨頭幣 🦴，可拿去扭蛋。健康類每日一題，娛樂類玩個爽！</div>
+      <div class="hint">玩遊戲賺骨頭幣 🦴，可拿去扭蛋。合成小屋的能量來自你的健康行為；其他四款每天第一次結束時依成績發幣。</div>
     </div>
 
     <!-- 合成小屋：健康行為換能量 → 合成食材交訂單、合成家具佈置房子（取代原本的團隊魔王戰） -->
@@ -587,58 +587,28 @@
       <div class="cardbody"><div id="mergeBox"></div></div>
     </div>
 
+    <!-- 休閒四款（2026/10 取代原本的轉盤、熱量猜謎、健康知識、健康賓果、記憶翻牌、打地鼠、2048、寵物跳跳） -->
+    <div class="card" id="blastCard" style="display:none;">
+      <h2 class="ch" data-ck="blast" onclick="toggleCard(this)">🧩 方塊爆破 <span class="pill">擺放消除</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="blastBox"></div></div>
+    </div>
+    <div class="card" id="goodsCard" style="display:none;">
+      <h2 class="ch" data-ck="goods" onclick="toggleCard(this)">🛒 貨架三消 <span class="pill">限時 3 分鐘</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="goodsBox"></div></div>
+    </div>
+    <div class="card" id="tileCard" style="display:none;">
+      <h2 class="ch" data-ck="tile" onclick="toggleCard(this)">🐑 羊了個羊 <span class="pill">三消闖關</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="tileBox"></div></div>
+    </div>
+    <div class="card" id="waterCard" style="display:none;">
+      <h2 class="ch" data-ck="water" onclick="toggleCard(this)">🥤 倒水分類 <span class="pill">限時 5 分鐘</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="waterBox"></div></div>
+    </div>
+
     <!-- 寵物圖鑑：展示我抽到/養過的寵物 + 收集種類、綜合培養等級排行 -->
     <div class="card" id="dexCard">
       <h2 class="ch" data-ck="dex" onclick="toggleCard(this)">🐾 寵物圖鑑 <span class="pill">收集展示</span><span class="caret">▾</span></h2>
       <div class="cardbody"><div id="dexBox"><div class="hint">載入中…</div></div></div>
-    </div>
-
-    <!-- 娛樂：每日免費轉盤 -->
-    <div class="card" id="spinCard" style="display:none;">
-      <h2 class="ch" data-ck="spin" onclick="toggleCard(this)">🎡 每日轉盤 <span class="pill">免費</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="spinBox"></div></div>
-    </div>
-
-    <!-- 娛樂：記憶翻牌配對 -->
-    <div class="card" id="memCard" style="display:none;">
-      <h2 class="ch" data-ck="mem" onclick="toggleCard(this)">🃏 記憶翻牌 <span class="pill">配對</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="memBox"></div></div>
-    </div>
-
-    <!-- 娛樂：打地鼠(骨頭版) -->
-    <div class="card" id="whackCard" style="display:none;">
-      <h2 class="ch" data-ck="whack" onclick="toggleCard(this)">🔨 打地鼠 <span class="pill">反射</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="whackBox"></div></div>
-    </div>
-
-    <!-- 娛樂：2048 食物版 -->
-    <div class="card" id="g2Card" style="display:none;">
-      <h2 class="ch" data-ck="g2048" onclick="toggleCard(this)">🍎 2048 食物版 <span class="pill">益智</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="g2Box"></div></div>
-    </div>
-
-    <!-- 娛樂：寵物跳跳 -->
-    <div class="card" id="jumpCard" style="display:none;">
-      <h2 class="ch" data-ck="jump" onclick="toggleCard(this)">🐾 寵物跳跳 <span class="pill">闖關</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="jumpBox"></div></div>
-    </div>
-
-    <!-- 每日小遊戲：熱量猜謎 -->
-    <div class="card" id="gameCard" style="display:none;">
-      <h2 class="ch" data-ck="game" onclick="toggleCard(this)">🎯 熱量猜謎 <span class="pill">每日一題</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="gameBox"></div></div>
-    </div>
-
-    <!-- 每日小遊戲：健康知識測驗 -->
-    <div class="card" id="quizCard" style="display:none;">
-      <h2 class="ch" data-ck="quiz" onclick="toggleCard(this)">🧠 健康知識 <span class="pill">每日一題</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="quizBox"></div></div>
-    </div>
-
-    <!-- 小遊戲：健康賓果（每週） -->
-    <div class="card" id="bingoCard" style="display:none;">
-      <h2 class="ch" data-ck="bingo" onclick="toggleCard(this)">🎲 健康賓果 <span class="pill">每週</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="bingoBox"></div></div>
     </div>
 
   </div>
@@ -726,6 +696,7 @@
   </div>
 </div>
 
+<script defer src="app_arcade.js"></script>
 <script defer src="app_pets.js"></script>
 <script defer src="app.js"></script>
 </body>

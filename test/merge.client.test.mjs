@@ -8,7 +8,7 @@ import * as M from "../merge_logic.js";
 
 const src = fs.readFileSync(new URL("../public/app_pets.js", import.meta.url), "utf8");
 const a = src.indexOf("/* ---------- 小遊戲：合成小屋");
-const b = src.indexOf("/* ---------- 小遊戲：每日免費轉盤");
+const b = src.indexOf("// 今日任務（前端依本機資料即時判定");   // 合成小屋那一段之後緊接的是今日任務
 if (a < 0 || b < 0) throw new Error("找不到合成小屋那一段");
 const code = src.slice(a, b);
 const data = JSON.parse(fs.readFileSync(new URL("../public/merge_data.json", import.meta.url), "utf8"));

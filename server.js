@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
 import * as MERGE from "./merge_logic.js";
+import { ARCADE, validArcadeScore, settleArcade } from "./arcade_rules.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC;
@@ -1443,243 +1444,6 @@ app.post("/api/pet/checkin", auth, async (req, res) => {
     res.json({ reward, streak, day, big: day >= 7, usedShield, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-/* ---------- 小遊戲：熱量猜謎（每日一題，伺服器發幣防作弊） ----------
-   每天全體同一題（依日期決定），猜越接近正解、骨頭幣越多；一天只能玩一次。*/
-const GAME_FOODS = [
-  { n: "白飯一碗", k: 280, e: "🍚" }, { n: "滷肉飯", k: 500, e: "🍚" }, { n: "雞腿便當", k: 800, e: "🍱" },
-  { n: "珍珠奶茶(中杯,全糖)", k: 550, e: "🧋" }, { n: "茶葉蛋", k: 75, e: "🥚" }, { n: "鮪魚御飯糰", k: 190, e: "🍙" },
-  { n: "香蕉一根", k: 105, e: "🍌" }, { n: "蘋果一顆", k: 95, e: "🍎" }, { n: "水煮蛋一顆", k: 70, e: "🥚" },
-  { n: "雞胸肉 100g", k: 165, e: "🍗" }, { n: "無糖豆漿(400ml)", k: 150, e: "🥛" }, { n: "牛肉麵", k: 600, e: "🍜" },
-  { n: "蛋餅", k: 250, e: "🫓" }, { n: "鐵板麵", k: 500, e: "🍝" }, { n: "鹹酥雞(小份)", k: 600, e: "🍗" },
-  { n: "大麥克", k: 525, e: "🍔" }, { n: "中薯", k: 340, e: "🍟" }, { n: "可樂(330ml)", k: 140, e: "🥤" },
-  { n: "泡麵一包", k: 450, e: "🍜" }, { n: "吐司一片", k: 75, e: "🍞" }, { n: "美式咖啡(無糖)", k: 5, e: "☕" },
-  { n: "拿鐵(中杯)", k: 150, e: "☕" }, { n: "蔥抓餅", k: 350, e: "🫓" }, { n: "小籠包(一籠8顆)", k: 500, e: "🥟" },
-  { n: "水餃10顆", k: 420, e: "🥟" }, { n: "烤地瓜(中)", k: 130, e: "🍠" }, { n: "雞排(一片)", k: 550, e: "🍗" },
-  { n: "握壽司6貫", k: 350, e: "🍣" }, { n: "甜甜圈", k: 250, e: "🍩" }, { n: "蛋塔", k: 230, e: "🥧" },
-  { n: "燙青菜(無醬)", k: 50, e: "🥬" }, { n: "滷雞腿", k: 250, e: "🍗" }, { n: "炒飯", k: 600, e: "🍚" },
-  { n: "鍋貼10個", k: 560, e: "🥟" }, { n: "鮭魚生魚片6片", k: 130, e: "🐟" }, { n: "燕麥40g(乾)", k: 150, e: "🥣" },
-  { n: "菠蘿麵包", k: 320, e: "🍞" }, { n: "關東煮黑輪", k: 80, e: "🍢" }, { n: "焗烤義大利麵", k: 700, e: "🍝" },
-  { n: "地瓜球(一份)", k: 350, e: "🟤" },
-  { n: "蚵仔煎", k: 500, e: "🍳" }, { n: "肉圓", k: 350, e: "🥟" }, { n: "大腸麵線", k: 350, e: "🍜" },
-  { n: "鹽水雞(一份)", k: 300, e: "🍗" }, { n: "火腿蛋三明治", k: 350, e: "🥪" }, { n: "起司堡", k: 300, e: "🍔" },
-  { n: "炸雞一塊", k: 290, e: "🍗" }, { n: "披薩一片", k: 285, e: "🍕" }, { n: "番茄義大利麵", k: 550, e: "🍝" },
-  { n: "燒餅油條", k: 450, e: "🥖" }, { n: "蘿蔔糕(一份)", k: 300, e: "🟫" }, { n: "鍋燒意麵", k: 600, e: "🍜" },
-  { n: "臭豆腐(一份)", k: 450, e: "🟤" }, { n: "排骨便當", k: 850, e: "🍱" }, { n: "雞絲飯", k: 450, e: "🍚" },
-  { n: "廣東粥", k: 350, e: "🥣" }, { n: "麻辣燙(中)", k: 600, e: "🌶️" }, { n: "咖哩飯", k: 700, e: "🍛" },
-  { n: "親子丼", k: 650, e: "🍚" }, { n: "牛丼", k: 700, e: "🍚" }, { n: "蛋包飯", k: 650, e: "🍳" },
-  { n: "豚骨拉麵", k: 550, e: "🍜" }, { n: "湯烏龍麵", k: 400, e: "🍜" }, { n: "涼麵(一份)", k: 500, e: "🍝" },
-  { n: "多多綠茶(中)", k: 350, e: "🥤" }, { n: "檸檬愛玉", k: 200, e: "🍋" }, { n: "微糖奶茶(中)", k: 350, e: "🧋" },
-  { n: "運動飲料(600ml)", k: 150, e: "🥤" }, { n: "啤酒(330ml)", k: 140, e: "🍺" }, { n: "養樂多一瓶", k: 70, e: "🍶" },
-  { n: "無糖優格一杯", k: 100, e: "🥛" }, { n: "起司一片", k: 80, e: "🧀" }, { n: "綜合堅果30g", k: 180, e: "🥜" },
-  { n: "洋芋片(小包)", k: 300, e: "🥔" }, { n: "巧克力一排", k: 250, e: "🍫" }, { n: "冰淇淋一球", k: 200, e: "🍨" },
-  { n: "雞蛋糕3個", k: 200, e: "🟡" }, { n: "車輪餅(紅豆)", k: 200, e: "🟠" }, { n: "銅鑼燒", k: 220, e: "🟤" },
-  { n: "厚片吐司(花生)", k: 320, e: "🍞" }, { n: "肉鬆飯糰", k: 400, e: "🍙" },
-];
-// 依日期決定今天第幾題（全體同步，且每天不同）
-function dailyGameIndex(dateStr, len) { let h = 0; for (const c of dateStr) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % len; }
-async function readGames(userId) {
-  const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
-  if (!r.rowCount) return null;
-  return (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-}
-// 取得今天的題目（不洩漏答案，除非已玩過）
-app.get("/api/game/calorie", auth, async (req, res) => {
-  try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const food = GAME_FOODS[dailyGameIndex(today + "#" + req.user.id, GAME_FOODS.length)];
-    const g = games.calorie;
-    const played = g && g.date === today;
-    res.json({ name: food.n, emoji: food.e, played, result: played ? g : null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-// 送出猜測：算分、發幣、記錄今天已玩
-app.post("/api/game/calorie", auth, async (req, res) => {
-  try {
-    const guess = Math.round(+req.body.guess);
-    if (!isFinite(guess) || guess < 0 || guess > 5000) return res.status(400).json({ error: "請輸入合理的數字（0~5000）" });
-    const today = twToday();
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    if (games.calorie && games.calorie.date === today) return res.status(400).json({ error: "今天已經玩過囉，明天再來～" });
-    const food = GAME_FOODS[dailyGameIndex(today + "#" + req.user.id, GAME_FOODS.length)];
-    const answer = food.k;
-    const errPct = Math.abs(guess - answer) / Math.max(1, answer);
-    // 越接近獎越多：±10%→20、±25%→12、±50%→6、其餘 2
-    let coins, rank;
-    if (errPct <= 0.10) { coins = 35; rank = "神準 🎯"; }
-    else if (errPct <= 0.25) { coins = 20; rank = "很接近 👍"; }
-    else if (errPct <= 0.50) { coins = 10; rank = "有概念 🙂"; }
-    else { coins = 3; rank = "再接再厲 💪"; }
-    games.calorie = { date: today, guess, answer, coins, rank, name: food.n };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ guess, answer, coins, rank, name: food.n, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
-/* ---------- 小遊戲：健康知識測驗（每日一題，答對發幣） ---------- */
-const QUIZ_BANK = [
-  { q: "1 公斤脂肪大約等於多少大卡？", o: ["3500", "7700", "10000"], a: 1, w: "約 7700 kcal，這也是我們反推 TDEE 的依據。" },
-  { q: "蛋白質每公克提供多少大卡？", o: ["4", "7", "9"], a: 0, w: "蛋白質與碳水都是 4 kcal/g、脂肪 9、酒精 7。" },
-  { q: "脂肪每公克提供多少大卡？", o: ["4", "7", "9"], a: 2, w: "脂肪最高，9 kcal/g，所以油類熱量密度很高。" },
-  { q: "減重初期體重快速下降，主要掉的是？", o: ["脂肪", "水分與肝醣", "肌肉"], a: 1, w: "前一兩週多是肝醣與結合水，不是脂肪，別被嚇到。" },
-  { q: "減脂期蛋白質建議攝取量（每公斤體重）？", o: ["0.8g", "1.6~2.2g", "3.5g 以上"], a: 1, w: "赤字期要吃夠蛋白保留肌肉，約 1.6~2.2g/kg。" },
-  { q: "TDEE 指的是？", o: ["基礎代謝率", "每日總消耗熱量", "目標攝取量"], a: 1, w: "TDEE＝每日總消耗；BMR 才是基礎代謝率。" },
-  { q: "減脂最關鍵的條件是？", o: ["熱量赤字", "不吃澱粉", "只吃水煮"], a: 0, w: "長期熱量赤字才會掉脂肪，方法可以很多元。" },
-  { q: "同樣重量，肌肉和脂肪哪個體積小？", o: ["肌肉", "脂肪", "一樣"], a: 0, w: "肌肉密度高、體積小，所以增肌減脂後體重沒變也會更精實。" },
-  { q: "女性黃體期體重常微幅上升，主因是？", o: ["長脂肪", "水分滯留", "長肌肉"], a: 1, w: "賀爾蒙造成水分滯留，是水不是脂肪，過了就回落。" },
-  { q: "酒精每公克提供多少大卡？", o: ["0", "4", "7"], a: 2, w: "酒精 7 kcal/g，僅次於脂肪，且是『空熱量』。" },
-  { q: "吃太鹹隔天體重上升，通常是因為？", o: ["脂肪增加", "水分滯留", "肌肉增加"], a: 1, w: "鈉會讓身體留住水分，體重短暫上升。" },
-  { q: "增肌期蛋白質大約超過多少幫助就有限？", o: ["1.6g/kg", "4g/kg", "6g/kg"], a: 0, w: "研究顯示約 1.6g/kg 接近上限，再多效益遞減。" },
-  { q: "下列何者是『空熱量』食物的特徵？", o: ["高熱量低營養", "低熱量高營養", "高蛋白"], a: 0, w: "如含糖飲料、酒：熱量高但缺乏營養素。" },
-  { q: "維持/增加肌肉，除了蛋白質還最需要？", o: ["有氧運動", "阻力(重量)訓練", "斷食"], a: 1, w: "重訓給肌肉成長/保留的訊號，光靠蛋白不夠。" },
-  { q: "一碗白飯（約一碗）大約多少大卡？", o: ["100", "280", "500"], a: 1, w: "約 280 kcal，是常見的熱量參考基準。" },
-  { q: "膳食纖維主要的好處是？", o: ["增加熱量", "增加飽足感與腸道健康", "提高血糖"], a: 1, w: "纖維增加飽足、穩血糖、顧腸道，減脂期很有用。" },
-  { q: "停滯期(代謝適應)時，較好的做法是？", o: ["再大砍熱量", "回維持熱量休息1-2週", "完全不吃"], a: 1, w: "diet break 讓代謝回升，往往比硬砍更有效。" },
-  { q: "一顆雞蛋大約含多少蛋白質？", o: ["1g", "6~7g", "20g"], a: 1, w: "一顆約 6~7g 蛋白質，是方便的優質蛋白來源。" },
-  { q: "高 GI 食物的特性是？", o: ["快速升血糖", "完全沒熱量", "一定會變胖"], a: 0, w: "升糖快、較易餓；搭配蛋白纖維可減緩。" },
-  { q: "運動後肌肉痠痛幾天體重微升，常因？", o: ["長脂肪", "肌肉發炎與水分", "代謝變慢"], a: 1, w: "修復過程的發炎與儲水，屬正常,會回落。" },
-  { q: "三大營養素中，消化時自己消耗熱量(TEF)最高的是？", o: ["碳水", "脂肪", "蛋白質"], a: 2, w: "蛋白質的食物熱效應最高，這也是高蛋白有利減脂的原因之一。" },
-  { q: "睡眠不足對減重的影響？", o: ["完全沒影響", "更容易餓、代謝變差", "幫助燃脂"], a: 1, w: "睡不夠會擾亂飢餓賀爾蒙、增加食慾，不利減脂。" },
-  { q: "體脂計(生物電阻)的讀數最容易被什麼影響？", o: ["身高", "體內水分", "穿什麼衣服"], a: 1, w: "水分多寡會大幅影響導電，所以體脂只看長期趨勢、固定條件量。" },
-  { q: "健康的減重速度建議每週不超過體重的多少？", o: ["約 1%", "約 5%", "越快越好"], a: 0, w: "太快易掉肌肉與反彈，約每週 0.5~1% 較穩。" },
-  { q: "早上空腹量體重的主要理由？", o: ["比較輕", "條件一致、可比較", "比較準到公克"], a: 1, w: "固定條件才能比較趨勢，不是因為數字好看。" },
-  { q: "果汁和整顆水果，哪個纖維較多、較有飽足感？", o: ["果汁", "整顆水果", "一樣"], a: 1, w: "榨汁會去掉纖維、糖更集中，整顆水果較佳。" },
-  { q: "局部瘦身（只瘦肚子）可行嗎？", o: ["可以，多做仰臥起坐", "不行，減脂是全身性的", "可以，靠按摩"], a: 1, w: "脂肪是全身一起降，無法指定部位。" },
-  { q: "BMR(基礎代謝)約佔 TDEE 的比例？", o: ["約 10%", "約 60~70%", "約 90%"], a: 1, w: "基礎代謝是大頭，運動消耗其實佔比相對小。" },
-  { q: "想增加每日消耗，CP值高又持久的是？", o: ["拼命做有氧", "提高日常活動量(NEAT)+重訓增肌", "只靠節食"], a: 1, w: "多走動的 NEAT 與肌肉量長期影響大且可持續。" },
-  { q: "喝冰水會大量燃燒脂肪嗎？", o: ["會，消耗很多", "幾乎可忽略", "會變胖"], a: 1, w: "身體加熱水的耗能極小，別當減肥手段。" },
-  { q: "「淨碳水」通常是總碳水減掉什麼？", o: ["蛋白質", "膳食纖維", "水分"], a: 1, w: "纖維不太被吸收，部分計算會扣除。" },
-  { q: "增肌一定要吃得很油膩嗎？", o: ["要，越油越好", "不用，重點是熱量盈餘+足夠蛋白+重訓", "完全不能吃油"], a: 1, w: "增肌靠盈餘與訓練，不是靠油膩。" },
-  { q: "體重停滯時，第一步該先檢查？", o: ["立刻斷食", "記錄是否低估、量測是否同條件", "換體重計"], a: 1, w: "常見是漏記或量測條件不一致，先排除這些。" },
-  { q: "一份雞胸肉(約一個手掌大)蛋白質約？", o: ["5g", "25~30g", "60g"], a: 1, w: "約 25~30g，是高效率的蛋白來源。" },
-  { q: "下列何者是低 GI(升糖較慢)的食物？", o: ["白吐司", "燕麥/糙米", "含糖飲料"], a: 1, w: "全穀與豆類升糖較慢，較有飽足、穩血糖。" },
-  { q: "喝水有助控制食慾，部分原因是？", o: ["水有熱量", "增加飽足、有時口渴會被誤判成餓", "加快脂肪分解"], a: 1, w: "餐前喝水可增加飽足，也避免把口渴當成飢餓。" },
-  { q: "一根中型香蕉大約多少大卡？", o: ["約 50", "約 105", "約 250"], a: 1, w: "約 105 kcal，是方便的運動前點心。" },
-  { q: "便祕時體重短暫上升，主要因為？", o: ["長脂肪", "腸道內容物", "長肌肉"], a: 1, w: "只是腸道存量，不是真的變胖。" },
-  { q: "蛋白質的攝取較理想的方式是？", o: ["集中一餐吃完", "三餐分散攝取", "只在睡前吃"], a: 1, w: "分散到各餐較利於肌肉合成與飽足。" },
-  { q: "反式脂肪主要來自？", o: ["天然蔬果", "部分氫化油、油炸與烘焙食品", "白開水"], a: 1, w: "反式脂肪對心血管不利，應盡量避免。" },
-  { q: "全穀類(如糙米、燕麥)相較精緻澱粉的好處？", o: ["熱量是零", "纖維多、較有飽足、升糖較慢", "完全不含碳水"], a: 1, w: "保留麩皮胚芽，營養與飽足較佳。" },
-  { q: "減脂期碳水一定要完全戒掉嗎？", o: ["一定要", "不必，看的是總熱量與蛋白是否足夠", "只能吃碳水"], a: 1, w: "低碳只是手段之一，關鍵仍是總熱量赤字。" },
-  { q: "肌肉量較多的人，靜止時消耗會？", o: ["較低", "較高", "完全一樣"], a: 1, w: "肌肉是耗能組織，肌肉多基礎代謝通常較高。" },
-  { q: "含糖飲料對減脂的主要問題是？", o: ["完全沒問題", "液體糖熱量高又不太有飽足感", "讓人變瘦"], a: 1, w: "喝下大量糖卻不太有飽足，很容易超出熱量。" },
-  { q: "運動前後體重差好幾百公克，多半是？", o: ["燒掉的脂肪", "流汗的水分", "長出的肌肉"], a: 1, w: "主要是水分流失，補水後就回來了。" },
-  { q: "碳水化合物每公克提供多少大卡？", o: ["4", "7", "9"], a: 0, w: "碳水與蛋白質都是 4 kcal/g。" },
-  { q: "水大約佔成人體重的比例？", o: ["約 30%", "約 60%", "約 90%"], a: 1, w: "約 6 成是水，所以體重會隨水分明顯波動。" },
-  { q: "「熱量赤字」最直接的意思是？", o: ["消耗 > 攝取", "攝取 > 消耗", "完全不吃"], a: 0, w: "消耗大於攝取，身體才會動用儲存的脂肪。" },
-  { q: "蛋白質在體內最主要的功能是？", o: ["主要供能", "修復與建造組織(如肌肉)", "儲存成脂肪"], a: 1, w: "蛋白質主要用來修復建造，供能是次要。" },
-  { q: "喝酒不利減脂，除了空熱量還因為？", o: ["加速燃脂", "身體優先代謝酒精、暫緩燃脂", "完全沒影響"], a: 1, w: "酒精被優先處理，脂肪代謝會被擱置。" },
-  { q: "同時最大化增肌又減脂，通常？", o: ["對所有人都很容易", "較難，多需取捨(新手/體脂高者較可能)", "完全不可能"], a: 1, w: "一般人較難兩全，新手或體脂較高者較有機會。" },
-  { q: "膳食纖維建議每日攝取量大約？", o: ["5g", "25~35g", "100g"], a: 1, w: "多數人吃不夠，蔬果全穀豆類是好來源。" },
-  { q: "長期鈉(鹽)攝取過多的主要風險？", o: ["低血壓", "高血壓", "低血糖"], a: 1, w: "過量鈉與高血壓相關，加工食品要留意。" },
-  { q: "長時間大量流汗，補水時最好也補？", o: ["只要白開水", "電解質(如鈉)", "什麼都不用"], a: 1, w: "大量流汗會流失電解質，長時間運動需補充。" },
-  { q: "同樣熱量下，高蛋白餐通常讓人？", o: ["更快餓", "更有飽足感", "沒有差別"], a: 1, w: "蛋白質飽足感強，有助控制總攝取。" },
-  { q: "減脂時做重訓的主要目的是？", o: ["把肌肉變脂肪", "保留肌肉、維持代謝", "讓體重變重"], a: 1, w: "肌肉與脂肪不會互相轉換；重訓是為了保肌。" },
-  { q: "「體脂率」相比單看體重，更能反映？", o: ["身高", "身體組成(精實程度)", "喝水量"], a: 1, w: "同體重體脂不同，外型與健康差很多。" },
-  { q: "一杯全糖手搖飲，含糖量大約？", o: ["約 10g", "約 50~60g", "約 120g"], a: 1, w: "中杯全糖常達 50g 以上糖，等於十幾顆方糖。" },
-  { q: "關於『燃脂心率區間』的常見迷思，正確的是？", o: ["只有低強度才會瘦", "能製造熱量赤字的運動都有效", "只有重訓會瘦"], a: 1, w: "重點是總消耗與赤字，不是非得待在某心率區。" },
-  { q: "每日添加糖建議上限約佔總熱量？", o: ["不超過 10%", "約 50%", "沒有上限"], a: 0, w: "WHO 建議添加糖不超過總熱量 10%，越少越好。" },
-  { q: "每日飲水量的大致參考？", o: ["體重(kg)×5ml", "體重(kg)×30~40ml", "固定 500ml"], a: 1, w: "依體重抓約 30~40ml/kg，活動量大再增加。" },
-  { q: "減脂時最常被忽略而吃過量的是？", o: ["白開水", "醬料/飲料/堅果等隱藏熱量", "燙青菜"], a: 1, w: "醬料與飲料的液體/油脂熱量很容易被低估。" },
-  { q: "偶爾的『放縱餐』對減脂？", o: ["絕對不行", "偶爾無妨，別變成放縱週", "越多越好"], a: 1, w: "長期總量才重要，單餐不會毀掉進度，但別失控。" },
-  { q: "肌肉痠痛(DOMS)代表這次訓練一定有效嗎？", o: ["一定有效", "不一定，痠痛不是進步指標", "代表受傷了"], a: 1, w: "痠痛與成長沒有必然關係，進步看負荷與表現。" },
-  { q: "想長期不復胖，最關鍵的是？", o: ["短期極端節食", "可持續的飲食與生活習慣", "完全不吃澱粉"], a: 1, w: "能長久執行的習慣，才不會溜溜球式復胖。" },
-  { q: "一天內體重正常波動範圍大約？", o: ["幾乎不變", "1~2kg(水分/食物/排泄)", "5kg 以上"], a: 1, w: "天內波動多是水分與內容物，看趨勢別看單點。" },
-];
-// 取得今天的知識題（不洩漏答案，除非已玩過）
-app.get("/api/game/quiz", auth, async (req, res) => {
-  try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz#" + req.user.id, QUIZ_BANK.length)];
-    const g = games.quiz;
-    const played = g && g.date === today;
-    res.json({ q: item.q, options: item.o, played, result: played ? g : null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-app.post("/api/game/quiz", auth, async (req, res) => {
-  try {
-    const choice = Math.round(+req.body.choice);
-    const today = twToday();
-    const item = QUIZ_BANK[dailyGameIndex(today + "#quiz#" + req.user.id, QUIZ_BANK.length)];
-    if (!(choice >= 0 && choice < item.o.length)) return res.status(400).json({ error: "選項不合法" });
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    if (games.quiz && games.quiz.date === today) return res.status(400).json({ error: "今天已經答過囉，明天再來～" });
-    const correct = choice === item.a;
-    const coins = correct ? 22 : 3;
-    games.quiz = { date: today, choice, answer: item.a, correct, coins };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ correct, answer: item.a, why: item.w, coins, options: item.o, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
-/* ---------- 小遊戲：健康賓果（每週一張 3x3，完成連線發幣） ---------- */
-function bingoWeekStart() { const t = twToday(); const d = new Date(t + "T00:00:00"); const dow = (d.getDay() + 6) % 7; return addDays(t, -dow); }
-const BINGO_CELLS = [
-  { label: "記飲食 1 天", k: c => c.logged >= 1 },
-  { label: "記飲食 2 天", k: c => c.logged >= 2 },
-  { label: "記飲食 4 天", k: c => c.logged >= 4 },
-  { label: "熱量達標 2 天", k: c => c.kcal >= 2 },
-  { label: "蛋白達標 2 天", k: c => c.protein >= 2 },
-  { label: "運動 1 天", k: c => c.exercise >= 1 },
-  { label: "運動 3 天", k: c => c.exercise >= 3 },
-  { label: "喝水達標 2 天", k: c => c.water >= 2 },
-  { label: "量體重 2 天", k: c => c.weight >= 2 },
-];
-const BINGO_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-const BINGO_LINE_COIN = 18, BINGO_FULL_BONUS = 36;
-async function bingoStatus(userId) {
-  const ws = bingoWeekStart();
-  const st = await pool.query(
-    "SELECT logged,kcal_hit,protein_hit,exercised,water_hit,weight FROM daily_stats WHERE user_id=$1 AND date>=$2 AND date<=$3",
-    [userId, ws, twToday()]);
-  const c = { logged: 0, kcal: 0, protein: 0, exercise: 0, water: 0, weight: 0 };
-  st.rows.forEach(r => { if (r.logged) c.logged++; if (r.kcal_hit) c.kcal++; if (r.protein_hit) c.protein++; if (r.exercised) c.exercise++; if (r.water_hit) c.water++; if (r.weight != null) c.weight++; });
-  const done = BINGO_CELLS.map(cell => !!cell.k(c));
-  const completedLines = BINGO_LINES.map((ln, i) => i).filter(i => BINGO_LINES[i].every(idx => done[idx]));
-  const fullCard = done.every(Boolean);
-  return { ws, done, completedLines, fullCard };
-}
-app.get("/api/game/bingo", auth, async (req, res) => {
-  try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const s = await bingoStatus(req.user.id);
-    const saved = (games.bingo && games.bingo.week === s.ws) ? games.bingo : { week: s.ws, claimed: [], full: false };
-    const newLines = s.completedLines.filter(i => !(saved.claimed || []).includes(i));
-    const claimable = newLines.length * BINGO_LINE_COIN + (s.fullCard && !saved.full ? BINGO_FULL_BONUS : 0);
-    res.json({ cells: BINGO_CELLS.map((c, i) => ({ label: c.label, done: s.done[i] })), lines: BINGO_LINES,
-      completedLines: s.completedLines, claimedLines: saved.claimed || [], fullCard: s.fullCard, fullClaimed: !!saved.full, claimable });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-app.post("/api/game/bingo/claim", auth, async (req, res) => {
-  try {
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    const s = await bingoStatus(req.user.id);
-    const saved = (games.bingo && games.bingo.week === s.ws) ? games.bingo : { week: s.ws, claimed: [], full: false };
-    const newLines = s.completedLines.filter(i => !(saved.claimed || []).includes(i));
-    const fullNew = s.fullCard && !saved.full;
-    const coins = newLines.length * BINGO_LINE_COIN + (fullNew ? BINGO_FULL_BONUS : 0);
-    if (coins <= 0) return res.status(400).json({ error: "目前沒有可領的連線獎勵" });
-    games.bingo = { week: s.ws, claimed: [...new Set([...(saved.claimed || []), ...newLines])], full: saved.full || fullNew };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ coins, newLines: newLines.length, full: fullNew, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
 /* ---------- 小遊戲：合成小屋（取代原本的團隊魔王戰） ----------
    規則在 merge_logic.js（純函式，有測試）；這裡只負責讀寫資料庫。
    能量來自健康行為（daily_stats）＋時間回復，由伺服器發；棋盤由客戶端存。 */
@@ -1727,153 +1491,44 @@ app.post("/api/game/merge/sync", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
-/* ---------- 小遊戲：每日免費轉盤 ---------- */
-const SPIN_WHEEL = [
-  { coins: 5, w: 8 }, { coins: 10, w: 7 }, { coins: 20, w: 5 }, { coins: 5, w: 8 },
-  { coins: 15, w: 5 }, { coins: 30, w: 3 }, { coins: 10, w: 7 }, { coins: 120, w: 1, jackpot: true },
-];
-const spinSegments = () => SPIN_WHEEL.map(s => ({ coins: s.coins, jackpot: !!s.jackpot }));
-app.get("/api/game/spin", auth, async (req, res) => {
+/* ---------- 小遊戲：休閒四款（方塊爆破／貨架三消／羊了個羊三消／倒水分類） ----------
+   2026/10 取代原本的轉盤、熱量猜謎、健康知識、健康賓果、記憶翻牌、打地鼠、2048、寵物跳跳。
+   四款共用一條路由與一套發幣規則（arcade_rules.js）。 */
+async function readGames(userId) {
+  const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
+  if (!r.rowCount) return null;
+  return (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+}
+app.get("/api/game/arcade", auth, async (req, res) => {
   try {
     const games = await readGames(req.user.id);
     if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const g = games.spin;
-    const played = g && g.date === today;
-    res.json({ segments: spinSegments(), played, result: played ? g : null });
+    const today = twToday(), a = games.arcade || {}, out = {};
+    for (const id of Object.keys(ARCADE)) {
+      const g = a[id];
+      out[id] = (g && g.date === today) ? { played: true, best: g.best, coins: g.coins } : { played: false };
+      out[id].tiers = ARCADE[id].tiers; out[id].unit = ARCADE[id].unit;
+    }
+    res.json({ games: out });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-app.post("/api/game/spin", auth, async (req, res) => {
+app.post("/api/game/arcade/:id", auth, async (req, res) => {
   try {
-    const today = twToday();
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    if (games.spin && games.spin.date === today) return res.status(400).json({ error: "今天已經轉過囉，明天再來～" });
-    const tot = SPIN_WHEEL.reduce((a, s) => a + s.w, 0);
-    let rr = Math.random() * tot, idx = 0;
-    for (let i = 0; i < SPIN_WHEEL.length; i++) { rr -= SPIN_WHEEL[i].w; if (rr <= 0) { idx = i; break; } }
-    const coins = SPIN_WHEEL[idx].coins, jackpot = !!SPIN_WHEEL[idx].jackpot;
-    games.spin = { date: today, index: idx, coins, jackpot };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ index: idx, coins, jackpot, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
-/* ---------- 小遊戲：記憶翻牌配對（每日首次完成才發幣；可重玩練習） ---------- */
-app.get("/api/game/memory", auth, async (req, res) => {
-  try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const g = games.memory;
-    res.json({ played: !!(g && g.date === today), result: (g && g.date === today) ? g : null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-app.post("/api/game/memory", auth, async (req, res) => {
-  try {
-    const moves = Math.round(+req.body.moves);
-    if (!(moves >= 8 && moves <= 500)) return res.status(400).json({ error: "步數不合理" });
-    const today = twToday();
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    if (games.memory && games.memory.date === today) return res.json({ already: true, coins: 0 });   // 今天領過→純練習
-    const coins = moves <= 12 ? 30 : moves <= 18 ? 22 : moves <= 26 ? 15 : 10;
-    games.memory = { date: today, moves, coins };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ coins, moves, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
-/* ---------- 小遊戲：打地鼠(骨頭版)（每日首次完成才發幣；可重玩練習） ---------- */
-app.get("/api/game/whack", auth, async (req, res) => {
-  try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const g = games.whack;
-    res.json({ played: !!(g && g.date === today), result: (g && g.date === today) ? g : null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-app.post("/api/game/whack", auth, async (req, res) => {
-  try {
+    const id = req.params.id;
+    if (!ARCADE[id]) return res.status(404).json({ error: "沒有這個遊戲" });
     const score = Math.round(+req.body.score);
-    if (!(score >= 0 && score <= 300)) return res.status(400).json({ error: "分數不合理" });
-    const today = twToday();
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    const prevBest = (games.whack && games.whack.date === today) ? (games.whack.best || games.whack.score || 0) : null;
-    const already = games.whack && games.whack.date === today;
-    const coins = already ? 0 : (score >= 20 ? 30 : score >= 13 ? 20 : score >= 6 ? 12 : 6);
-    games.whack = { date: today, score, best: Math.max(score, prevBest || 0), coins: already ? (games.whack.coins || 0) : coins };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ coins, score, best: games.whack.best, already, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
-/* ---------- 小遊戲：2048 食物版（每日首次依最高方塊發幣；可重玩練習） ---------- */
-app.get("/api/game/g2048", auth, async (req, res) => {
-  try {
+    if (!validArcadeScore(id, score)) return res.status(400).json({ error: "成績數值不合理" });
     const games = await readGames(req.user.id);
     if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const g = games.g2048;
-    res.json({ played: !!(g && g.date === today), result: (g && g.date === today) ? g : null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-app.post("/api/game/g2048", auth, async (req, res) => {
-  try {
-    const best = Math.round(+req.body.best), score = Math.round(+req.body.score || 0);
-    if (!(best >= 0 && best <= 100000)) return res.status(400).json({ error: "數值不合理" });
-    const today = twToday();
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    const already = games.g2048 && games.g2048.date === today;
-    const coins = already ? 0 : (best >= 1024 ? 30 : best >= 512 ? 24 : best >= 256 ? 18 : best >= 128 ? 12 : 8);
-    const prevBest = already ? (games.g2048.best || 0) : 0;
-    games.g2048 = { date: today, best: Math.max(best, prevBest), score, coins: already ? (games.g2048.coins || 0) : coins };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
+    const a = games.arcade || {};
+    const { coins, already, rec } = settleArcade(id, score, a[id], twToday());
+    a[id] = rec;
+    // 只改 games.arcade 這一個鍵，不會蓋掉同時間合成小屋寫進去的存檔
+    await pool.query(
+      "UPDATE pets SET games=jsonb_set(COALESCE(games,'{}'::jsonb), '{arcade}', $1::jsonb), coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+      [JSON.stringify(a), coins, req.user.id]);
     const { state } = await computePet(req.user.id);
-    res.json({ coins, best: games.g2048.best, already, pet: state });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-
-/* ---------- 小遊戲：寵物跳跳（每日首次依分數發幣；可重玩練習） ---------- */
-app.get("/api/game/jump", auth, async (req, res) => {
-  try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const today = twToday();
-    const g = games.jump;
-    res.json({ played: !!(g && g.date === today), result: (g && g.date === today) ? g : null });
-  } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
-});
-app.post("/api/game/jump", auth, async (req, res) => {
-  try {
-    const score = Math.round(+req.body.score);
-    if (!(score >= 0 && score <= 1000)) return res.status(400).json({ error: "分數不合理" });
-    const today = twToday();
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    const already = games.jump && games.jump.date === today;
-    const coins = already ? 0 : (score >= 20 ? 30 : score >= 12 ? 22 : score >= 6 ? 14 : score >= 1 ? 8 : 4);
-    const prevBest = already ? (games.jump.best || 0) : 0;
-    games.jump = { date: today, best: Math.max(score, prevBest), coins: already ? (games.jump.coins || 0) : coins };
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), coins, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ coins, best: games.jump.best, already, pet: state });
+    res.json({ coins, already, best: rec.best, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 

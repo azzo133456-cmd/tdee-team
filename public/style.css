@@ -191,4 +191,4 @@
 /* 合成小屋：交付／佈置／產生器都靠「能不能按」來表示狀態。
    這份樣式表原本沒有任何 :disabled 樣式，停用的按鈕跟一般按鈕長得一樣，
    使用者會一直點一個不會動的按鈕。只套在合成小屋，不動其他地方既有的按鈕外觀。 */
-#mergeCard button:disabled{opacity:.38; cursor:not-allowed; filter:grayscale(.6);}
+#mergeCard button:disabled,#blastCard button:disabled,#goodsCard button:disabled,#tileCard button:disabled,#waterCard button:disabled{opacity:.38; cursor:not-allowed; filter:grayscale(.6);}
