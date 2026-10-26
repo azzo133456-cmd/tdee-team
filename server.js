@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
 import * as ADV from "./adv_logic.js";
-import { ARCADE, validArcadeScore, settleArcade } from "./arcade_rules.js";
+import { ARCADE, validArcadeScore, settleArcade, arcadeBoard } from "./arcade_rules.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC;
@@ -1476,7 +1476,16 @@ app.get("/api/game/adv", auth, async (req, res) => {
     res.json({ state: ADV.publicState(st, today, now), gained, migrated: got.fresh ? { refund: got.refund } : null });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-// 存檔＋（可選）動作：action = "fight" 挑戰下一關、"train" 訓練。先存再打，戰鬥用的就是剛存的裝備。
+// 排行榜：大家都一起玩（只有幾個人），讀全部 pets 就好；只回暱稱與遊戲進度
+async function gameRows() {
+  return (await pool.query("SELECT p.user_id, u.username, p.games FROM pets p JOIN users u ON u.id=p.user_id")).rows;
+}
+app.get("/api/game/adv/board", auth, async (req, res) => {
+  try { res.json({ board: ADV.leaderboard(await gameRows(), req.user.id) }); }
+  catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
+// 存檔＋（可選）動作：fight 挑戰下一關、train 訓練、chest 開每日寶箱、skills 換技能。
+// 先存再做動作，戰鬥用的就是剛存的裝備。
 app.post("/api/game/adv/sync", auth, async (req, res) => {
   try {
     const now = Date.now(), today = twToday();
@@ -1484,15 +1493,9 @@ app.post("/api/game/adv/sync", auth, async (req, res) => {
     if (!got) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
     const { st } = got;
     ADV.regen(st, now);
-    try { ADV.applySync(st, req.body); }
+    try { ADV.applySync(st, req.body, today); }
     catch (e) { return res.status(400).json({ error: e.message }); }   // 前端收到會整個重新載入伺服器的版本
-    let result = null;
-    const action = req.body && req.body.action;
-    if (action === "fight") result = ADV.fight(st, today);
-    else if (action === "train") {
-      try { result = ADV.train(st); }
-      catch (e) { result = { kind: "train", error: e.message }; }       // 存檔照樣要存，所以不回 400
-    }
+    const result = ADV.runAction(st, req.body, today);                  // 動作失敗只回在 result.error，存檔照樣要存
     const coins = (result && result.coins) || 0;
     await saveAdv(req.user.id, st, coins);
     const pet = coins > 0 ? (await computePet(req.user.id)).state : null;
@@ -1518,6 +1521,8 @@ app.get("/api/game/arcade", auth, async (req, res) => {
       out[id] = (g && g.date === today) ? { played: true, best: g.best, coins: g.coins } : { played: false };
       out[id].tiers = ARCADE[id].tiers; out[id].unit = ARCADE[id].unit;
     }
+    const rows = await gameRows();
+    out.blast.board = arcadeBoard(rows, "blast", today, req.user.id);   // 目前只有方塊爆破有排行榜
     res.json({ games: out });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
@@ -1537,7 +1542,8 @@ app.post("/api/game/arcade/:id", auth, async (req, res) => {
       "UPDATE pets SET games=jsonb_set(COALESCE(games,'{}'::jsonb), '{arcade}', $1::jsonb), coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
       [JSON.stringify(a), coins, req.user.id]);
     const { state } = await computePet(req.user.id);
-    res.json({ coins, already, best: rec.best, pet: state });
+    const board = id === "blast" ? arcadeBoard(await gameRows(), id, twToday(), req.user.id) : null;
+    res.json({ coins, already, best: rec.best, pet: state, board });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 

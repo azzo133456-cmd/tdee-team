@@ -32,16 +32,15 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
     }
     const st = server.st;
     A.regen(st, now);
+    if (path === "/api/game/adv/board") return { board: A.leaderboard([{ user_id: 1, username: "我", games: { adv: st } }, { user_id: 2, username: "amy", games: { adv: { v: 1, stage: 50, level: 30 } } }], 1) };
     if (path === "/api/game/adv") {
       const gained = A.grantHealth(st, rows, TODAY);
       return { state: A.publicState(st, TODAY, now), gained, migrated };
     }
     const copy = JSON.parse(JSON.stringify(st));
-    try { A.applySync(copy, body); } catch (e) { const err = new Error(e.message); err.status = 400; throw err; }
+    try { A.applySync(copy, body, TODAY); } catch (e) { const err = new Error(e.message); err.status = 400; throw err; }
     server.st = copy;
-    let result = null;
-    if (body.action === "fight") result = A.fight(copy, TODAY, () => 0);
-    else if (body.action === "train") { try { result = A.train(copy); } catch (e) { result = { kind: "train", error: e.message }; } }
+    const result = A.runAction(copy, body, TODAY, () => 0.2);   // 0.2：掉武器、下一關不閃光
     return { state: A.publicState(copy, TODAY, now), result, pet: result && result.coins ? { coins: 1 } : null };
   };
   const sb = {
@@ -116,7 +115,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("動畫播完前，經驗還顯示打之前的（不劇透）", w.html.advBox.includes("經驗 0/45"), true);
   w.sb.aSkip();
   eq("播完才更新經驗", w.sb.aSkip() || w.html.advBox.includes("經驗 7/45"), true);
-  eq("跳過動畫 → 顯示結果", [w.get().aFightView, w.get().aMsg.includes("打倒") && w.get().aMsg.includes("🦴+3")], [null, true]);
+  eq("跳過動畫 → 顯示結果", [w.get().aFightView, w.get().aMsg.includes("打倒") && w.get().aMsg.includes("🦴+8") && w.get().aMsg.includes("圖鑑新增")], [null, true]);
   await w.flush();
   eq("掉落物存檔被接受（額度用掉）", [w.server.st.board[1], w.server.st.credit], [[0, 1], 0]);
   eq("畫面換成第 2 關", w.html.advBox.includes("第 2 關"), true);
@@ -167,6 +166,57 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("價值對不起來 → 拒收，本機換回伺服器的裝備", w.get().AS.equip, [0, 0, 0]);
   eq("背包也換回伺服器的", w.get().AS.board[0], [0, 1]);
   eq("有提示", w.get().aMsg.includes("重新載入"), true);
+}
+
+/* ---------- 分頁：任務與寶箱 ---------- */
+{
+  const w = makeWorld({ startEnergy: 60, rows: [{ date: "2026-10-27", logged: 1, protein_hit: 1, water_hit: 1 }] });
+  await w.sb.loadAdvGame();
+  w.sb.aSetTab("quest");
+  eq("任務分頁畫出三個任務、寶箱還不能開", [w.html.advBox.match(/⬜|✅/g).length >= 3, w.html.advBox.includes('disabled onclick="aChest()"')], [true, true]);
+  await w.sb.aChest();
+  eq("沒做完硬開 → 伺服器回錯誤訊息", w.get().aMsg.includes("三個任務都完成"), true);
+  for (let i = 0; i < 25; i++) w.sb.aSpawn(i % 3);
+  await w.flush();
+  w.sb.aSetTab("main");
+  for (let i = 0; i < 3; i++) { await w.sb.aFight(); w.sb.aSkip(); }
+  await w.sb.aTrain();
+  await w.flush();
+  eq("任務全部完成", w.get().AS.daily.quests.every((q) => q.done), true);
+  w.sb.aSetTab("quest");
+  const before = w.get().AS.board.filter(Boolean).length;
+  await w.sb.aChest();
+  eq("開寶箱：3 階裝備放進背包、連續 1 天", [w.get().AS.board.filter(Boolean).length - before, w.get().aMsg.includes("連續第 1 天")], [1, true]);
+  await w.flush();
+  eq("寶箱裝備存檔被接受", w.server.st.credit, 0);
+  eq("開過之後顯示明天再來", w.html.advBox.includes("明天再來"), true);
+}
+
+/* ---------- 技能 ---------- */
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame();
+  w.sb.aSetTab("skill");
+  eq("Lv1 技能分頁：顯示幾級解鎖，按鈕都不能按", [w.html.advBox.includes("Lv.5 解鎖"), (w.html.advBox.match(/disabled onclick="aToggleSkill/g) || []).length], [true, 6]);
+  w.server.st.level = 12; await w.sb.loadAdvGame();
+  await w.sb.aToggleSkill("combo"); await w.sb.aToggleSkill("guard");
+  eq("裝上兩個技能，伺服器也記住", [w.get().AS.skills, w.server.st.skills], [["combo", "guard"], ["combo", "guard"]]);
+  await w.sb.aToggleSkill("fury");
+  eq("滿了不能再裝", [w.get().aMsg.includes("技能欄滿了"), w.server.st.skills.length], [true, 2]);
+  await w.sb.aToggleSkill("combo");
+  eq("卸下", w.server.st.skills, ["guard"]);
+  eq("戰鬥用的是伺服器上的技能", A.heroStats(w.server.st).skills, ["guard"]);
+}
+
+/* ---------- 圖鑑與排行 ---------- */
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame();
+  await w.sb.aFight(); w.sb.aSkip();
+  w.sb.aSetTab("dex");
+  eq("圖鑑：打過的大老鼠有名字，其他是？？？", [w.html.advBox.includes("大老鼠"), w.html.advBox.includes("？？？"), w.html.advBox.includes("已收集 <b>1/30")], [true, true, true]);
+  w.sb.aSetTab("rank"); await w.flush(); await new Promise((r) => setImmediate(r));
+  eq("排行：amy 第一、我第二", [w.html.advBox.indexOf("amy") < w.html.advBox.indexOf("我"), w.html.advBox.includes("第 49 關")], [true, true]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

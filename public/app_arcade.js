@@ -105,14 +105,31 @@ function arcIdle(id,extra){
     :(s.tiers?`<div class="hint" style="text-align:center">今天第一次結束時發幣：`+
       s.tiers.slice().reverse().map(([m,c])=>`${m} ${unit}→🦴${c}`).join("　")+`</div>`:"");
   box.innerHTML=(extra||"")+`<div class="hint" style="margin-bottom:6px">${ARC_INFO[id].hint}</div>`+today+
-    `<div style="text-align:center;margin-top:8px"><button onclick="arcStart('${id}')" style="width:auto;padding:12px 26px">${extra?"再玩一次":"開始遊戲"}</button></div>`;
+    `<div style="text-align:center;margin-top:8px"><button onclick="arcStart('${id}')" style="width:auto;padding:12px 26px">${extra?"再玩一次":"開始遊戲"}</button></div>`+
+    `<div id="${id}Rank">${arcRankHtml(id)}</div>`;
 }
+/* 小排行榜（目前只有方塊爆破）：今天最佳／歷史最佳 */
+const ARC_RANK_TAB={};
+const rankMedal=(i)=>["🥇","🥈","🥉"][i]||`${i+1}.`;
+function arcRankHtml(id){
+  const b=ARC_ST[id]&&ARC_ST[id].board; if(!b) return "";
+  const tab=ARC_RANK_TAB[id]||"today", list=b[tab]||[], unit=(ARC_ST[id].unit)||"";
+  const btn=(k,l)=>`<button class="ghost sm${tab===k?" on":""}" style="width:auto;padding:3px 10px;font-size:12px" onclick="arcRankTab('${id}','${k}')">${l}</button>`;
+  const rows=list.length?list.map((x,i)=>`<div style="display:flex;justify-content:space-between;padding:4px 8px;border-radius:8px;${x.me?"background:var(--soft);font-weight:700":""}">`+
+    `<span>${rankMedal(i)} ${x.name}</span><span>${x.score} ${unit}</span></div>`).join("")
+    :`<div class="hint" style="text-align:center;padding:6px">${tab==="today"?"今天還沒有人玩":"還沒有紀錄"}</div>`;
+  return `<div style="margin-top:12px;border-top:1px dashed var(--line);padding-top:8px">`+
+    `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">🏆 排行榜</b>`+
+    `<span style="display:flex;gap:4px">${btn("today","今天")}${btn("all","歷史最佳")}</span></div>${rows}</div>`;
+}
+function arcRankTab(id,tab){ ARC_RANK_TAB[id]=tab; const el=document.getElementById(id+"Rank"); if(el) el.innerHTML=arcRankHtml(id); }
 function arcStart(id){ ({blast:blastStart, water:waterStart})[id](); }
 async function arcFinish(id,score,line){
   try{
     const r=await api("/api/game/arcade/"+id,{method:"POST",body:JSON.stringify({score})});
     if(r.pet){ petData=r.pet; if(typeof renderPet==="function") renderPet(); }
     ARC_ST[id]=Object.assign(ARC_ST[id]||{}, {played:true, best:r.best, coins:(ARC_ST[id]&&ARC_ST[id].played)?ARC_ST[id].coins:r.coins});
+    if(r.board) ARC_ST[id].board=r.board;
     arcIdle(id,`<div style="text-align:center;font-weight:800;margin:4px 0 8px;color:var(--green)">${line}${r.already?"（今天獎勵已領過，純練習）":`　+🦴${r.coins}`}</div>`);
   }catch(e){ arcIdle(id,`<div style="text-align:center;margin-bottom:8px">${line}<br><span class="hint">成績送出失敗：${e.message}</span></div>`); }
 }

@@ -78,9 +78,9 @@ const empty = () => Array(A.CELLS).fill(null);
 /* ---------- 角色與怪物 ---------- */
 {
   const st = A.newState(NOW);
-  eq("Lv1 空手：攻 8 血 60", A.heroStats(st), { atk: 8, hp: 60, crit: 0 });
+  eq("Lv1 空手：攻 8 血 60", A.heroStats(st), { atk: 8, hp: 60, crit: 0, skills: [] });
   st.equip = [5, 5, 4]; st.level = 6;
-  eq("裝備 5/5/4、Lv6：攻擊與血量 ×1.2", A.heroStats(st), { atk: Math.round(25 * 1.2), hp: Math.round(164 * 1.2), crit: 0.2 });
+  eq("裝備 5/5/4、Lv6：攻擊與血量 ×1.2", A.heroStats(st), { atk: Math.round(25 * 1.2), hp: Math.round(164 * 1.2), crit: 0.2, skills: [] });
   eq("第 1 關是森林的大老鼠", [A.monster(1).name, A.monster(1).region, A.monster(1).hp, A.monster(1).atk], ["大老鼠", "迷霧森林", 40, 6]);
   eq("第 10 關是頭目", [A.monster(10).boss, A.monster(10).name], [true, "野豬王"]);
   eq("第 11 關換到洞窟", A.monster(11).region, "幽暗洞窟");
@@ -108,7 +108,8 @@ const empty = () => Array(A.CELLS).fill(null);
   const st = A.newState(NOW);
   const r = A.fight(st, T, () => 0.5);
   eq("Lv1 空手打得贏第 1 關", r.win, true);
-  eq("前進到第 2 關、經驗 7、🦴3", [st.stage, st.xp, r.coins], [2, 7, 3]);
+  eq("前進到第 2 關、經驗 7、🦴3＋第一次打倒大老鼠 🦴5", [st.stage, st.xp, r.coins, r.dexNew], [2, 7, 8, true]);
+  eq("記進圖鑑", st.dex, { 大老鼠: [1, 0] });
   eq("掉落一件 1 階防具，並記成額度", [r.drop, st.credit], [[1, 1], 1]);
   const b = empty(); b[0] = [1, 1];
   A.applySync(st, { board: b, equip: [0, 0, 0], spent: 0 });
@@ -117,11 +118,12 @@ const empty = () => Array(A.CELLS).fill(null);
   const l = A.fight(st, T);
   eq("空手打第 30 關 → 輸，什麼都沒拿", [l.win, st.stage, l.coins, l.drop, st.credit], [false, 30, 0, null, 0]);
   const rich = A.newState(NOW); rich.equip = [10, 10, 10]; rich.coinToday = 38; rich.coinDay = T; rich.stage = 10;
-  const bo = A.fight(rich, T);
+  rich.dex = { 野豬王: [1, 0], 蠍子: [1, 0] };            // 已經打過，不會有圖鑑獎勵
+  const bo = A.fight(rich, T, () => 0.5);
   eq("頭目 🦴15，但每日封頂 40 → 只拿 2", [bo.win, bo.coins, bo.capped], [true, 2, true]);
-  const nx = A.fight(rich, "2026-10-28");
+  const nx = A.fight(rich, "2026-10-28", () => 0.5);
   eq("隔天封頂重算", nx.coins, 3);
-  const dropTier = (stage) => { const s = A.newState(NOW); s.equip = [10, 10, 10]; s.level = 200; s.stage = stage; return A.fight(s, T).drop[1]; };
+  const dropTier = (stage) => { const s = A.newState(NOW); s.equip = [10, 10, 10]; s.level = 200; s.stage = stage; return A.fight(s, T, () => 0.5).drop[1]; };
   eq("越後面掉的越高階（第 1／15／25／79 關，最多 4 階）", [1, 15, 25, 79].map(dropTier), [1, 2, 3, 4]);
 }
 
@@ -137,9 +139,113 @@ const empty = () => Array(A.CELLS).fill(null);
   eq("能量不夠不能訓練", err.includes("能量不夠"), true);
 }
 
+/* ---------- 頭目特性 ---------- */
+{
+  const plain = (s) => ({ hp: Math.round(40 * 1.09 ** (s - 1) * 1.5), atk: Math.round(6 * 1.09 ** (s - 1) * 1.2) });
+  const b10 = A.monster(10), p10 = plain(10);
+  eq("野豬王：重擊（攻高血少）", [b10.trait, b10.atk > p10.atk, b10.hp < p10.hp], ["heavy", true, true]);
+  const b20 = A.monster(20), p20 = plain(20);
+  eq("洞窟熊王：厚皮（血多攻低）", [b20.trait, b20.hp > p20.hp, b20.atk < p20.atk], ["tank", true, true]);
+  eq("一般怪沒有特性", A.monster(5).trait, null);
+  const drain = A.battle({ atk: 5, hp: 200, crit: 0 }, { hp: 100, atk: 10, trait: "drain" });
+  eq("吸血：怪打中後回 30%（10 → 回 3）", drain.events.slice(0, 3), [["h", 5, false, 95], ["m", 10, false, 190], ["mh", 3, false, 98]]);
+  const armor = A.battle({ atk: 10, hp: 999, crit: 0.5 }, { hp: 1000, atk: 1, trait: "armor" });
+  eq("冰甲：普通攻擊 ×0.7、暴擊不受影響", armor.events.filter((e) => e[0] === "h").slice(0, 2).map((e) => e[1]), [7, 20]);
+  const rage = A.battle({ atk: 1, hp: 999, crit: 0 }, { hp: 1000, atk: 100, trait: "enrage" });
+  eq("狂怒：每回合攻擊 +8%", rage.events.filter((e) => e[0] === "m").slice(0, 3).map((e) => e[1]), [100, 108, 117]);
+}
+
+/* ---------- 技能 ---------- */
+{
+  const hits = (skills, mon = { hp: 9999, atk: 10 }, hero = { atk: 10, hp: 9999, crit: 0 }) => A.battle({ ...hero, skills }, mon).events;
+  eq("連擊：第 3 下多打一下", hits(["combo"]).slice(0, 7).map((e) => e[0]).join(""), "hmhmhhm");
+  const lee = hits(["leech"], { hp: 9999, atk: 10 }, { atk: 20, hp: 100, crit: 0 });
+  eq("吸血：受傷後打怪回 25%", lee.slice(0, 4), [["h", 20, false, 9979], ["m", 10, false, 90], ["h", 20, false, 9959], ["hh", 5, false, 95]]);
+  eq("護盾：第 4 下被擋掉", hits(["guard"]).filter((e) => e[0] === "m").slice(0, 5).map((e) => e[1]), [10, 10, 10, 0, 10]);
+  eq("狂暴：暴擊 ×3", hits(["fury"], undefined, { atk: 10, hp: 9999, crit: 0.5 }).filter((e) => e[0] === "h").slice(0, 2).map((e) => e[1]), [10, 30]);
+  eq("堅韌：受到傷害 −20%", hits(["tough"])[1][1], 8);
+  eq("獵王：只對頭目與閃光怪 +35%", [hits(["slayer"], { hp: 999, atk: 1, boss: true })[0][1], hits(["slayer"], { hp: 999, atk: 1, shiny: true })[0][1], hits(["slayer"])[0][1]], [14, 14, 10]);
+  const st = A.newState(NOW);
+  eq("Lv1 沒有技能欄、Lv5 一格、Lv25 三格", [A.skillSlots(1), A.skillSlots(5), A.skillSlots(25), A.skillSlots(99)], [0, 1, 3, 4]);
+  let err = ""; try { A.setSkills(st, ["combo"]); } catch (e) { err = e.message; }
+  eq("技能欄不夠 → 不行", err, "目前只有 0 個技能欄");
+  st.level = 12;
+  A.setSkills(st, ["combo", "guard"]);
+  eq("Lv12 可以裝兩個", A.heroStats(st).skills, ["combo", "guard"]);
+  err = ""; try { A.setSkills(st, ["combo", "combo"]); } catch (e) { err = e.message; }
+  eq("同一個技能不能裝兩次", err, "技能資料不正確");
+  err = ""; try { A.setSkills(st, ["fly"]); } catch (e) { err = e.message; }
+  eq("不存在的技能", err, "技能資料不正確");
+}
+
+/* ---------- 閃光怪與圖鑑 ---------- */
+{
+  const m = A.monster(5), s = A.monster(5, true);
+  eq("閃光怪比較強", [s.shiny, s.hp > m.hp, s.atk > m.atk], [true, true, true]);
+  eq("頭目不會是閃光", A.monster(10, true).shiny, false);
+  const st = A.newState(NOW); st.equip = [10, 10, 10]; st.level = 50; st.stage = 5; st.shiny = true;
+  const r = A.fight(st, T, () => 0.05);
+  eq("打倒閃光怪：🦴8 + 第一次 5 + 第一次閃光 10、掉落高一階", [r.coins, r.dexNew, r.dexShinyNew, r.drop[1], st.dex["野狼"]], [23, true, true, 2, [1, 1]]);
+  eq("下一關會不會閃光，打贏時就決定（亂數 0.05 < 12% → 會）", st.shiny, true);
+  A.fight(st, T, () => 0.5);
+  eq("亂數 0.5 → 下一關不閃光", st.shiny, false);
+  eq("圖鑑共 30 種怪（名字不重複）", [A.DEX_LIST.length, new Set(A.DEX_LIST.map((x) => x.name)).size], [30, 30]);
+}
+
+/* ---------- 每日任務與寶箱 ---------- */
+{
+  const ids = A.questIds(T);
+  eq("每天三個任務：健康／花能量／挑戰或訓練", [ids[0][0], ids[1][0], "ft".includes(ids[2][0])], ["h", "s", true]);
+  eq("同一天每次都一樣", A.questIds(T), ids);
+  const st = A.newState(NOW); st.energy = 150; st.level = 1;
+  let err = ""; try { A.openChest(st, T); } catch (e) { err = e.message; }
+  eq("任務沒做完不能開", err, "三個任務都完成才能開寶箱");
+  // 做任務：健康 3 項、花 25 能量、挑戰 3 次、訓練 1 次（不管抽到哪個都夠）
+  A.grantHealth(st, [{ date: T, logged: 1, protein_hit: 1, water_hit: 1 }], T);
+  const b = empty(); for (let i = 0; i < 25; i++) b[i] = [0, 1];
+  A.applySync(st, { board: b, equip: [0, 0, 0], spent: 25 }, T);
+  A.fight(st, T, () => 0.5); A.fight(st, T, () => 0.5); A.fight(st, T, () => 0.5);
+  A.train(st, T);
+  const q = A.quests(st, T);
+  eq("三個任務都完成", q.map((x) => x.done), [true, true, true]);
+  eq("進度不會超過目標", q.every((x) => x.cur === x.n), true);
+  const c = A.openChest(st, T, () => 0.5);
+  eq("第一天開寶箱：3 階裝備、🦴6、連續 1 天", [c.drop, c.coins, c.streak], [[1, 3], 6, 1]);
+  err = ""; try { A.openChest(st, T); } catch (e) { err = e.message; }
+  eq("一天只能開一次", err, "今天的寶箱已經開過了");
+  eq("寶箱的裝備有算進額度", st.credit >= 4, true);
+  eq("明天還沒開時顯示連續 2 天", A.nextStreak(st, "2026-10-28"), 2);
+  eq("斷一天 → 從 1 開始", A.nextStreak(st, "2026-10-29"), 1);
+  eq("寶箱等級：第 1～2 天 3 階、第 3 天 4 階、第 7 天以後 6 階", [1, 2, 3, 5, 7, 30].map(A.chestTier), [3, 3, 4, 5, 6, 6]);
+  const tmr = "2026-10-28";
+  eq("隔天任務進度歸零", A.quests(st, tmr).some((x) => x.cur > 0 && x.id[0] !== "h"), false);
+}
+
+/* ---------- 排行榜 ---------- */
+{
+  const g = (stage, level, dex = {}) => ({ adv: { v: 1, stage, level, dex } });
+  const rows = [
+    { user_id: 1, username: "zen", games: g(12, 8, { a: 1, b: 1 }) },
+    { user_id: 2, username: "amy", games: g(20, 5) },
+    { user_id: 3, username: "bob", games: g(12, 9) },
+    { user_id: 4, username: "cat", games: { merge: {} } },
+  ];
+  const lb = A.leaderboard(rows, 1);
+  eq("比已打過的關卡，同關比等級；沒玩的不列", lb.map((x) => [x.name, x.cleared, x.level]), [["amy", 19, 5], ["bob", 11, 9], ["zen", 11, 8]]);
+  eq("標出自己、算圖鑑數", lb.find((x) => x.me), { name: "zen", cleared: 11, level: 8, dex: 2, me: true });
+}
+
 /* ---------- 平衡：模擬每天 60 能量的玩家 ---------- */
 {
-  const play = (perDay, days) => {
+  // 卡關時試所有技能組合（最多 C(6,4)=15 種），有能贏的就換上 —— 就像玩家換技能打頭目
+  const combos = (k) => { const out = []; const rec = (i, cur) => { if (cur.length === k) { out.push(cur.slice()); return; } for (let j = i; j < A.SKILL_IDS.length; j++) { cur.push(A.SKILL_IDS[j]); rec(j + 1, cur); cur.pop(); } }; rec(0, []); return out; };
+  const tryWin = (st) => {
+    const mon = A.monster(st.stage, st.shiny);
+    if (A.battle(A.heroStats(st), mon).win) return true;
+    for (const c of combos(A.skillSlots(st.level))) { st.skills = c; if (A.battle(A.heroStats(st), mon).win) return true; }
+    return false;
+  };
+  const play = (perDay, days, useSkills) => {
     const st = A.newState(NOW); let pool = 20; const val = [0, 0, 0];
     for (let d = 0; d < days; d++) {
       pool += perDay;
@@ -150,15 +256,18 @@ const empty = () => Array(A.CELLS).fill(null);
         if (cost <= pool) { pool -= cost; val[i] = 2 ** (nt - 1); st.equip[i] = nt; } else { val[i] += pool; pool = 0; break; }
       }
       if (st.equip.every((t) => t >= A.MAX_TIER)) { st.energy = pool; while (st.energy >= A.TRAIN_COST) A.train(st); pool = st.energy; }
-      while (A.fight(st, T).win);
+      while ((useSkills ? tryWin(st) : true) && A.fight(st, T, () => 0.5).win);
     }
     return st.stage;
   };
-  const d1 = play(60, 1), d7 = play(60, 7), d30 = play(60, 30), d90 = play(60, 90);
-  console.log(`      （每天 60 能量：第 1 天到第 ${d1} 關、第 7 天 ${d7}、第 30 天 ${d30}、第 90 天 ${d90}）`);
-  eq("第一天推得動、但不會一天打完", d1 >= 8 && d1 <= 30, true);
-  eq("一個月後還在推進", d30 > d7, true);
-  eq("裝備做滿後靠訓練還能繼續往前", d90 > d30, true);
+  const run = (u) => [1, 7, 30, 90].map((d) => play(60, d, u));
+  const [n1, n7, n30, n90] = run(false), [s1, s7, s30, s90] = run(true);
+  console.log(`      （每天 60 能量，不用技能：第 1 天到第 ${n1} 關、第 7 天 ${n7}、第 30 天 ${n30}、第 90 天 ${n90}）`);
+  console.log(`      （　　　　　　　會換技能：第 1 天到第 ${s1} 關、第 7 天 ${s7}、第 30 天 ${s30}、第 90 天 ${s90}）`);
+  eq("第一天推得動、但不會一天打完", s1 >= 8 && s1 <= 30, true);
+  eq("一個月後還在推進", s30 > s7, true);
+  eq("裝備做滿後靠訓練還能繼續往前", s90 > s30, true);
+  eq("會換技能的走得比較遠", s90 >= n90 && s30 >= n30, true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -5,6 +5,7 @@
    同步一律排隊（aChain），一次只送一個請求；請求在路上時花掉的能量，回來時從伺服器的數字扣掉。 */
 let AD=null, AS=null, aSel=null, aMsg="", aFlash=-1;
 let aPend={spent:0}, aChain=Promise.resolve(), aTimer=null, aBusy=false, aFightView=null, aAnimTimer=null;
+let aTab="main", aRank=null;   // 分頁：main 冒險／quest 任務／skill 技能／dex 圖鑑／rank 排行
 async function loadAdvGame(){
   const card=document.getElementById("advCard"); if(!card) return;
   try{
@@ -23,7 +24,13 @@ const aItem=([c,t])=>{ const ch=AD.chains[c], it=ch.items[t-1]; return {e:it[0],
 // 跟伺服器 heroStats 同一條公式：穿脫裝備時畫面立刻更新，不用等存檔回來
 function aHero(){
   const g=AD.gear, e=AS.equip, m=1+0.04*(AS.level-1);
-  return {atk:Math.round((8+g.atk[e[0]])*m), hp:Math.round((60+g.hp[e[1]])*m), crit:g.crit[e[2]]};
+  return {atk:Math.round((8+g.atk[e[0]])*m), hp:Math.round((60+g.hp[e[1]])*m), crit:g.crit[e[2]], skills:(AS.skills||[]).slice(0,AS.skillSlots)};
+}
+// 圖鑑清單：跟伺服器 DEX_LIST 同樣的規則（依區域順序、名字不重複）
+function aDexList(){
+  const seen=new Set(), out=[];
+  AD.regions.forEach(r=>[...r.mobs,r.boss].forEach(([e,name],i)=>{ if(seen.has(name)) return; seen.add(name); out.push({e,name,region:r.name,boss:i===r.mobs.length}); }));
+  return out;
 }
 function aStatText(c,t){
   const g=AD.gear;
@@ -69,18 +76,18 @@ function aEquip(){
 }
 function aQueue(){ clearTimeout(aTimer); aTimer=setTimeout(()=>aSync(),1200); }
 /* 存檔（＋可選動作 fight / train）。全部排進同一條隊伍，前一個回來才送下一個。 */
-function aSync(action,keepalive){
+function aSync(action,keepalive,extra){
   if(!action) clearTimeout(aTimer);
-  const job=aChain.then(()=>aSend(action,keepalive));
+  const job=aChain.then(()=>aSend(action,keepalive,extra));
   aChain=job.catch(()=>{});
   return job;
 }
-async function aSend(action,keepalive){
+async function aSend(action,keepalive,extra){
   if(!AS) return null;
   const send={board:AS.board.slice(), equip:AS.equip.slice(), spent:aPend.spent};
   const snap=JSON.stringify([send.board,send.equip]);
   if(!action&&!send.spent&&aSync.last===snap) return null;
-  if(action) send.action=action;
+  if(action) Object.assign(send,extra||{},{action});
   aPend.spent=0;
   try{
     const r=await api("/api/game/adv/sync",{method:"POST",body:JSON.stringify(send),keepalive:!!keepalive});
@@ -104,7 +111,7 @@ document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==
 async function aFight(){
   if(aBusy||aFightView||!AS) return;
   aBusy=true; aSel=null; aMsg="⚔️ 出發！"; advDraw();
-  const pre={level:AS.level, xp:AS.xp, need:AS.need, coinToday:AS.coinToday};   // 動畫播完前先顯示打之前的數字，不劇透
+  const pre={level:AS.level, xp:AS.xp, need:AS.need, coinToday:AS.coinToday}, preSlots=AS.skillSlots;   // 動畫播完前先顯示打之前的數字，不劇透
   try{
     const res=await aSync("fight");
     if(!res) return;
@@ -115,7 +122,7 @@ async function aFight(){
       if(i>=0){ AS.board[i]=res.drop; dropTxt=`掉落 ${r.e} ${r.n}`; aQueue(); }
       else dropTxt=`掉落的 ${r.e} ${r.n} 背包放不下，沒撿到`;
     }
-    aFightView={res, i:0, dropTxt, pre};
+    aFightView={res, i:0, dropTxt, pre, preSlots};
     aAnim();
   }finally{ aBusy=false; if(!aFightView) advDraw(); }
 }
@@ -131,17 +138,55 @@ function aFightDone(){
   const v=aFightView; if(!v) return;
   const r=v.res, m=r.mon;
   if(r.win){
-    const bits=[`🎉 打倒 ${m.e} ${m.name}！經驗 +${r.xp}`];
+    const bits=[`🎉 打倒 ${m.shiny?"✨閃光":""}${m.e} ${m.name}！經驗 +${r.xp}`];
     if(r.coins) bits.push(`🦴+${r.coins}`);
-    if(r.capped) bits.push("（今天骨頭幣已封頂）");
+    if(r.capped) bits.push("（今天打怪的骨頭幣已封頂）");
     if(v.dropTxt) bits.push(v.dropTxt);
+    if(r.dexNew) bits.push(`<br>📖 圖鑑新增 ${m.e} ${m.name}（🦴+5）`);
+    if(r.dexShinyNew) bits.push(`<br>✨ 第一次打倒閃光${m.name}（🦴+10）`);
     if(r.levelUps) bits.push(`<br>⬆️ 升到 Lv.${AS.level}！`);
+    if(r.levelUps&&AS.skillSlots>v.preSlots) bits.push(`<br>🌀 解鎖第 ${AS.skillSlots} 個技能欄，到「技能」分頁裝上吧！`);
+    if(AS.next.shiny) bits.push(`<br>✨ 下一關出現閃光怪！`);
     aMsg=bits.join("　");
   }else{
-    aMsg=`💥 被 ${m.e} ${m.name} 打倒了…合成更好的裝備，或訓練升級再來。`;
+    const tip=m.boss&&AS.skillSlots?"看看頭目的特性，到「技能」分頁換一組技能再試試；":"";
+    aMsg=`💥 被 ${m.e} ${m.name} 打倒了…${tip}合成更好的裝備，或訓練升級再來。`;
   }
   aFightView=null; advDraw();
 }
+/* 每日寶箱：三個任務都完成才能開，裝備直接放進背包 */
+async function aChest(){
+  if(aBusy||aFightView||!AS) return;
+  aBusy=true;
+  try{
+    const res=await aSync("chest");
+    if(res){
+      if(res.error) aMsg=`⚠️ ${res.error}`;
+      else{
+        const r=aItem(res.drop), i=AS.board.indexOf(null);
+        if(i>=0){ AS.board[i]=res.drop; aQueue(); }
+        aMsg=`🎁 連續第 ${res.streak} 天！開出 ${r.e} ${r.n}（${res.drop[1]} 階）`+(i<0?"，但背包滿了沒放進去":"")+`　🦴+${res.coins}`;
+      }
+    }
+  }finally{ aBusy=false; advDraw(); }
+}
+/* 技能：裝上／卸下，馬上存到伺服器（戰鬥由伺服器算，要用伺服器上的技能） */
+async function aToggleSkill(id){
+  if(aBusy||aFightView||!AS) return;
+  const cur=(AS.skills||[]).slice(0,AS.skillSlots);
+  const next=cur.includes(id)?cur.filter(x=>x!==id):cur.length<AS.skillSlots?cur.concat(id):null;
+  if(!next){ aMsg=`技能欄滿了（${AS.skillSlots} 格），先卸下一個`; advDraw(); return; }
+  aBusy=true;
+  try{
+    const res=await aSync("skills",false,{skills:next});
+    if(res&&res.error) aMsg=`⚠️ ${res.error}`; else aMsg="";
+  }finally{ aBusy=false; advDraw(); }
+}
+async function aLoadRank(){
+  try{ aRank=(await api("/api/game/adv/board")).board; }catch(e){ aRank=[]; }
+  advDraw();
+}
+function aSetTab(t){ aTab=t; aSel=null; if(t==="rank") aLoadRank(); advDraw(); }
 async function aTrain(){
   if(aBusy||aFightView||!AS) return;
   if(AS.energy<AS.trainCost){ aMsg=`⚡ 訓練要 ${AS.trainCost} 點能量`; advDraw(); return; }
@@ -180,27 +225,33 @@ function advDraw(){
   let hHp=H.hp, mHp=m.hp, hit="";
   if(v){
     hHp=v.res.hero.hp; mHp=m.hp;
-    for(let k=0;k<v.i;k++){ const [who,,,left]=v.res.events[k]; if(who==="h") mHp=left; else hHp=left; }
+    for(let k=0;k<v.i;k++){ const [who,,,left]=v.res.events[k]; if(who==="h"||who==="mh") mHp=left; else hHp=left; }
     const last=v.res.events[v.i-1];
-    if(last) hit=last[0]==="h"?`<div style="position:absolute;right:22%;top:18%;font-weight:800;color:${last[2]?"#e8590c":"#c92a2a"};font-size:${last[2]?20:16}px">-${last[1]}${last[2]?" 暴擊！":""}</div>`
-      :`<div style="position:absolute;left:18%;top:18%;font-weight:800;color:#c92a2a;font-size:16px">-${last[1]}</div>`;
+    if(last){
+      const [who,n,flag]=last, onMon=who==="h"||who==="mh", heal=who==="hh"||who==="mh";
+      const txt=heal?`+${n}`:who==="m"&&flag?"格擋！":`-${n}${who==="h"&&flag?" 暴擊！":""}`;
+      const col=heal?"#2f9e44":who==="h"&&flag?"#e8590c":who==="m"&&flag?"#1971c2":"#c92a2a";
+      hit=`<div style="position:absolute;${onMon?"right:18%":"left:18%"};top:18%;font-weight:800;color:${col};font-size:${who==="h"&&flag?20:16}px">${txt}</div>`;
+    }
   }
   const hMax=v?v.res.hero.hp:H.hp;
   const lastWho=v&&v.res.events[v.i-1]?v.res.events[v.i-1][0]:"";
+  const skillTxt=H.skills&&H.skills.length?H.skills.map(id=>{ const k=AD.skills.find(x=>x.id===id); return k?k.e+k.name:""; }).join(" "):"";
   const arena=`<div style="position:relative;margin-top:10px;padding:10px;border-radius:12px;background:${m.bg}">`+
-    `<div style="font-size:12px;font-weight:700;text-align:center">${m.region}・第 ${m.stage} 關${m.boss?" 👑頭目":""}</div>`+
+    `<div style="font-size:12px;font-weight:700;text-align:center">${m.region}・第 ${m.stage} 關${m.boss?" 👑頭目":""}${m.shiny?" ✨閃光怪":""}</div>`+
     `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;margin-top:8px">`+
     `<div style="text-align:center"><div style="height:46px;display:flex;align-items:center;justify-content:center;${lastWho==="h"?"transform:translateX(10px);":""}transition:transform .15s">${glyph}</div>`+
     `<div style="font-size:11px;margin:2px 0">❤️ ${hHp}/${hMax}</div>${aBar(hHp,hMax,"#2f9e44")}</div>`+
     `<div style="font-weight:800;color:var(--sub)">VS</div>`+
-    `<div style="text-align:center"><div style="font-size:40px;line-height:46px;${lastWho==="m"?"transform:translateX(-10px);":""}transition:transform .15s">${m.e}</div>`+
-    `<div style="font-size:11px;margin:2px 0">${m.name}　❤️ ${mHp}/${m.hp}</div>${aBar(mHp,m.hp,"#e03131")}</div></div>`+
-    `<div style="font-size:11px;text-align:center;margin-top:6px;color:var(--sub)">怪物攻擊 ${m.atk}</div>${hit}</div>`;
+    `<div style="text-align:center"><div style="font-size:40px;line-height:46px;${m.shiny?"filter:drop-shadow(0 0 6px #ffd43b) saturate(1.6);":""}${lastWho==="m"?"transform:translateX(-10px);":""}transition:transform .15s">${m.e}</div>`+
+    `<div style="font-size:11px;margin:2px 0">${m.shiny?"✨":""}${m.name}　❤️ ${mHp}/${m.hp}</div>${aBar(mHp,m.hp,"#e03131")}</div></div>`+
+    `<div style="font-size:11px;text-align:center;margin-top:6px;color:var(--sub)">怪物攻擊 ${m.atk}${skillTxt?"　我的技能："+skillTxt:""}</div>`+
+    (m.traitText?`<div style="font-size:11px;text-align:center;margin-top:2px;color:#c92a2a">⚠️ ${m.traitText}</div>`:"")+`${hit}</div>`;
   const acts=v?`<div style="text-align:center;margin-top:8px"><button class="ghost sm" onclick="aSkip()">跳過動畫 ⏩</button></div>`
     :`<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px">`+
       `<button ${aBusy?"disabled":""} onclick="aFight()">⚔️ 挑戰第 ${AS.stage} 關</button>`+
       `<button class="ghost" ${aBusy||AS.energy<AS.trainCost?"disabled":""} onclick="aTrain()">💪 訓練 −${AS.trainCost}⚡ 經驗+${AS.trainXp}</button></div>`+
-      `<div class="hint" style="margin-top:4px">打贏新的一關給 🦴3（頭目 🦴15）、經驗和一件裝備；同樣的裝備打同一隻怪，結果每次都一樣。</div>`;
+      `<div class="hint" style="margin-top:4px">打贏新的一關給 🦴3（頭目 🦴15、閃光怪 🦴8）、經驗和一件裝備；同樣的裝備和技能打同一隻怪，結果每次都一樣。</div>`;
   // ── 裝備欄 ──
   const selX=aSel!==null?AS.board[aSel]:null;
   const slots=`<div style="font-size:12px;color:var(--sub);margin:12px 0 4px">🎽 裝備</div>`+
@@ -242,5 +293,60 @@ function advDraw(){
       `<button class="sm" style="width:auto;padding:4px 12px" ${v?"disabled":""} onclick="aEquip()">🎽 穿上${cur?`（換下 ${cur} 階）`:""}</button>`+
       `<button class="ghost sm" style="width:auto;padding:4px 10px" onclick="aTrash()">🗑</button></div>`;
   }
-  box.innerHTML=head+src+msg+arena+acts+slots+gens+board+selBar;
+  const q=AS.daily||{quests:[],claimed:true}, qDone=q.quests.filter(x=>x.done).length;
+  const qBadge=q.claimed?"✅":qDone===q.quests.length?"🎁":`${qDone}/${q.quests.length}`;
+  const tabs=[["main","⚔️ 冒險"],["quest",`📋 任務 ${qBadge}`],["skill",`🌀 技能${AS.skillSlots?"":"🔒"}`],["dex","📖 圖鑑"],["rank","🏆 排行"]];
+  const bar=`<div style="display:flex;gap:4px;flex-wrap:wrap;margin:8px 0 2px">`+
+    tabs.map(([k,l])=>`<button class="ghost sm${aTab===k?" on":""}" style="width:auto;padding:4px 9px;font-size:12px" ${v&&k!=="main"?"disabled":""} onclick="aSetTab('${k}')">${l}</button>`).join("")+`</div>`;
+  const body=aTab==="quest"?advQuestHtml():aTab==="skill"?advSkillHtml():aTab==="dex"?advDexHtml():aTab==="rank"?advRankHtml()
+    :arena+acts+slots+gens+board+selBar;
+  box.innerHTML=head+src+msg+bar+body;
+}
+function advQuestHtml(){
+  const q=AS.daily, all=q.quests.every(x=>x.done);
+  const rows=q.quests.map(x=>`<div style="padding:8px 10px;border:1px solid ${x.done?"var(--green)":"var(--line)"};border-radius:10px;margin-top:6px">`+
+    `<div style="display:flex;justify-content:space-between;font-size:13px"><span>${x.done?"✅":"⬜"} ${x.label}</span><span class="hint">${x.cur}/${x.n}</span></div>`+
+    `<div style="margin-top:4px">${aBar(x.cur,x.n,x.done?"#2f9e44":"var(--accent)")}</div></div>`).join("");
+  const it=AD.chains.map(c=>c.items[q.chestTier-1][0]).join(" ／ ");
+  const chest=q.claimed?`<div style="text-align:center;margin-top:10px;color:var(--green);font-weight:700">今天的寶箱已經開了，明天再來！</div>`
+    :`<button style="margin-top:10px;width:100%" ${all&&!aBusy?"":"disabled"} onclick="aChest()">🎁 開寶箱</button>`+
+      `<div class="hint" style="text-align:center;margin-top:4px">今天的寶箱：${q.chestTier} 階裝備一件（${it} 其中之一）＋ 🦴${5+Math.min(q.streak,7)}</div>`;
+  return `<div style="font-size:13px;margin-top:6px">🔥 連續 <b>${q.streak}</b> 天　<span class="hint">每天開寶箱就會累積；越連續，寶箱裡的裝備越高階（最高 6 階）。斷一天從頭算。</span></div>`+
+    rows+chest+`<div class="hint" style="margin-top:6px">任務每天換一次，大家同一天的任務一樣。健康行為就是記錄飲食、蛋白質、運動、喝水。</div>`;
+}
+function advSkillHtml(){
+  const slots=AS.skillSlots, cur=(AS.skills||[]).slice(0,slots), next=AD.skillSlots.find(l=>l>AS.level);
+  const head=`<div style="font-size:13px;margin-top:6px">技能欄 <b>${cur.length}/${slots}</b>`+
+    (next?`　<span class="hint">Lv.${next} 再開一格</span>`:"")+`</div>`+
+    (slots?"":`<div class="hint" style="margin-top:4px">Lv.${AD.skillSlots[0]} 解鎖第一個技能欄。</div>`);
+  const list=AD.skills.map(k=>{
+    const on=cur.includes(k.id), can=on||cur.length<slots;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid ${on?"var(--accent)":"var(--line)"};border-radius:10px;margin-top:6px">`+
+      `<span style="font-size:24px">${k.e}</span><div style="flex:1;min-width:0"><b style="font-size:13px">${k.name}</b><div class="hint">${k.desc}</div></div>`+
+      `<button class="${on?"":"ghost "}sm" style="width:auto;padding:4px 10px" ${can&&!aBusy?"":"disabled"} onclick="aToggleSkill('${k.id}')">${on?"卸下":"裝上"}</button></div>`;
+  }).join("");
+  const traits=AD.regions.map(r=>`${r.boss[0]} ${r.boss[1]}：${AD.traits[r.trait]}`).join("<br>");
+  return head+list+`<details class="gdet" style="margin-top:8px"><summary class="ghd" style="font-size:12px">👑 頭目特性（換技能的參考）</summary><div class="hint" style="line-height:1.9">${traits}</div></details>`;
+}
+function advDexHtml(){
+  const dex=AS.dex||{}, list=aDexList(), got=list.filter(x=>dex[x.name]).length, shiny=list.filter(x=>dex[x.name]&&dex[x.name][1]).length;
+  let html=`<div style="font-size:13px;margin-top:6px">已收集 <b>${got}/${list.length}</b>　✨閃光 ${shiny}　<span class="hint">第一次打倒 🦴5、第一次打倒閃光版 🦴10</span></div>`;
+  AD.regions.forEach(r=>{
+    const items=list.filter(x=>x.region===r.name);
+    html+=`<div style="font-size:12px;color:var(--sub);margin:10px 0 4px">${r.name}</div><div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">`+
+      items.map(x=>{ const d=dex[x.name];
+        return `<div style="border:1px solid var(--line);border-radius:10px;padding:6px 4px;text-align:center;${d?"":"opacity:.45"}">`+
+          `<div style="font-size:26px;line-height:1.2;${d?"":"filter:grayscale(1) brightness(.4)"}">${x.e}</div>`+
+          `<div style="font-size:11px">${d?x.name:"？？？"}${x.boss?" 👑":""}</div>`+
+          `<div style="font-size:10px;color:var(--sub)">${d?`打倒 ${d[0]} 次${d[1]?" ✨"+d[1]:""}`:"&nbsp;"}</div></div>`; }).join("")+`</div>`;
+  });
+  return html;
+}
+function advRankHtml(){
+  if(!aRank) return `<div class="hint" style="text-align:center;padding:16px">載入中…</div>`;
+  if(!aRank.length) return `<div class="hint" style="text-align:center;padding:16px">還沒有人開始冒險</div>`;
+  const medal=i=>["🥇","🥈","🥉"][i]||`${i+1}.`;
+  return `<div class="hint" style="margin:6px 0">比打過的最高關卡，同關比等級。</div>`+aRank.map((x,i)=>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:10px;margin-top:4px;${x.me?"background:var(--soft);font-weight:700":"border:1px solid var(--line)"}">`+
+    `<span>${medal(i)} ${x.name}</span><span style="font-size:13px">第 ${x.cleared} 關　Lv.${x.level}　📖${x.dex}</span></div>`).join("");
 }

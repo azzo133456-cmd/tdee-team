@@ -21,7 +21,8 @@ export function arcadeCoins(id, score) {
   return 0;
 }
 
-/* 一次結算：回傳要發的幣與新的當日紀錄。prev 是 games.arcade[id]。 */
+/* 一次結算：回傳要發的幣與新的紀錄。prev 是 games.arcade[id]。
+   best 是當天最佳，top 是歷史最佳（排行榜用；舊紀錄沒有 top，就拿那天的 best 當起點）。 */
 export function settleArcade(id, score, prev, today) {
   const already = !!(prev && prev.date === today);
   const coins = already ? 0 : arcadeCoins(id, score);
@@ -29,6 +30,18 @@ export function settleArcade(id, score, prev, today) {
     date: today,
     best: Math.max(score, already ? (prev.best || 0) : 0),
     coins: already ? (prev.coins || 0) : coins,
+    top: Math.max(score, prev ? (prev.top || prev.best || 0) : 0),
   };
   return { coins, already, rec };
+}
+
+/* 小排行榜：今天最佳（只算今天有玩的）與歷史最佳。rows = [{ user_id, username, games }] */
+export function arcadeBoard(rows, id, today, meId) {
+  const list = rows.map((r) => ({ r, g: r.games && r.games.arcade && r.games.arcade[id] })).filter((x) => x.g);
+  const row = (x, score) => ({ name: x.r.username, score, me: x.r.user_id === meId });
+  const sort = (a, b) => b.score - a.score || a.name.localeCompare(b.name);
+  return {
+    today: list.filter((x) => x.g.date === today).map((x) => row(x, x.g.best || 0)).sort(sort),
+    all: list.map((x) => row(x, x.g.top || x.g.best || 0)).sort(sort),
+  };
 }

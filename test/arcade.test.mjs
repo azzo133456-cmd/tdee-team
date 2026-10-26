@@ -2,7 +2,7 @@
 // 把 public/app_arcade.js 放進 vm 執行，只測上半部的純邏輯（ARC.*）與伺服器發幣規則。
 import fs from "fs";
 import vm from "vm";
-import { ARCADE, arcadeCoins, validArcadeScore, settleArcade } from "../arcade_rules.js";
+import { ARCADE, arcadeCoins, validArcadeScore, settleArcade, arcadeBoard } from "../arcade_rules.js";
 
 const src = fs.readFileSync(new URL("../public/app_arcade.js", import.meta.url), "utf8");
 const sb = { console, Math, JSON, document: { getElementById: () => null } };
@@ -94,11 +94,29 @@ const ms = (fn) => { const t = Date.now(); fn(); return Date.now() - t; };
   eq("不存在的遊戲", validArcadeScore("spin", 1), false);
   const T = "2026-10-27";
   let r = settleArcade("blast", 600, undefined, T);
-  eq("今天第一次 → 發幣", [r.coins, r.already, r.rec], [18, false, { date: T, best: 600, coins: 18 }]);
+  eq("今天第一次 → 發幣", [r.coins, r.already, r.rec], [18, false, { date: T, best: 600, coins: 18, top: 600 }]);
   r = settleArcade("blast", 1600, r.rec, T);
   eq("同一天再玩 → 不發，但最佳成績會更新", [r.coins, r.already, r.rec.best, r.rec.coins], [0, true, 1600, 18]);
   r = settleArcade("blast", 100, { date: "2026-10-26", best: 9999, coins: 30 }, T);
-  eq("隔天重新算", [r.coins, r.rec.best], [8, 100]);
+  eq("隔天重新算，但歷史最佳留著", [r.coins, r.rec.best, r.rec.top], [8, 100, 9999]);
+  r = settleArcade("blast", 50, { date: "2026-10-26", best: 700, coins: 18 }, T);
+  eq("舊紀錄沒有 top → 拿那天的 best 當歷史最佳", r.rec.top, 700);
+}
+
+/* ---------- 小排行榜 ---------- */
+{
+  const T = "2026-10-27";
+  const rows = [
+    { user_id: 1, username: "zen", games: { arcade: { blast: { date: T, best: 300, top: 900 } } } },
+    { user_id: 2, username: "amy", games: { arcade: { blast: { date: "2026-10-26", best: 1200, top: 1200 } } } },
+    { user_id: 3, username: "bob", games: { arcade: { blast: { date: T, best: 500, top: 500 } } } },
+    { user_id: 4, username: "cat", games: { arcade: { water: { date: T, best: 3 } } } },
+    { user_id: 5, username: "dan", games: null },
+  ];
+  const b = arcadeBoard(rows, "blast", T, 1);
+  eq("今天：只列今天有玩的，高分在前", b.today.map((x) => [x.name, x.score]), [["bob", 500], ["zen", 300]]);
+  eq("歷史：每個玩過的都列", b.all.map((x) => [x.name, x.score]), [["amy", 1200], ["zen", 900], ["bob", 500]]);
+  eq("標出自己", b.all.find((x) => x.me).name, "zen");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
