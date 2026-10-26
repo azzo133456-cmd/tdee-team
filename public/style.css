@@ -192,3 +192,80 @@
    這份樣式表原本沒有任何 :disabled 樣式，停用的按鈕跟一般按鈕長得一樣，
    使用者會一直點一個不會動的按鈕。只套在合成小屋，不動其他地方既有的按鈕外觀。 */
 #advCard button:disabled,#blastCard button:disabled,#waterCard button:disabled{opacity:.38; cursor:not-allowed; filter:grayscale(.6);}
+
+/* ===== 合成冒險：全螢幕遊戲頁 ===== */
+#blastCard button.ghost.on,#advFull button.ghost.on{background:var(--accent); color:#fff; border-color:var(--accent);}
+#advFull button:disabled{opacity:.38; cursor:not-allowed; filter:grayscale(.6);}
+.advfull{position:fixed; inset:0; z-index:1000; background:var(--bg); display:flex; flex-direction:column;}
+.advfull button{margin-top:0;}
+#advHud{flex:none; background:var(--card); border-bottom:1px solid var(--line); padding:8px 12px; padding-top:calc(8px + env(safe-area-inset-top));}
+.advhud-row{display:flex; align-items:center; gap:10px; max-width:1100px; margin:0 auto;}
+.advback{flex:none;}
+.advhud-lv{flex:1; min-width:60px;}
+.advhud-res{display:flex; gap:8px; font-weight:700; font-size:13px; flex-wrap:wrap; justify-content:flex-end;}
+#advScroll{flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;}
+#advBox{max-width:1100px; margin:0 auto; padding:10px 14px 24px;}
+#advNav{flex:none; display:flex; background:var(--card); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom);}
+.advtab{flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:1px; padding:7px 0 6px; margin:0;
+  background:transparent; color:var(--sub); border:none; border-radius:0; font-size:11px; font-weight:600;}
+.advtab.on{color:var(--accent); background:var(--soft);}
+.advtab-e{font-size:20px; line-height:1.1; position:relative;}
+.advdot{position:absolute; top:-1px; right:-5px; width:8px; height:8px; border-radius:50%; background:#e03131;}
+.advlock{position:absolute; bottom:-3px; right:-9px; font-size:10px; font-style:normal;}
+.advmsg{margin:0 0 10px; padding:8px 12px; border-radius:10px; background:var(--soft); font-size:13px; line-height:1.6;}
+.advsec{font-size:12px; color:var(--sub); margin:14px 0 6px; font-weight:600;}
+.advsplit{display:grid; gap:0 18px;}
+@media (min-width:860px){ .advsplit{grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start;} }
+.advgrid3{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;}
+.advdex{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;}
+@media (min-width:600px){ .advdex{grid-template-columns:repeat(6,minmax(0,1fr));} }
+.advslot{border:1px dashed var(--line); border-radius:12px; padding:8px 4px; text-align:center; background:var(--card);}
+.advslot.hl{border:2px solid var(--accent);}
+.advgen{padding:10px 0; line-height:1.25;}
+.advcardrow{display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; margin-top:8px; background:var(--card);}
+.advcardrow.on{border-color:var(--accent); background:var(--soft); font-weight:700;}
+.advquest{padding:10px 12px; border:1px solid var(--line); border-radius:12px; margin-top:8px; background:var(--card);}
+.advquest.done{border-color:var(--green);}
+/* 背包 */
+.advboard{display:grid; gap:5px; user-select:none; -webkit-user-select:none;}
+.advcell{position:relative; aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:10px; cursor:pointer; background:var(--soft);}
+.advcell.full{background:var(--card); border:1px solid var(--line);}
+.advitem{font-size:clamp(22px,7vw,34px); line-height:1;}
+.advtier{position:absolute; right:4px; bottom:1px; font-size:10px; color:var(--sub); font-weight:700;}
+.advbetter{position:absolute; left:3px; top:1px; font-size:10px; color:var(--green);}
+/* 戰場 */
+.advarena{position:relative; padding:12px; border-radius:16px; overflow:hidden; min-height:230px;}
+.advarena-title{font-size:13px; font-weight:800; text-align:center;}
+.advarena-vs{display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:8px; align-items:end; margin-top:10px;}
+.advfighter{text-align:center;}
+.advsprite{height:96px; display:flex; align-items:center; justify-content:center; transition:transform .15s;}
+.advmon{font-size:76px; line-height:1;}
+.advshiny{filter:drop-shadow(0 0 8px #ffd43b) saturate(1.6);}
+.advvs{font-weight:900; color:var(--sub); font-size:18px; padding-bottom:30px;}
+.advhp{font-size:12px; margin:4px 0; font-weight:600;}
+.advarena-foot{font-size:11px; text-align:center; margin-top:8px; color:var(--sub);}
+.advarena-trait{font-size:12px; text-align:center; margin-top:4px; color:#c92a2a; font-weight:600;}
+.advacts{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px;}
+.advacts button{padding:12px 6px; font-size:15px; line-height:1.25;}
+.advfloat{position:absolute; top:30%; font-weight:900; text-shadow:0 1px 0 #fff,0 0 6px #fff; pointer-events:none; animation:advFloat .6s ease-out forwards;}
+@keyframes advFloat{from{transform:translateY(8px) scale(.8); opacity:0;} 25%{opacity:1; transform:translateY(0) scale(1.15);} to{transform:translateY(-26px) scale(1); opacity:.9;}}
+.advshake{animation:advShake .3s;}
+@keyframes advShake{0%,100%{transform:translateX(0);} 20%{transform:translateX(-7px);} 40%{transform:translateX(7px);} 60%{transform:translateX(-5px);} 80%{transform:translateX(4px);}}
+.advlunge-r{transform:translateX(18px);}
+.advlunge-l{transform:translateX(-18px);}
+.advflash{animation:advFlash .35s;}
+@keyframes advFlash{0%{box-shadow:inset 0 0 0 200px rgba(255,212,59,.45);} 100%{box-shadow:inset 0 0 0 200px rgba(255,212,59,0);}}
+/* 地圖 */
+.advregion{border-radius:14px; margin-top:10px; border:1px solid var(--line); overflow:hidden;}
+.advregion.locked{opacity:.6;}
+.advregion-head{display:flex; align-items:center; gap:10px; padding:10px 12px; cursor:pointer;}
+.advpath{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; padding:4px 12px 12px;}
+.advnode{aspect-ratio:1; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(255,255,255,.75); border:2px solid rgba(0,0,0,.08); font-size:22px; line-height:1.1; cursor:pointer;}
+.advnode small{font-size:10px; color:var(--sub);}
+.advnode.lock{background:rgba(255,255,255,.35); cursor:default; color:var(--sub);}
+.advnode.here{border-color:var(--accent); box-shadow:0 0 0 3px rgba(91,138,166,.25);}
+.advnode.boss{border-style:dashed;}
+.advnode.sel{border-color:#e8590c; border-style:solid;}
+.advpick{display:flex; align-items:center; gap:10px; margin:0 12px 12px; padding:10px; border-radius:12px; background:var(--card); border:1px solid var(--line);}
+/* 入口卡 */
+.advlaunch{display:flex; align-items:center; gap:12px;}

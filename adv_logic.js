@@ -7,9 +7,11 @@
    - 棋盤與裝備：客戶端權威（每次點擊都打伺服器會很卡），但伺服器記一個「總價值」：
      t 階物品值 2^(t-1) 點能量，合成不會讓價值變多，所以每次存檔時
      新價值 ≤ 舊價值 + 2×花的能量（15% 機率直接掉 2 階）+ 打怪掉落，超過就是資料不對，拒收。
-   - 戰鬥：伺服器依存好的裝備與等級算，結果固定（沒有亂數），所以重打同一關沒有意義，
-     卡關只能靠更好的裝備或升等 —— 也就是回去照顧健康。
-   - 骨頭幣：只有打贏新的一關才給，每天封頂。 */
+     賣掉、拿去釀藥的東西也一樣：送來的棋盤必須真的少了那些價值，才算數。
+   - 戰鬥：伺服器依存好的裝備、等級、技能算，結果固定（沒有亂數），所以重打同一關沒有意義，
+     卡關只能靠更好的裝備、升等、換技能 —— 也就是回去照顧健康。
+   - 骨頭幣：只有打贏新的一關、圖鑑、寶箱才給；打怪的部分每天封頂。
+   - 金幣：只在這個遊戲裡用（城鎮商店、鐵匠），伺服器記帳。 */
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -27,7 +29,12 @@ export const REGEN_EVERY_MS = 10 * 60 * 1000;     // 每 10 分鐘回 1 點
 export const REGEN_CAP = 20;                       // 時間回復只回到 20，再多要靠健康行為
 export const COIN_DAILY_CAP = 40;
 export const TRAIN_COST = 5;
+export const EXPLORE_COST = 3;
 export const MAX_ROUNDS = 40;                      // 打 40 回合還沒分出勝負就算輸
+export const POTION_MAX = 3, POTION_PRICE = 40;
+export const ENH_MAX = 10;
+export const enhCost = (lv) => 30 * (lv + 1) ** 2;   // 鐵匠強化：30、120、270…3000 金幣
+export const sellPrice = (t) => 3 * tierValue(t);
 
 /* 能量從哪些行為來。熱量達標要等那天過完才定案，所以一律隔天才發；其他四項當天就能發。 */
 export const BEHAVIORS = ["logged", "kcal_hit", "protein_hit", "exercised", "water_hit"];
@@ -45,6 +52,7 @@ export function newState(now) {
     v: 1, board: Array(CELLS).fill(null), energy: ENERGY_START, regenAt: now, granted: {},
     equip: Array(SLOTS).fill(0), level: 1, xp: 0, stage: 1, wins: 0, shiny: false, skills: [], dex: {},
     daily: null, streak: { last: "", n: 0 },
+    gold: 0, potions: 0, enh: Array(SLOTS).fill(0),
     value: 0, credit: 0, coinDay: "", coinToday: 0,
   };
 }
@@ -113,7 +121,15 @@ export function totalValue(board, equip) {
   return board.reduce((a, x) => a + (x ? tierValue(x[1]) : 0), 0) + equip.reduce((a, t) => a + tierValue(t), 0);
 }
 
-/* 存檔同步。payload = { board, equip, spent }。有問題就丟錯，呼叫端回 400。
+/* 這次動作會「用掉」多少價值（賣掉、釀藥）。送來的棋盤必須已經少了這些，存檔檢查時一起算。 */
+export function actionConsume(body) {
+  const a = body && body.action;
+  if (a === "sell") return validCell(body.item) && body.item ? tierValue(body.item[1]) : 0;
+  if (a === "brew") return Array.isArray(body.items) ? body.items.reduce((s, x) => s + (validCell(x) && x ? tierValue(x[1]) : 0), 0) : 0;
+  return 0;
+}
+
+/* 存檔同步。payload = { board, equip, spent, action?... }。有問題就丟錯，呼叫端回 400。
    today 有給的話，順便把花掉的能量記進每日任務。 */
 export function applySync(st, payload, today) {
   const p = payload || {};
@@ -123,7 +139,7 @@ export function applySync(st, payload, today) {
   if (!(spent >= 0 && spent <= ENERGY_MAX)) throw new Error("能量數值不合理");
   const paid = Math.min(spent, st.energy);         // 能量不夠的部分不算數，也不能換成東西
   const value = totalValue(p.board, p.equip);
-  if (value > (st.value || 0) + 2 * paid + (st.credit || 0)) throw new Error("資料對不起來，重新整理一下");
+  if (value + actionConsume(p) > (st.value || 0) + 2 * paid + (st.credit || 0)) throw new Error("資料對不起來，重新整理一下");
   st.energy -= paid;
   if (today) dailyRoll(st, today).spent += paid;
   st.board = p.board;
@@ -136,22 +152,27 @@ export function applySync(st, payload, today) {
 /* ---------- 角色、怪物與戰鬥 ---------- */
 export const SKILL_IDS = DATA.skills.map((s) => s.id);
 export const skillSlots = (level) => DATA.skillSlots.filter((l) => (level || 1) >= l).length;
+// 鐵匠強化：每級 武器攻擊 +5%、防具血量 +5%、飾品暴擊 +1%（跟著欄位走，換裝備不會不見）
 export function heroStats(st) {
-  const g = DATA.gear, e = st.equip || [0, 0, 0], mult = 1 + 0.04 * ((st.level || 1) - 1);
+  const g = DATA.gear, e = st.equip || [0, 0, 0], h = st.enh || [0, 0, 0], mult = 1 + 0.04 * ((st.level || 1) - 1);
   return {
-    atk: Math.round((8 + g.atk[e[0]]) * mult), hp: Math.round((60 + g.hp[e[1]]) * mult), crit: g.crit[e[2]],
+    atk: Math.round((8 + g.atk[e[0]]) * mult * (1 + 0.05 * h[0])),
+    hp: Math.round((60 + g.hp[e[1]]) * mult * (1 + 0.05 * h[1])),
+    crit: Math.round((g.crit[e[2]] + 0.01 * h[2]) * 100) / 100,
     skills: (st.skills || []).slice(0, skillSlots(st.level)),
+    potions: st.potions || 0,
   };
 }
 
-/* 第 s 關的怪。每 10 關一個區域、第 10 關是頭目（各有特性）；五個區域打完換「第 2 輪」，數值照公式繼續長。
+/* 第 s 關的怪。每 10 關一個區域、第 10 關是頭目（各有特性）；八個區域打完換「第 2 輪」，數值照公式繼續長。
    前 40 關強度每關 ×1.09：大約每 4 關翻倍一次 —— 剛好是裝備升一階（成本翻倍）帶來的戰力。
    40 關以後裝備差不多做滿了，只剩升等（線性變強），怪物改成線性成長，不然會永遠卡住。
    閃光怪：一般關卡偶爾出現，血 ×1.25、攻 ×1.15，打倒掉更好的東西。 */
+export const regionOf = (s) => Math.floor((s - 1) / 10) % DATA.regions.length;
 export function monster(s, shiny = false) {
   const k = s - 1, boss = s % 10 === 0;
   const scale = k <= 40 ? 1.09 ** k : 1.09 ** 40 * (1 + 0.06 * (k - 40));
-  const R = DATA.regions, region = R[Math.floor(k / 10) % R.length], round = Math.floor(k / (10 * R.length)) + 1;
+  const R = DATA.regions, region = R[regionOf(s)], round = Math.floor(k / (10 * R.length)) + 1;
   const [e, name] = boss ? region.boss : region.mobs[(k % 10) % region.mobs.length];
   const trait = boss ? region.trait : null;
   let hp = 40 * scale * (boss ? 1.5 : 1), atk = 6 * scale * (boss ? 1.2 : 1);
@@ -166,15 +187,19 @@ export function monster(s, shiny = false) {
 }
 
 /* 回合制自動戰鬥，寵物先攻。完全沒有亂數：暴擊用累積制（每打一下累積暴擊率，滿 1 就爆），
-   技能也都是「每第幾下」觸發，所以同樣的條件打同一隻怪，結果永遠一樣。
+   技能、怪物特性、藥水也都是固定規則觸發，所以同樣的條件打同一隻怪，結果永遠一樣。
    events: [種類, 數值, 旗標, 對應那一方剩多少血]
-     h  寵物打怪（旗標＝暴擊）      m  怪打寵物（旗標＝被護盾擋掉）
-     hh 寵物吸血回血                mh 怪物吸血回血 */
+     h  寵物打怪（旗標＝暴擊）      hx 寵物的攻擊被閃開
+     m  怪打寵物（旗標＝被護盾擋掉）  hh 寵物吸血回血      hp 寵物喝藥水
+     mh 怪物回血（吸血或再生） */
 export function battle(hero, mon) {
   const sk = new Set(hero.skills || []);
-  let hh = hero.hp, mh = mon.hp, acc = 0, swings = 0, taken = 0, matk = mon.atk;
+  let hh = hero.hp, mh = mon.hp, acc = 0, swings = 0, taken = 0, turns = 0, matk = mon.atk, pots = hero.potions || 0, used = 0;
   const events = [];
+  const done = (win) => ({ win, events, potionsUsed: used });
   const strike = () => {
+    swings++;
+    if (mon.trait === "evade" && swings % 3 === 0) { events.push(["hx", 0, false, mh]); return; }
     acc += hero.crit;
     let d = hero.atk, crit = false;
     if (acc >= 1 - 1e-9) { acc -= 1; d *= sk.has("fury") ? 3 : 2; crit = true; }
@@ -187,29 +212,45 @@ export function battle(hero, mon) {
       if (heal > 0) { hh += heal; events.push(["hh", heal, false, hh]); }
     }
   };
-  for (let r = 0; r < MAX_ROUNDS; r++) {
-    swings++; strike();
-    if (mh <= 0) return { win: true, events };
-    if (sk.has("combo") && swings % 3 === 0) { strike(); if (mh <= 0) return { win: true, events }; }
+  const hitMe = () => {
     taken++;
     let d = matk;
     if (sk.has("tough")) d *= 0.8;
     const blocked = sk.has("guard") && taken % 4 === 0;
     d = blocked ? 0 : Math.round(d);
     hh = Math.max(0, hh - d); events.push(["m", d, blocked, hh]);
-    if (hh <= 0) return { win: false, events };
     if (mon.trait === "drain" && d > 0 && mh < mon.hp) {
       const heal = Math.min(mon.hp - mh, Math.round(d * 0.3));
       if (heal > 0) { mh += heal; events.push(["mh", heal, false, mh]); }
     }
+    // 藥水：血掉到 35% 以下（還活著）就自動喝一瓶，回 40%
+    if (hh > 0 && hh < hero.hp * 0.35 && pots > 0) {
+      pots--; used++;
+      const heal = Math.min(hero.hp - hh, Math.round(hero.hp * 0.4));
+      hh += heal; events.push(["hp", heal, false, hh]);
+    }
+  };
+  for (let r = 0; r < MAX_ROUNDS; r++) {
+    strike();
+    if (mh <= 0) return done(true);
+    if (sk.has("combo") && swings % 3 === 0) { strike(); if (mh <= 0) return done(true); }
+    turns++;
+    hitMe();
+    if (hh <= 0) return done(false);
+    if (mon.trait === "double" && turns % 3 === 0) { hitMe(); if (hh <= 0) return done(false); }
+    if (mon.trait === "regen" && mh < mon.hp) {
+      const heal = Math.min(mon.hp - mh, Math.round(mon.hp * 0.06));
+      if (heal > 0) { mh += heal; events.push(["mh", heal, false, mh]); }
+    }
     if (mon.trait === "enrage") matk *= 1.08;
   }
-  return { win: false, events };
+  return done(false);
 }
 
 export const needXp = (level) => 30 + 15 * level;
 export const stageXp = (s) => 5 + 2 * s;
 export const trainXp = (st) => 8 + (st.stage || 1);
+export const stageGold = (s) => 5 + s;
 export function addXp(st, xp) {
   st.xp = (st.xp || 0) + xp;
   let ups = 0;
@@ -236,7 +277,7 @@ const QUESTS = {
   h3: { label: "完成 3 項健康行為", kind: "health", n: 3 },
   s15: { label: "花 15 點能量合成", kind: "spent", n: 15 },
   s25: { label: "花 25 點能量合成", kind: "spent", n: 25 },
-  f3: { label: "挑戰 3 次", kind: "fights", n: 3 },
+  f3: { label: "挑戰或探索 3 次", kind: "fights", n: 3 },
   t1: { label: "訓練 1 次", kind: "trains", n: 1 },
 };
 function dayHash(today) { let h = 0; for (const c of today) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
@@ -271,7 +312,9 @@ export function openChest(st, today, rand = Math.random) {
   d.claimed = true;
   const drop = giveItem(st, Math.floor(rand() * SLOTS), chestTier(n));
   const coins = 5 + Math.min(n, 7);                     // 寶箱的骨頭幣不算在打怪的每日封頂裡
-  return { kind: "chest", streak: n, drop, coins };
+  const gold = 20 * n;
+  st.gold = (st.gold || 0) + gold;
+  return { kind: "chest", streak: n, drop, coins, gold };
 }
 
 /* ---------- 技能 ---------- */
@@ -297,24 +340,53 @@ export const DEX_LIST = (() => {
   return out;
 })();
 export const SHINY_CHANCE = 0.12;
-
-/* 挑戰下一關。打贏：前進一關、經驗、骨頭幣（每日封頂）、掉一件裝備；第一次打倒的怪記進圖鑑另外給幣。 */
-export function fight(st, today, rand = Math.random) {
-  const d = dailyRoll(st, today); d.fights++;
-  const mon = monster(st.stage, st.shiny), hero = heroStats(st), b = battle(hero, mon);
-  const res = { kind: "fight", stage: st.stage, mon, hero, win: b.win, events: b.events, xp: 0, levelUps: 0, coins: 0, capped: false, drop: null, dexNew: false, dexShinyNew: false };
-  if (!b.win) return res;
-  res.xp = stageXp(st.stage) + (mon.shiny ? 10 : 0);
-  res.levelUps = addXp(st, res.xp);
-  Object.assign(res, payCoins(st, today, mon.boss ? 15 : mon.shiny ? 8 : 3));
-  res.drop = giveItem(st, Math.floor(rand() * SLOTS), Math.min(4, 1 + Math.floor(st.stage / 10)) + (mon.shiny ? 1 : 0));
+export const EXPLORE_SHINY_CHANCE = 0.2;
+function recordDex(st, mon, res) {
   st.dex = st.dex || {};
   const rec = st.dex[mon.name] || (st.dex[mon.name] = [0, 0]);
   if (!rec[0]) { res.dexNew = true; res.coins += 5; }
   if (mon.shiny && !rec[1]) { res.dexShinyNew = true; res.coins += 10; }
   rec[0]++; if (mon.shiny) rec[1]++;
+}
+
+/* 挑戰下一關。打贏：前進一關、經驗、骨頭幣（每日封頂）、金幣、掉一件裝備；第一次打倒的怪記進圖鑑另外給幣。 */
+export function fight(st, today, rand = Math.random) {
+  const d = dailyRoll(st, today); d.fights++;
+  const mon = monster(st.stage, st.shiny), hero = heroStats(st), b = battle(hero, mon);
+  st.potions = Math.max(0, (st.potions || 0) - b.potionsUsed);
+  const res = { kind: "fight", stage: st.stage, mon, hero, win: b.win, events: b.events, potionsUsed: b.potionsUsed,
+    xp: 0, levelUps: 0, coins: 0, gold: 0, capped: false, drop: null, dexNew: false, dexShinyNew: false };
+  if (!b.win) return res;
+  res.xp = stageXp(st.stage) + (mon.shiny ? 10 : 0);
+  res.levelUps = addXp(st, res.xp);
+  Object.assign(res, payCoins(st, today, mon.boss ? 15 : mon.shiny ? 8 : 3));
+  res.gold = stageGold(st.stage) * (mon.boss ? 3 : 1); st.gold = (st.gold || 0) + res.gold;
+  res.drop = giveItem(st, Math.floor(rand() * SLOTS), Math.min(4, 1 + Math.floor(st.stage / 10)) + (mon.shiny ? 1 : 0));
+  recordDex(st, mon, res);
   st.stage++; st.wins = (st.wins || 0) + 1;
   st.shiny = st.stage % 10 !== 0 && rand() < SHINY_CHANCE;   // 下一關會不會是閃光怪，現在就決定（重打不會變）
+  return res;
+}
+
+/* 探索：在地圖上回到已經打過的關卡再打一次（花能量）。閃光機率比較高，適合補圖鑑；
+   經驗、金幣減半，不給打怪的骨頭幣（圖鑑獎勵照給），有機會掉裝備。 */
+export function explore(st, stage, today, rand = Math.random) {
+  stage = Math.round(+stage);
+  if (!(stage >= 1 && stage < st.stage)) throw new Error("只能探索已經打過的關卡");
+  if (st.energy < EXPLORE_COST) throw new Error(`能量不夠，探索要 ${EXPLORE_COST} 點`);
+  st.energy -= EXPLORE_COST;
+  dailyRoll(st, today).fights++;
+  const shiny = stage % 10 !== 0 && rand() < EXPLORE_SHINY_CHANCE;
+  const mon = monster(stage, shiny), hero = heroStats(st), b = battle(hero, mon);
+  st.potions = Math.max(0, (st.potions || 0) - b.potionsUsed);
+  const res = { kind: "explore", stage, mon, hero, win: b.win, events: b.events, potionsUsed: b.potionsUsed,
+    xp: 0, levelUps: 0, coins: 0, gold: 0, capped: false, drop: null, dexNew: false, dexShinyNew: false };
+  if (!b.win) return res;
+  res.xp = Math.ceil(stageXp(stage) / 2) + (shiny ? 10 : 0);
+  res.levelUps = addXp(st, res.xp);
+  res.gold = Math.ceil(stageGold(stage) / 2); st.gold = (st.gold || 0) + res.gold;
+  if (shiny || rand() < 0.3) res.drop = giveItem(st, Math.floor(rand() * SLOTS), Math.min(4, 1 + Math.floor(stage / 10)) + (shiny ? 1 : 0));
+  recordDex(st, mon, res);
   return res;
 }
 
@@ -327,14 +399,52 @@ export function train(st, today) {
   return { kind: "train", xp, levelUps: addXp(st, xp) };
 }
 
-/* 存檔之後要做的動作。失敗（能量不夠、寶箱還不能開…）只回在 result.error，不影響存檔。 */
+/* ---------- 城鎮 ----------
+   賣東西、釀藥：前端先把東西從背包拿掉再送來，存檔檢查（actionConsume）確認價值真的少了。 */
+export function sell(st, item) {
+  const gold = sellPrice(item[1]);
+  st.gold = (st.gold || 0) + gold;
+  return { kind: "sell", item, gold };
+}
+export function brew(st, items) {
+  if (!Array.isArray(items) || items.length !== 3 || !items.every((x) => validCell(x) && x && x[1] <= 2))
+    throw new Error("釀藥要 3 件 1～2 階的東西");
+  if ((st.potions || 0) >= POTION_MAX) throw new Error(`藥水最多帶 ${POTION_MAX} 瓶`);
+  st.potions = (st.potions || 0) + 1;
+  return { kind: "brew", potions: st.potions };
+}
+export function buyPotion(st) {
+  if ((st.potions || 0) >= POTION_MAX) throw new Error(`藥水最多帶 ${POTION_MAX} 瓶`);
+  if ((st.gold || 0) < POTION_PRICE) throw new Error(`金幣不夠（要 ${POTION_PRICE}）`);
+  st.gold -= POTION_PRICE; st.potions = (st.potions || 0) + 1;
+  return { kind: "buy", potions: st.potions };
+}
+export function enhance(st, slot) {
+  slot = Math.round(+slot);
+  if (!(slot >= 0 && slot < SLOTS)) throw new Error("沒有這個欄位");
+  st.enh = st.enh || Array(SLOTS).fill(0);
+  const lv = st.enh[slot];
+  if (lv >= ENH_MAX) throw new Error("已經強化到頂了");
+  const cost = enhCost(lv);
+  if ((st.gold || 0) < cost) throw new Error(`金幣不夠（要 ${cost}）`);
+  st.gold -= cost; st.enh[slot] = lv + 1;
+  return { kind: "enhance", slot, level: lv + 1, cost };
+}
+
+/* 存檔之後要做的動作。失敗（能量不夠、寶箱還不能開…）只回在 result.error，不影響存檔。
+   注意：sell／brew 的東西在存檔檢查時已經確認拿掉了，這裡失敗的話東西不會回來 —— 前端要先擋。 */
 export function runAction(st, body, today, rand = Math.random) {
   const action = body && body.action;
   try {
     if (action === "fight") return fight(st, today, rand);
+    if (action === "explore") return explore(st, body.stage, today, rand);
     if (action === "train") return train(st, today);
     if (action === "chest") return openChest(st, today, rand);
     if (action === "skills") return setSkills(st, body.skills);
+    if (action === "sell") { if (!validCell(body.item) || !body.item) throw new Error("沒有要賣的東西"); return sell(st, body.item); }
+    if (action === "brew") return brew(st, body.items);
+    if (action === "buy") return buyPotion(st);
+    if (action === "enhance") return enhance(st, body.slot);
   } catch (e) { return { kind: action, error: e.message }; }
   return null;
 }
@@ -356,10 +466,12 @@ export function publicState(st, today, now) {
     skills: st.skills || [], skillSlots: skillSlots(st.level),
     daily: { quests: quests(st, today), claimed: d.claimed, streak, chestTier: chestTier(streak) },
     dex: st.dex || {},
+    gold: st.gold || 0, potions: st.potions || 0, enh: st.enh || Array(SLOTS).fill(0),
     coinToday: st.coinDay === today ? st.coinToday : 0, coinCap: COIN_DAILY_CAP,
     granted: { today: (st.granted && st.granted[today]) || [], yesterday: (st.granted && st.granted[yesterday]) || [] },
     nextRegenMs: st.energy >= REGEN_CAP ? null : Math.max(0, REGEN_EVERY_MS - (now - (st.regenAt || now))),
     regenCap: REGEN_CAP, energyMax: ENERGY_MAX, energyPer: ENERGY_PER_BEHAVIOR,
-    trainCost: TRAIN_COST, trainXp: trainXp(st),
+    trainCost: TRAIN_COST, trainXp: trainXp(st), exploreCost: EXPLORE_COST,
+    potionMax: POTION_MAX, potionPrice: POTION_PRICE, enhMax: ENH_MAX,
   };
 }

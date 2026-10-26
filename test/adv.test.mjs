@@ -78,13 +78,13 @@ const empty = () => Array(A.CELLS).fill(null);
 /* ---------- 角色與怪物 ---------- */
 {
   const st = A.newState(NOW);
-  eq("Lv1 空手：攻 8 血 60", A.heroStats(st), { atk: 8, hp: 60, crit: 0, skills: [] });
+  eq("Lv1 空手：攻 8 血 60", A.heroStats(st), { atk: 8, hp: 60, crit: 0, skills: [], potions: 0 });
   st.equip = [5, 5, 4]; st.level = 6;
-  eq("裝備 5/5/4、Lv6：攻擊與血量 ×1.2", A.heroStats(st), { atk: Math.round(25 * 1.2), hp: Math.round(164 * 1.2), crit: 0.2, skills: [] });
+  eq("裝備 5/5/4、Lv6：攻擊與血量 ×1.2", A.heroStats(st), { atk: Math.round(25 * 1.2), hp: Math.round(164 * 1.2), crit: 0.2, skills: [], potions: 0 });
   eq("第 1 關是森林的大老鼠", [A.monster(1).name, A.monster(1).region, A.monster(1).hp, A.monster(1).atk], ["大老鼠", "迷霧森林", 40, 6]);
   eq("第 10 關是頭目", [A.monster(10).boss, A.monster(10).name], [true, "野豬王"]);
   eq("第 11 關換到洞窟", A.monster(11).region, "幽暗洞窟");
-  eq("第 51 關進入第 2 輪", A.monster(51).region, "迷霧森林（第 2 輪）");
+  eq("八個區域打完（第 81 關）進入第 2 輪", A.monster(81).region, "迷霧森林（第 2 輪）");
   eq("怪物越後面越強", [2, 9, 20, 49, 80].every((s) => A.monster(s).hp > A.monster(s - 1).hp || A.monster(s - 1).boss), true);
 }
 
@@ -189,7 +189,7 @@ const empty = () => Array(A.CELLS).fill(null);
   eq("下一關會不會閃光，打贏時就決定（亂數 0.05 < 12% → 會）", st.shiny, true);
   A.fight(st, T, () => 0.5);
   eq("亂數 0.5 → 下一關不閃光", st.shiny, false);
-  eq("圖鑑共 30 種怪（名字不重複）", [A.DEX_LIST.length, new Set(A.DEX_LIST.map((x) => x.name)).size], [30, 30]);
+  eq("圖鑑共 48 種怪（名字不重複）", [A.DEX_LIST.length, new Set(A.DEX_LIST.map((x) => x.name)).size], [48, 48]);
 }
 
 /* ---------- 每日任務與寶箱 ---------- */
@@ -219,6 +219,88 @@ const empty = () => Array(A.CELLS).fill(null);
   eq("寶箱等級：第 1～2 天 3 階、第 3 天 4 階、第 7 天以後 6 階", [1, 2, 3, 5, 7, 30].map(A.chestTier), [3, 3, 4, 5, 6, 6]);
   const tmr = "2026-10-28";
   eq("隔天任務進度歸零", A.quests(st, tmr).some((x) => x.cur > 0 && x.id[0] !== "h"), false);
+}
+
+/* ---------- 新區域的頭目特性 ---------- */
+{
+  eq("第 51 關是沙漠、第 60 關沙漠魔神、第 80 關天龍", [A.monster(51).region, A.monster(60).name, A.monster(80).name], ["沙漠遺跡", "沙漠魔神", "天龍"]);
+  const ev = A.battle({ atk: 1, hp: 999, crit: 0 }, { hp: 999, atk: 1, trait: "evade" });
+  eq("閃避：每第 3 次攻擊被躲開", ev.events.filter((e) => e[0][0] === "h").slice(0, 6).map((e) => e[0]).join(","), "h,h,hx,h,h,hx");
+  const rg = A.battle({ atk: 10, hp: 999, crit: 0 }, { hp: 100, atk: 1, trait: "regen" });
+  eq("再生：每回合回 6%", rg.events.slice(0, 3), [["h", 10, false, 90], ["m", 1, false, 998], ["mh", 6, false, 96]]);
+  const db = A.battle({ atk: 1, hp: 999, crit: 0 }, { hp: 999, atk: 5, trait: "double" });
+  eq("連打：每第 3 回合打兩下", db.events.slice(0, 9).map((e) => e[0]).join(""), "hmhmhmmhm");
+}
+
+/* ---------- 藥水 ---------- */
+{
+  const b = A.battle({ atk: 1, hp: 100, crit: 0, potions: 2 }, { hp: 999, atk: 30 });
+  const used = b.events.filter((e) => e[0] === "hp");
+  eq("血掉到 35% 以下自動喝，回 40%（帶 2 瓶就喝 2 瓶）", [b.potionsUsed, used[0]], [2, ["hp", 40, false, 50]]);
+  const st = A.newState(NOW); st.potions = 2; st.stage = 3;
+  A.fight(st, T, () => 0.5);
+  eq("戰鬥後扣掉喝掉的藥水", st.potions, 2 - A.battle(A.heroStats({ ...A.newState(NOW), potions: 2 }), A.monster(3)).potionsUsed);
+}
+
+/* ---------- 金幣、探索 ---------- */
+{
+  const st = A.newState(NOW); st.equip = [10, 10, 10]; st.level = 30; st.dex = { 大老鼠: [1, 0], 蝙蝠: [1, 0] };
+  const r = A.fight(st, T, () => 0.5);
+  eq("打贏給金幣 5+關卡", [r.gold, st.gold], [6, 6]);
+  st.stage = 10; const boss = A.fight(st, T, () => 0.5);
+  eq("頭目金幣 ×3", boss.gold, 45);
+  let err = ""; try { A.explore(st, 11, T); } catch (e) { err = e.message; }
+  eq("不能探索還沒打過的關", err, "只能探索已經打過的關卡");
+  st.energy = 10; const g0 = st.gold, c0 = st.coinToday;
+  const ex = A.explore(st, 2, T, () => 0.1);
+  eq("探索：花 3 能量、亂數 0.1 < 20% → 閃光怪", [st.energy, ex.mon.shiny, ex.win], [7, true, true]);
+  eq("探索：經驗與金幣減半、不給打怪骨頭幣，但第一次閃光有圖鑑獎勵", [ex.gold, st.gold - g0, ex.coins, st.coinToday - c0, ex.dexShinyNew], [4, 4, 10, 0, true]);
+  eq("閃光必掉裝備", !!ex.drop, true);
+  const ex2 = A.explore(st, 2, T, () => 0.5);
+  eq("沒閃光、亂數 0.5 → 不掉東西", [ex2.mon.shiny, ex2.drop], [false, null]);
+  st.energy = 2; err = ""; try { A.explore(st, 2, T); } catch (e) { err = e.message; }
+  eq("能量不夠不能探索", err.includes("能量不夠"), true);
+  eq("探索也算進「挑戰或探索」任務", st.daily.fights, 4);
+}
+
+/* ---------- 城鎮：賣、釀藥、買、強化 ---------- */
+{
+  const st = A.newState(NOW);
+  const b = empty(); b[0] = [0, 3]; b[1] = [1, 1]; b[2] = [1, 1]; b[3] = [2, 2];
+  A.applySync(st, { board: b, equip: [0, 0, 0], spent: 7 });   // 價值 4+1+1+2 = 8，花 7 點（允許到 14）
+  const b2 = b.slice(); b2[0] = null;
+  let err = ""; try { A.applySync(st, { board: b, equip: [0, 0, 0], spent: 0, action: "sell", item: [0, 3] }); } catch (e) { err = e.message; }
+  eq("說要賣、但背包沒拿掉 → 拒收", err.includes("對不起來"), true);
+  A.applySync(st, { board: b2, equip: [0, 0, 0], spent: 0, action: "sell", item: [0, 3] });
+  const s = A.runAction(st, { action: "sell", item: [0, 3] }, T);
+  eq("賣 3 階 → 金幣 3×4 = 12", [s.gold, st.gold, st.value], [12, 12, 4]);
+  const b3 = b2.slice(); b3[1] = b3[2] = b3[3] = null;
+  A.applySync(st, { board: b3, equip: [0, 0, 0], spent: 0, action: "brew", items: [[1, 1], [1, 1], [2, 2]] });
+  const br = A.runAction(st, { action: "brew", items: [[1, 1], [1, 1], [2, 2]] }, T);
+  eq("3 件 1～2 階 → 釀一瓶藥", [br.potions, st.value], [1, 0]);
+  eq("3 階不能拿去釀", A.runAction(st, { action: "brew", items: [[1, 1], [1, 1], [2, 3]] }, T).error, "釀藥要 3 件 1～2 階的東西");
+  eq("金幣不夠不能買", A.runAction(st, { action: "buy" }, T).error, "金幣不夠（要 40）");
+  st.gold = 200;
+  A.runAction(st, { action: "buy" }, T); A.runAction(st, { action: "buy" }, T);
+  eq("買兩瓶：金幣 −80、藥水 3", [st.gold, st.potions], [120, 3]);
+  eq("最多帶 3 瓶", A.runAction(st, { action: "buy" }, T).error, "藥水最多帶 3 瓶");
+  st.gold = 500;
+  const e1 = A.runAction(st, { action: "enhance", slot: 0 }, T), e2 = A.runAction(st, { action: "enhance", slot: 0 }, T);
+  eq("強化武器兩次：30＋120 金幣", [e1.cost, e2.cost, st.enh, st.gold], [30, 120, [2, 0, 0], 350]);
+  st.gold = 99999; st.enh = [0, 0, 0];
+  const base = A.heroStats(st);
+  A.enhance(st, 0); A.enhance(st, 1); A.enhance(st, 2);
+  const up = A.heroStats(st);
+  eq("強化：攻擊 +5%、血量 +5%、暴擊 +1%", [up.atk, up.hp, up.crit], [Math.round(base.atk * 1.05), Math.round(base.hp * 1.05), base.crit + 0.01]);
+  st.enh = [10, 0, 0];
+  eq("強化最多 10 級", A.runAction(st, { action: "enhance", slot: 0 }, T).error, "已經強化到頂了");
+  const ch = A.newState(NOW);
+  A.grantHealth(ch, [{ date: T, logged: 1, protein_hit: 1, water_hit: 1 }], T);
+  const bb = empty(); for (let i = 0; i < 25; i++) bb[i] = [0, 1];
+  ch.energy = 150; A.applySync(ch, { board: bb, equip: [0, 0, 0], spent: 25 }, T);
+  for (let i = 0; i < 3; i++) A.fight(ch, T, () => 0.5);
+  A.train(ch, T);
+  eq("寶箱也給金幣（20×連續天數）", A.openChest(ch, T, () => 0.5).gold, 20);
 }
 
 /* ---------- 排行榜 ---------- */

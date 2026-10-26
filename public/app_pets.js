@@ -118,7 +118,7 @@ async function loadPet(){
 let gamesTabLoaded=false;
 function loadAllGames(){
   if(gamesTabLoaded) return; gamesTabLoaded=true;
-  loadDexGame(); if(typeof loadAdvGame==="function") loadAdvGame(); if(typeof loadArcadeGames==="function") loadArcadeGames();
+  loadDexGame(); loadAdvCard(); if(typeof loadArcadeGames==="function") loadArcadeGames();
 }
 /* ---------- 寵物圖鑑：展示我抽到/養過的寵物 + 收集/培養排行 ---------- */
 const DEX_STAGE_LABEL=["蛋","幼體","成長期","成體","進化體"];
@@ -188,6 +188,30 @@ async function claimDexReward(){
     petToast(`領到 ${r.coins} 🦴 里程碑獎勵！`);
     loadDexGame();
   }catch(e){ alert(e.message||"領取失敗"); }
+}
+/* ---------- 合成冒險入口卡 ----------
+   遊戲本體在 app_adv.js（全螢幕），按「進入冒險」才載入；這裡只畫摘要。
+   GET /api/game/adv 會順便發今天的健康能量，所以卡片上就看得到「+30 能量」。 */
+async function loadAdvCard(){
+  const card=document.getElementById("advCard"), box=document.getElementById("advCardBox"); if(!card||!box) return;
+  try{
+    const r=await api("/api/game/adv"), s=r.state, q=s.daily, done=q.quests.filter(x=>x.done).length;
+    card.style.display="";
+    const glyph=typeof petGlyph==="function"&&petData?petGlyph(petData,56):`<span style="font-size:36px">🐾</span>`;
+    const gained=r.gained&&r.gained.length?`<div style="margin-top:8px;padding:6px 10px;border-radius:8px;background:var(--soft);font-size:13px">⚡ +${r.gained.length*s.energyPer} 能量：${r.gained.map(g=>g.label).join("、")}</div>`:"";
+    const quest=q.claimed?"✅ 今天的寶箱開過了":done===q.quests.length?"🎁 寶箱可以開了！":`📋 每日任務 ${done}/${q.quests.length}`;
+    box.innerHTML=`<div class="advlaunch"><div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center">${glyph}</div>`+
+      `<div style="flex:1;min-width:0"><b>Lv.${s.level}</b>　${s.next.region}・第 ${s.stage} 關 ${s.next.e}`+
+      `<div class="hint" style="margin-top:2px">⚡ ${s.energy}　💰 ${s.gold}　${quest}</div></div></div>`+gained+
+      `<button style="width:100%;padding:13px;font-size:16px" onclick="openAdventure()">⚔️ 進入冒險</button>`;
+  }catch(e){ card.style.display="none"; }
+}
+function openAdventure(){
+  if(typeof advOpen==="function") return advOpen();
+  const sc=document.createElement("script"); sc.src="app_adv.js";
+  sc.onload=()=>advOpen();
+  sc.onerror=()=>alert("載入失敗，請檢查網路");
+  document.head.appendChild(sc);
 }
 // 今日任務（前端依本機資料即時判定；幣由伺服器依達標自動入帳，這裡只做顯示/激勵）
 function petDailyTasks(){

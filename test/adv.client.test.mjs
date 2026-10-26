@@ -21,7 +21,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   let now = Date.UTC(2026, 9, 27, 4);
   const server = { st: null, calls: 0, hold: null, old: oldMerge };
   const timers = new Map(); let tid = 0;
-  const html = { advBox: "", advCard: "" };
+  const html = { advBox: "", advHud: "", advNav: "", advFull: "", advScroll: "" };
   const el = (id) => ({ style: {}, set innerHTML(v) { html[id] = v; }, get innerHTML() { return html[id]; } });
   // 跟 server.js 的路由同樣的流程
   const route = (path, body) => {
@@ -47,7 +47,8 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
     console, JSON, Math: Object.create(Math), Promise,
     setTimeout: (fn) => { timers.set(++tid, fn); return tid; }, clearTimeout: (id) => { timers.delete(id); },
     alert() {}, confirm: () => true, petData: null, renderPet() {},
-    document: { getElementById: (id) => (id in html ? el(id) : null), addEventListener() {}, visibilityState: "visible" },
+    window: { listeners: {}, addEventListener(t, f) { this.listeners[t] = f; } }, navigator: {}, history: { state: null, pushState(st) { this.state = st; }, back() { this.state = null; } },
+    document: { getElementById: (id) => (id in html ? el(id) : null), addEventListener() {}, visibilityState: "visible", body: { style: {} } },
     fetch: async () => ({ json: async () => data }),
     api: async (path, opts) => {
       server.calls++;
@@ -58,7 +59,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   };
   sb.Math.random = () => 0.5;                       // 不觸發 15% 的直接掉 2 階
   vm.createContext(sb);
-  vm.runInContext(code + "\nglobalThis.__get=()=>({AS,aSel,aMsg,aPend,aFightView,aBusy});", sb);
+  vm.runInContext(code + "\nglobalThis.__get=()=>({AS,aSel,aMsg,aPend,aFightView,aBusy,aOpen,aTab});", sb);
   // 跑完所有排隊中的計時器（存檔延遲、戰鬥動畫）
   const flush = async () => { for (let n = 0; n < 200 && timers.size; n++) { const [id, f] = timers.entries().next().value; timers.delete(id); await f(); } await sb.aChain; };
   return { sb, server, html, flush, get: () => sb.__get(), advance: (ms) => { now += ms; } };
@@ -70,7 +71,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   await w.sb.loadAdvGame();
   eq("今天三項健康行為 → 能量 30", w.get().AS.energy, 30);
   eq("提示有列出是哪幾項", w.get().aMsg.includes("記錄飲食") && w.get().aMsg.includes("喝水達標"), true);
-  eq("畫面有畫出來：等級、第 1 關的怪", w.html.advBox.includes("Lv.1") && w.html.advBox.includes("大老鼠"), true);
+  eq("畫面有畫出來：等級、第 1 關的怪", w.html.advHud.includes("Lv.1") && w.html.advBox.includes("大老鼠"), true);
 }
 
 /* ---------- 合成小屋舊存檔 ---------- */
@@ -112,9 +113,9 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("動畫開始播", !!w.get().aFightView, true);
   eq("掉落物（1 階武器）放進背包第一個空格", S().board[1], [0, 1]);
   eq("播動畫時不能合成", (w.sb.aTap(0), w.get().aSel), null);
-  eq("動畫播完前，經驗還顯示打之前的（不劇透）", w.html.advBox.includes("經驗 0/45"), true);
+  eq("動畫播完前，經驗還顯示打之前的（不劇透）", w.html.advHud.includes(">0/45<"), true);
   w.sb.aSkip();
-  eq("播完才更新經驗", w.sb.aSkip() || w.html.advBox.includes("經驗 7/45"), true);
+  eq("播完才更新經驗", w.sb.aSkip() || w.html.advHud.includes(">7/45<"), true);
   eq("跳過動畫 → 顯示結果", [w.get().aFightView, w.get().aMsg.includes("打倒") && w.get().aMsg.includes("🦴+8") && w.get().aMsg.includes("圖鑑新增")], [null, true]);
   await w.flush();
   eq("掉落物存檔被接受（額度用掉）", [w.server.st.board[1], w.server.st.credit], [[0, 1], 0]);
@@ -178,7 +179,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("沒做完硬開 → 伺服器回錯誤訊息", w.get().aMsg.includes("三個任務都完成"), true);
   for (let i = 0; i < 25; i++) w.sb.aSpawn(i % 3);
   await w.flush();
-  w.sb.aSetTab("main");
+  w.sb.aSetTab("battle");
   for (let i = 0; i < 3; i++) { await w.sb.aFight(); w.sb.aSkip(); }
   await w.sb.aTrain();
   await w.flush();
@@ -214,9 +215,71 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   await w.sb.loadAdvGame();
   await w.sb.aFight(); w.sb.aSkip();
   w.sb.aSetTab("dex");
-  eq("圖鑑：打過的大老鼠有名字，其他是？？？", [w.html.advBox.includes("大老鼠"), w.html.advBox.includes("？？？"), w.html.advBox.includes("已收集 <b>1/30")], [true, true, true]);
+  eq("圖鑑：打過的大老鼠有名字，其他是？？？", [w.html.advBox.includes("大老鼠"), w.html.advBox.includes("？？？"), w.html.advBox.includes("已收集 <b>1/48")], [true, true, true]);
   w.sb.aSetTab("rank"); await w.flush(); await new Promise((r) => setImmediate(r));
   eq("排行：amy 第一、我第二", [w.html.advBox.indexOf("amy") < w.html.advBox.indexOf("我"), w.html.advBox.includes("第 49 關")], [true, true]);
+}
+
+/* ---------- 全螢幕：打開、返回鍵 ---------- */
+{
+  const w = makeWorld();
+  w.sb.advOpen(); await w.flush(); await new Promise((r) => setImmediate(r));
+  eq("打開：狀態列、分頁、內容都畫出來，記一筆返回紀錄", [w.html.advHud.includes("‹ 返回"), w.html.advNav.includes("城鎮"), w.html.advBox.includes("挑戰第 1 關"), w.sb.history.state], [true, true, true, { adv: 1 }]);
+  eq("打開時頁面本身不能捲", w.sb.document.body.style.overflow, "hidden");
+  w.sb.history.state = null; w.sb.window.listeners.popstate();      // 手機返回手勢
+  eq("返回手勢 → 關掉遊戲", [w.get().aOpen, w.sb.document.body.style.overflow], [false, ""]);
+}
+
+/* ---------- 城鎮 ---------- */
+{
+  const w = makeWorld({ startEnergy: 60 });
+  await w.sb.loadAdvGame();
+  const S = () => w.get().AS;
+  for (let i = 0; i < 6; i++) w.sb.aSpawn(i % 3);              // 0,1,2,0,1,2 各兩件 1 階
+  await w.flush();
+  w.sb.aSetTab("town");
+  eq("城鎮分頁：商店、鐵匠、工坊", ["回復藥", "鐵匠", "工坊"].every((t) => w.html.advBox.includes(t)), true);
+  // 賣
+  w.sb.aTownPick(0);
+  eq("選一件 → 顯示賣價", w.html.advBox.includes("賣 💰3"), true);
+  await w.sb.aSell(); await w.flush();
+  eq("賣掉：背包少一件、金幣 +3、伺服器接受", [S().board[0], S().gold, w.server.st.gold, w.server.st.value], [null, 3, 3, 5]);
+  // 轉換：武器 1 階＋防具 1 階 → 飾品 2 階
+  w.sb.aTownMode("convert"); w.sb.aTownPick(3); w.sb.aTownPick(1);
+  eq("選兩件同階不同種 → 出現三個選項", (w.html.advBox.match(/onclick="aConvert\(/g) || []).length, 3);
+  w.sb.aConvert(2); await w.flush();
+  eq("轉換成 2 階飾品，價值不變、伺服器接受", [S().board[3], S().board[1], w.server.st.value], [[2, 2], null, 5]);
+  w.sb.aTownMode("convert"); w.sb.aTownPick(2); w.sb.aTownPick(5);
+  eq("同種不能轉換", (w.html.advBox.match(/onclick="aConvert\(/g) || []).length, 0);
+  // 釀藥
+  w.sb.aTownMode("brew"); w.sb.aTownPick(2); w.sb.aTownPick(4); w.sb.aTownPick(5);
+  await w.sb.aBrew(); await w.flush();
+  eq("3 件 1 階 → 一瓶藥，伺服器記到", [S().potions, w.server.st.potions, S().board.filter(Boolean).length, w.server.st.value], [1, 1, 1, 2]);
+  // 買、強化
+  w.server.st.gold = 200; await w.sb.loadAdvGame(); w.sb.aSetTab("town");
+  await w.sb.aBuy();
+  eq("買藥水 −40 金幣", [S().potions, S().gold], [2, 160]);
+  await w.sb.aEnhance(0); await w.sb.aEnhance(0);
+  eq("強化武器兩次（30＋120）", [S().enh, S().gold], [[2, 0, 0], 10]);
+  await w.sb.aEnhance(0);
+  eq("金幣不夠 → 本機先擋，不送出", w.get().aMsg.includes("金幣不夠"), true);
+  eq("攻擊照強化算", w.sb.aHero().atk, Math.round(8 * 1.1));
+}
+
+/* ---------- 地圖：探索打過的關 ---------- */
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame();
+  await w.sb.aFight(); w.sb.aSkip(); await w.flush();
+  w.sb.aSetTab("map");
+  eq("地圖：第一區打開、其他區鎖著", [w.html.advBox.includes("迷霧森林"), (w.html.advBox.match(/？？？/g) || []).length], [true, 7]);
+  w.sb.aMapSel(1);
+  eq("點打過的第 1 關 → 可以探索", w.html.advBox.includes(`onclick="aExplore(1)"`), true);
+  const e0 = w.server.st.energy;
+  await w.sb.aExplore(1);
+  eq("探索：伺服器扣 3 能量、切回冒險分頁播動畫", [e0 - w.server.st.energy, w.get().aTab, !!w.get().aFightView], [3, "battle", true]);
+  w.sb.aSkip();
+  eq("探索打贏：有金幣、關卡不會前進", [w.get().aMsg.includes("💰+"), w.server.st.stage], [true, 2]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

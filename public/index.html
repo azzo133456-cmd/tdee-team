@@ -584,7 +584,7 @@
     <!-- 合成冒險：健康行為換能量 → 合成裝備 → 寵物自動打怪升等（取代合成小屋） -->
     <div class="card" id="advCard" style="display:none;">
       <h2 class="ch" data-ck="adv" onclick="toggleCard(this)">🗡️ 合成冒險 <span class="pill">健康換能量</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="advBox"></div></div>
+      <div class="cardbody"><div id="advCardBox"></div></div>
     </div>
 
     <!-- 休閒兩款（2026/10 取代原本的轉盤、熱量猜謎、健康知識、健康賓果、記憶翻牌、打地鼠、2048、寵物跳跳） -->
@@ -688,9 +688,14 @@
   </div>
 </div>
 
-<script defer src="app_adv.js"></script>
 <script defer src="app_arcade.js"></script>
 <script defer src="app_pets.js"></script>
 <script defer src="app.js"></script>
+<!-- 合成冒險全螢幕畫面：按入口卡的「進入冒險」才打開（app_adv.js 也是那時才載入） -->
+<div id="advFull" class="advfull" style="display:none;">
+  <div id="advHud"></div>
+  <div id="advScroll"><div id="advBox"></div></div>
+  <div id="advNav"></div>
+</div>
 </body>
 </html>
