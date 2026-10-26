@@ -187,3 +187,8 @@
 .gtypebtn.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;}
 .gform.hidden{display:none;}
 .gtblwrap{overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -2px;}
+
+/* 合成小屋：交付／佈置／產生器都靠「能不能按」來表示狀態。
+   這份樣式表原本沒有任何 :disabled 樣式，停用的按鈕跟一般按鈕長得一樣，
+   使用者會一直點一個不會動的按鈕。只套在合成小屋，不動其他地方既有的按鈕外觀。 */
+#mergeCard button:disabled{opacity:.38; cursor:not-allowed; filter:grayscale(.6);}

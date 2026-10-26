@@ -581,6 +581,12 @@
       <div class="hint">玩遊戲賺骨頭幣 🦴，可拿去扭蛋。健康類每日一題，娛樂類玩個爽！</div>
     </div>
 
+    <!-- 合成小屋：健康行為換能量 → 合成食材交訂單、合成家具佈置房子（取代原本的團隊魔王戰） -->
+    <div class="card" id="mergeCard" style="display:none;">
+      <h2 class="ch" data-ck="merge" onclick="toggleCard(this)">🏡 合成小屋 <span class="pill">健康換能量</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="mergeBox"></div></div>
+    </div>
+
     <!-- 寵物圖鑑：展示我抽到/養過的寵物 + 收集種類、綜合培養等級排行 -->
     <div class="card" id="dexCard">
       <h2 class="ch" data-ck="dex" onclick="toggleCard(this)">🐾 寵物圖鑑 <span class="pill">收集展示</span><span class="caret">▾</span></h2>
@@ -635,11 +641,6 @@
       <div class="cardbody"><div id="bingoBox"></div></div>
     </div>
 
-    <!-- 小遊戲：團隊魔王戰（每週，群組合作） -->
-    <div class="card" id="bossCard" style="display:none;">
-      <h2 class="ch" data-ck="boss" onclick="toggleCard(this)">👹 團隊魔王戰 <span class="pill">每週合作</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="bossBox"></div></div>
-    </div>
   </div>
 
   <!-- 買菜月結 -->

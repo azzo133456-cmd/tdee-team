@@ -5,6 +5,7 @@ import webpush from "web-push";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
+import * as MERGE from "./merge_logic.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC;
@@ -1679,56 +1680,48 @@ app.post("/api/game/bingo/claim", auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
-/* ---------- 小遊戲：團隊魔王戰（每週，群組合作；唯讀 daily_stats，不動既有競賽） ----------
-   全隊本週的「達標健康行為」累積成傷害，打掉魔王血量；打倒後每位成員可各領一次幣。*/
-const BOSS_NAMES = ["甜食魔王 🍰", "油炸怪獸 🍟", "手搖惡魔 🧋", "宵夜巨獸 🌙", "懶散史萊姆 🫠", "碳水巨龍 🐲", "拖延幽靈 👻"];
-const BOSS_REWARD = 120;
-async function bossForGroup(g) {
-  const mem = await pool.query("SELECT user_id FROM group_members WHERE group_id=$1", [g.id]);
-  const ids = mem.rows.map(m => m.user_id);
-  if (!ids.length) return null;
-  const ws = bingoWeekStart();
-  const st = await pool.query(
-    "SELECT logged,kcal_hit,protein_hit,exercised,water_hit FROM daily_stats WHERE user_id=ANY($1) AND date>=$2 AND date<=$3",
-    [ids, ws, twToday()]);
-  let damage = 0;
-  st.rows.forEach(r => { damage += (r.logged ? 1 : 0) + (r.kcal_hit ? 1 : 0) + (r.protein_hit ? 1 : 0) + (r.exercised ? 1 : 0) + (r.water_hit ? 1 : 0); });
-  const hp = ids.length * 14;                                   // 放寬：每人約 40% 達標即可打倒
-  const bossName = BOSS_NAMES[dailyGameIndex(g.id + ":" + ws, BOSS_NAMES.length)];
-  return { groupId: g.id, name: g.name, bossName, hp, damage, defeated: damage >= hp, members: ids.length, week: ws };
+/* ---------- 小遊戲：合成小屋（取代原本的團隊魔王戰） ----------
+   規則在 merge_logic.js（純函式，有測試）；這裡只負責讀寫資料庫。
+   能量來自健康行為（daily_stats）＋時間回復，由伺服器發；棋盤由客戶端存。 */
+async function loadMerge(userId) {
+  const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
+  if (!r.rowCount) return null;
+  const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
+  return (games.merge && games.merge.v === 1) ? games.merge : MERGE.newState(Date.now());
 }
-app.get("/api/game/boss", auth, async (req, res) => {
+// 只改 games.merge 這一個鍵：同步很頻繁，若整包覆寫 games，會蓋掉同一時間其他小遊戲寫進去的結果
+async function saveMerge(userId, st, coins) {
+  await pool.query(
+    "UPDATE pets SET games=jsonb_set(COALESCE(games,'{}'::jsonb), '{merge}', $1::jsonb), coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+    [JSON.stringify(st), coins || 0, userId]);
+}
+app.get("/api/game/merge", auth, async (req, res) => {
   try {
-    const games = await readGames(req.user.id);
-    if (games === null) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
-    const mine = await pool.query("SELECT g.id,g.name FROM groups g JOIN group_members m ON m.group_id=g.id WHERE m.user_id=$1 ORDER BY g.created_at DESC", [req.user.id]);
-    const out = [];
-    for (const g of mine.rows) {
-      const b = await bossForGroup(g);
-      if (b) out.push({ ...b, claimed: !!(games.boss && games.boss[String(g.id)] === b.week), reward: BOSS_REWARD });
-    }
-    res.json({ bosses: out });
+    const st = await loadMerge(req.user.id);
+    if (!st) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const now = Date.now(), today = twToday();
+    MERGE.regen(st, now);
+    const rows = (await pool.query(
+      "SELECT date::text AS date,logged,kcal_hit,protein_hit,exercised,water_hit FROM daily_stats WHERE user_id=$1 AND date>=$2",
+      [req.user.id, MERGE.prevDay(today)])).rows;
+    const gained = MERGE.grantHealth(st, rows, today);
+    MERGE.ensureOrders(st);
+    await saveMerge(req.user.id, st, 0);
+    res.json({ state: MERGE.publicState(st, today, now), gained });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-app.post("/api/game/boss/claim", auth, async (req, res) => {
+app.post("/api/game/merge/sync", auth, async (req, res) => {
   try {
-    const gid = +req.body.groupId;
-    const inG = await pool.query("SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2", [gid, req.user.id]);
-    if (!inG.rowCount) return res.status(400).json({ error: "你不在這個群組" });
-    const grp = await pool.query("SELECT id,name FROM groups WHERE id=$1", [gid]);
-    if (!grp.rowCount) return res.status(400).json({ error: "群組不存在" });
-    const b = await bossForGroup(grp.rows[0]);
-    if (!b || !b.defeated) return res.status(400).json({ error: "魔王還沒被打倒，全隊再加油！" });
-    const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [req.user.id]);
-    if (!r.rowCount) return res.status(400).json({ error: "先領養一隻寵物" });
-    const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-    games.boss = games.boss || {};
-    if (games.boss[String(gid)] === b.week) return res.status(400).json({ error: "本週這隻魔王的獎勵已領過囉" });
-    games.boss[String(gid)] = b.week;
-    await pool.query("UPDATE pets SET games=$1::jsonb, coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
-      [JSON.stringify(games), BOSS_REWARD, req.user.id]);
-    const { state } = await computePet(req.user.id);
-    res.json({ reward: BOSS_REWARD, pet: state });
+    const st = await loadMerge(req.user.id);
+    if (!st) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const now = Date.now(), today = twToday();
+    MERGE.regen(st, now);
+    let result;
+    try { result = MERGE.applySync(st, req.body, today); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    await saveMerge(req.user.id, st, result.coins);
+    const pet = result.coins > 0 ? (await computePet(req.user.id)).state : null;
+    res.json({ state: MERGE.publicState(st, today, now), result, pet });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
