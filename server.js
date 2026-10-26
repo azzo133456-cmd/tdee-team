@@ -5,7 +5,7 @@ import webpush from "web-push";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
-import * as MERGE from "./merge_logic.js";
+import * as ADV from "./adv_logic.js";
 import { ARCADE, validArcadeScore, settleArcade } from "./arcade_rules.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
@@ -1444,56 +1444,65 @@ app.post("/api/pet/checkin", auth, async (req, res) => {
     res.json({ reward, streak, day, big: day >= 7, usedShield, pet: state });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-/* ---------- 小遊戲：合成小屋（取代原本的團隊魔王戰） ----------
-   規則在 merge_logic.js（純函式，有測試）；這裡只負責讀寫資料庫。
-   能量來自健康行為（daily_stats）＋時間回復，由伺服器發；棋盤由客戶端存。 */
-async function loadMerge(userId) {
+/* ---------- 小遊戲：合成冒險（取代合成小屋；更早之前是團隊魔王戰） ----------
+   規則在 adv_logic.js（純函式，有測試）；這裡只負責讀寫資料庫。
+   存在 games.adv；第一次進來時把舊的 games.merge（合成小屋）棋盤退成能量。 */
+async function loadAdv(userId, now) {
   const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
   if (!r.rowCount) return null;
   const games = (r.rows[0].games && typeof r.rows[0].games === "object") ? r.rows[0].games : {};
-  const st = (games.merge && games.merge.v === 1) ? games.merge : MERGE.newState(Date.now());
-  MERGE.fitBoard(st);   // 棋盤尺寸改過時，把舊存檔轉成新尺寸（放不下的退成能量）
-  return st;
+  if (games.adv && games.adv.v === 1) return { st: games.adv, refund: 0, fresh: false };
+  const { st, refund } = ADV.migrateFromMerge(games.merge, now);
+  return { st, refund, fresh: !!games.merge };
 }
-// 只改 games.merge 這一個鍵：同步很頻繁，若整包覆寫 games，會蓋掉同一時間其他小遊戲寫進去的結果
-async function saveMerge(userId, st, coins) {
+// 只改 games.adv 這一個鍵：同步很頻繁，若整包覆寫 games，會蓋掉同一時間其他小遊戲寫進去的結果
+async function saveAdv(userId, st, coins) {
   await pool.query(
-    "UPDATE pets SET games=jsonb_set(COALESCE(games,'{}'::jsonb), '{merge}', $1::jsonb), coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
+    "UPDATE pets SET games=jsonb_set(COALESCE(games,'{}'::jsonb), '{adv}', $1::jsonb), coins_bonus=COALESCE(coins_bonus,0)+$2 WHERE user_id=$3",
     [JSON.stringify(st), coins || 0, userId]);
 }
-app.get("/api/game/merge", auth, async (req, res) => {
+app.get("/api/game/adv", auth, async (req, res) => {
   try {
-    const st = await loadMerge(req.user.id);
-    if (!st) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
     const now = Date.now(), today = twToday();
-    MERGE.regen(st, now);
+    const got = await loadAdv(req.user.id, now);
+    if (!got) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const { st } = got;
+    ADV.regen(st, now);
     const rows = (await pool.query(
       "SELECT date::text AS date,logged,kcal_hit,protein_hit,exercised,water_hit FROM daily_stats WHERE user_id=$1 AND date>=$2",
-      [req.user.id, MERGE.prevDay(today)])).rows;
-    const gained = MERGE.grantHealth(st, rows, today);
-    MERGE.ensureOrders(st);
-    await saveMerge(req.user.id, st, 0);
-    res.json({ state: MERGE.publicState(st, today, now), gained });
+      [req.user.id, ADV.prevDay(today)])).rows;
+    const gained = ADV.grantHealth(st, rows, today);
+    await saveAdv(req.user.id, st, 0);
+    res.json({ state: ADV.publicState(st, today, now), gained, migrated: got.fresh ? { refund: got.refund } : null });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
-app.post("/api/game/merge/sync", auth, async (req, res) => {
+// 存檔＋（可選）動作：action = "fight" 挑戰下一關、"train" 訓練。先存再打，戰鬥用的就是剛存的裝備。
+app.post("/api/game/adv/sync", auth, async (req, res) => {
   try {
-    const st = await loadMerge(req.user.id);
-    if (!st) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
     const now = Date.now(), today = twToday();
-    MERGE.regen(st, now);
-    let result;
-    try { result = MERGE.applySync(st, req.body, today); }
-    catch (e) { return res.status(400).json({ error: e.message }); }
-    await saveMerge(req.user.id, st, result.coins);
-    const pet = result.coins > 0 ? (await computePet(req.user.id)).state : null;
-    res.json({ state: MERGE.publicState(st, today, now), result, pet });
+    const got = await loadAdv(req.user.id, now);
+    if (!got) return res.status(400).json({ error: "先領養一隻寵物再來玩" });
+    const { st } = got;
+    ADV.regen(st, now);
+    try { ADV.applySync(st, req.body); }
+    catch (e) { return res.status(400).json({ error: e.message }); }   // 前端收到會整個重新載入伺服器的版本
+    let result = null;
+    const action = req.body && req.body.action;
+    if (action === "fight") result = ADV.fight(st, today);
+    else if (action === "train") {
+      try { result = ADV.train(st); }
+      catch (e) { result = { kind: "train", error: e.message }; }       // 存檔照樣要存，所以不回 400
+    }
+    const coins = (result && result.coins) || 0;
+    await saveAdv(req.user.id, st, coins);
+    const pet = coins > 0 ? (await computePet(req.user.id)).state : null;
+    res.json({ state: ADV.publicState(st, today, now), result, pet });
   } catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
 });
 
-/* ---------- 小遊戲：休閒四款（方塊爆破／貨架三消／羊了個羊三消／倒水分類） ----------
+/* ---------- 小遊戲：休閒兩款（方塊爆破／倒水分類；貨架三消、羊了個羊後來拿掉了） ----------
    2026/10 取代原本的轉盤、熱量猜謎、健康知識、健康賓果、記憶翻牌、打地鼠、2048、寵物跳跳。
-   四款共用一條路由與一套發幣規則（arcade_rules.js）。 */
+   共用一條路由與一套發幣規則（arcade_rules.js）。 */
 async function readGames(userId) {
   const r = await pool.query("SELECT games FROM pets WHERE user_id=$1", [userId]);
   if (!r.rowCount) return null;

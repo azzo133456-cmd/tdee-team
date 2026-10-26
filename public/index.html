@@ -578,27 +578,19 @@
   <!-- ===== 分頁：遊戲 ===== -->
   <div class="tabpage hidden" id="page-games">
     <div class="card" style="border:none;background:transparent;padding:6px 2px 0;">
-      <div class="hint">玩遊戲賺骨頭幣 🦴，可拿去扭蛋。合成小屋的能量來自你的健康行為；其他四款每天第一次結束時依成績發幣。</div>
+      <div class="hint">玩遊戲賺骨頭幣 🦴，可拿去扭蛋。合成冒險的能量來自你的健康行為；方塊爆破、倒水分類每天第一次結束時依成績發幣。</div>
     </div>
 
-    <!-- 合成小屋：健康行為換能量 → 合成食材交訂單、合成家具佈置房子（取代原本的團隊魔王戰） -->
-    <div class="card" id="mergeCard" style="display:none;">
-      <h2 class="ch" data-ck="merge" onclick="toggleCard(this)">🏡 合成小屋 <span class="pill">健康換能量</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="mergeBox"></div></div>
+    <!-- 合成冒險：健康行為換能量 → 合成裝備 → 寵物自動打怪升等（取代合成小屋） -->
+    <div class="card" id="advCard" style="display:none;">
+      <h2 class="ch" data-ck="adv" onclick="toggleCard(this)">🗡️ 合成冒險 <span class="pill">健康換能量</span><span class="caret">▾</span></h2>
+      <div class="cardbody"><div id="advBox"></div></div>
     </div>
 
-    <!-- 休閒四款（2026/10 取代原本的轉盤、熱量猜謎、健康知識、健康賓果、記憶翻牌、打地鼠、2048、寵物跳跳） -->
+    <!-- 休閒兩款（2026/10 取代原本的轉盤、熱量猜謎、健康知識、健康賓果、記憶翻牌、打地鼠、2048、寵物跳跳） -->
     <div class="card" id="blastCard" style="display:none;">
       <h2 class="ch" data-ck="blast" onclick="toggleCard(this)">🧩 方塊爆破 <span class="pill">擺放消除</span><span class="caret">▾</span></h2>
       <div class="cardbody"><div id="blastBox"></div></div>
-    </div>
-    <div class="card" id="goodsCard" style="display:none;">
-      <h2 class="ch" data-ck="goods" onclick="toggleCard(this)">🛒 貨架三消 <span class="pill">限時 3 分鐘</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="goodsBox"></div></div>
-    </div>
-    <div class="card" id="tileCard" style="display:none;">
-      <h2 class="ch" data-ck="tile" onclick="toggleCard(this)">🐑 羊了個羊 <span class="pill">三消闖關</span><span class="caret">▾</span></h2>
-      <div class="cardbody"><div id="tileBox"></div></div>
     </div>
     <div class="card" id="waterCard" style="display:none;">
       <h2 class="ch" data-ck="water" onclick="toggleCard(this)">🥤 倒水分類 <span class="pill">限時 5 分鐘</span><span class="caret">▾</span></h2>
@@ -696,6 +688,7 @@
   </div>
 </div>
 
+<script defer src="app_adv.js"></script>
 <script defer src="app_arcade.js"></script>
 <script defer src="app_pets.js"></script>
 <script defer src="app.js"></script>
