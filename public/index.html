@@ -294,6 +294,12 @@
           <div style="flex:0 0 auto;"><button class="sm" onclick="addMeal()">＋ 加入</button></div>
         </div>
         <div class="hint tip" style="margin:4px 0 0;">可只拍照當飲食日記（上方拍照後直接按「＋加入」即可）。</div>
+        <!-- 只有 zen 看得到：這餐是自己煮的就順便記到買菜月結的「煮餐」 -->
+        <div id="cookRow" class="cookrow" style="display:none;">
+          <label class="cookchk"><input type="checkbox" id="cookChk" onchange="saveCookPref()"> 🍳 自己煮的（記到月結）</label>
+          <span class="cookppl">幾人份 <input type="number" id="cookPeople" min="1" max="50" value="2" inputmode="numeric" onchange="saveCookPref()"></span>
+        </div>
+        <div id="cookMsg" class="hint" style="margin:4px 0 0;display:none;"></div>
       </div>
       <div id="cartSaveBtns" style="display:none;">
         <button class="ghost" onclick="saveRecipe()">💾 存成食譜</button>
@@ -621,7 +627,13 @@
           <label>金額<input type="number" id="gBuyAmount" inputmode="numeric" placeholder="例：2465"></label>
         </div>
         <label>買了什麼<input type="text" id="gBuyNote" placeholder="例：雞腿8kg、雞柳3kg、蒜仁200g"></label>
+        <div class="row" style="margin:6px 0 0;gap:8px;">
+          <label class="ghost receiptbtn">📷 拍收據／截圖自動填<input type="file" id="gReceiptFile" accept="image/*" style="display:none" onchange="onReceiptPick(event)"></label>
+        </div>
+        <div id="gReceiptMsg" class="hint" style="margin:4px 0 0;"></div>
         <button class="primary" onclick="addGBuy()">＋ 加入進貨</button>
+        <div class="hint" style="margin-top:4px">金額還不知道也可以先記，之後在下面「待補金額」補上。</div>
+        <div id="gPendingBox"></div>
       </div>
       <div id="gForm-meal" class="gform hidden">
         <div class="row">
@@ -629,6 +641,7 @@
           <label>幾人份<input type="number" id="gMealPeople" inputmode="numeric" value="2" min="1"></label>
         </div>
         <label>備註（可空）<input type="text" id="gMealNote" placeholder="例：中午 / 晚餐"></label>
+        <div class="hint" style="margin:0 0 6px">在「飲食」記錄時勾「🍳 自己煮的」，也會自動記一餐到這裡。</div>
         <button class="primary" onclick="addGMeal()">＋ 加入一餐</button>
       </div>
       <div id="gForm-extra" class="gform hidden">

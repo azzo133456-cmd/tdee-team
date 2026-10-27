@@ -455,6 +455,7 @@ app.put("/api/grocery", auth, async (req, res) => {
         date: String(x.date || "").slice(0, 10),
         note: String(x.note || "").slice(0, 300),
         amount: Math.round(+x.amount || 0),
+        pending: !!x.pending,            // 先記下來、金額之後再補
       })),
       meals: (Array.isArray(b.meals) ? b.meals : []).slice(0, 5000).map((x) => ({
         id: String(x.id || Date.now() + "" + Math.random()).slice(0, 40),
@@ -977,6 +978,42 @@ app.post("/api/label", auth, aiLimit, async (req, res) => {
       protein: num(parsed.protein),
       fat: num(parsed.fat),
       carb: num(parsed.carb),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 買菜收據／截圖辨識（Gemini 代理）：讀日期、實付金額、買了什麼，帶進「進貨」表單 ---------- */
+app.post("/api/receipt", auth, aiLimit, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 辨識金鑰" });
+    let img = String(req.body.image || "");
+    if (!img) return res.status(400).json({ error: "缺少照片" });
+    let mime = "image/jpeg";
+    const m = img.match(/^data:(image\/[a-zA-Z]+);base64,(.*)$/);
+    if (m) { mime = m[1]; img = m[2]; }
+    const prompt =
+      "這是一張買菜的收據、電子發票，或購物 App／信用卡 App 的消費截圖。請讀出：" +
+      "1) 消費日期（西元 YYYY-MM-DD；民國年請換算成西元，例如 115 年 = 2026 年；讀不到填空字串）；" +
+      "2) 實際付款的總金額（新台幣整數；有折扣就用折扣後實付的金額，不要用小計或原價；讀不到填 0）；" +
+      "3) 買了什麼：用繁體中文、簡短品名加數量，用頓號分隔，最多 15 項，例如「雞腿8kg、四季豆3包」；看不到品項就填空字串；" +
+      "4) 店名（讀不到填空字串）。" +
+      "只回傳 JSON，不要說明文字、不要 markdown 圍欄。格式：" +
+      '{"date":"YYYY-MM-DD","amount":實付金額,"items":"品項","store":"店名"}';
+    const g = await geminiVision(key, prompt, mime, img, 0.1);
+    if (g.error) return res.status(502).json({ error: geminiErrMsg(g.error.status) });
+    const txt = g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const p = extractJson(txt);
+    if (!p || typeof p !== "object") return res.status(502).json({ error: "讀不出收據內容，請拍清楚一點再試" });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(p.date || "")) ? String(p.date) : "";
+    res.json({
+      ok: true, date,
+      amount: Math.max(0, Math.round(+p.amount || 0)),
+      items: String(p.items || "").slice(0, 280),
+      store: String(p.store || "").slice(0, 30),
     });
   } catch (e) {
     console.error(e);

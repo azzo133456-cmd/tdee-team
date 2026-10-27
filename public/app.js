@@ -136,7 +136,7 @@ function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 
 /* ---------- API ---------- */
 // AI 端點的前端節流：避免短時間連發（與後端限流呼應，減少觸發上游限流）
-const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels"];
+const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels","/api/receipt"];
 let aiCalls=[], aiLastCall=0, aiInFlight=false;
 function isAiPath(path){ return AI_PATHS.some(p=>path.startsWith(p)); }
 function aiThrottleOk(path){
@@ -1125,7 +1125,10 @@ function setGType(t){
   document.querySelectorAll(".gtypebtn").forEach(b=>b.classList.toggle("on", b.dataset.gt===t));
 }
 function isZen(){ return ((session&&session.username)||"").trim().toLowerCase()==="zen"; }
-function applyGroceryVisibility(){ const nav=document.querySelector('.bottomnav .nav[data-tab="grocery"]'); if(nav) nav.style.display=isZen()?"":"none"; }
+function applyGroceryVisibility(){
+  const nav=document.querySelector('.bottomnav .nav[data-tab="grocery"]'); if(nav) nav.style.display=isZen()?"":"none";
+  const cr=document.getElementById("cookRow"); if(cr){ cr.style.display=isZen()?"":"none"; if(isZen()) loadCookPref(); }
+}
 function seedGroceryZen(){
   if(!isZen()) return;
   if(localStorage.getItem("grocery_seeded_v1")) return;
@@ -1149,17 +1152,20 @@ function seedGroceryZen(){
 function saveGrocery(){ api("/api/grocery",{method:"PUT",body:JSON.stringify(store.grocery||{buys:[],meals:[]})}).catch(()=>{}); }
 function addGBuy(){
   const date=val("gBuyDate")||todayStr(), amount=Math.round(+val("gBuyAmount")||0), note=(val("gBuyNote")||"").trim();
-  if(!amount){ alert("請輸入進貨金額"); return; }
+  if(!amount&&!note){ alert("請輸入進貨金額，或至少寫買了什麼（金額之後再補）"); return; }
+  if(!amount&&!confirm("還沒填金額，先記下來、之後再補？")) return;
   store.grocery=store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[];
-  store.grocery.buys.push({id:Date.now()+""+Math.random(),date,note,amount});
-  set("gBuyAmount",""); set("gBuyNote","");
+  const b={id:Date.now()+""+Math.random(),date,note,amount};
+  if(!amount) b.pending=true;
+  store.grocery.buys.push(b);
+  setv("gBuyAmount",""); setv("gBuyNote",""); set("gReceiptMsg","");
   saveGrocery(); renderGrocery();
 }
 function addGMeal(){
   const date=val("gMealDate")||todayStr(), people=Math.max(1,Math.round(+val("gMealPeople")||1)), note=(val("gMealNote")||"").trim();
   store.grocery=store.grocery||{buys:[],meals:[]}; store.grocery.meals=store.grocery.meals||[];
   store.grocery.meals.push({id:Date.now()+""+Math.random(),date,people,note});
-  set("gMealNote","");
+  setv("gMealNote","");
   saveGrocery(); renderGrocery();
 }
 function delGBuy(id){ if(!store.grocery) return; store.grocery.buys=(store.grocery.buys||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
@@ -1182,7 +1188,7 @@ function addGSettle(){
   if(!amount){ alert("請輸入領到的金額"); return; }
   store.grocery=store.grocery||{buys:[],meals:[],settles:[]}; store.grocery.settles=store.grocery.settles||[]; store.grocery.extras=store.grocery.extras||[];
   store.grocery.settles.push({id:Date.now()+""+Math.random(),date,amount,note});
-  set("gSetAmount",""); set("gSetNote","");
+  setv("gSetAmount",""); setv("gSetNote","");
   saveGrocery(); renderGrocery();
 }
 function delGSettle(id){ if(!store.grocery) return; store.grocery.settles=(store.grocery.settles||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
@@ -1191,7 +1197,7 @@ function addGExtra(){
   if(!amount){ alert("請輸入金額"); return; }
   store.grocery=store.grocery||{buys:[],meals:[],settles:[],extras:[]}; store.grocery.extras=store.grocery.extras||[];
   store.grocery.extras.push({id:Date.now()+""+Math.random(),date,note,amount});
-  set("gExtraAmount",""); set("gExtraNote","");
+  setv("gExtraAmount",""); setv("gExtraNote","");
   saveGrocery(); renderGrocery();
 }
 function delGExtra(id){ if(!store.grocery) return; store.grocery.extras=(store.grocery.extras||[]).filter(x=>x.id!==id); saveGrocery(); renderGrocery(); }
@@ -1201,9 +1207,9 @@ function renderGrocery(){
   const g=store.grocery||{buys:[],meals:[]};
   const buys=g.buys||[], meals=g.meals||[], extras=g.extras||[];
   // 預設日期為今天
-  if(!val("gBuyDate")) set("gBuyDate",todayStr());
-  if(!val("gMealDate")) set("gMealDate",todayStr());
-  if(!val("gExtraDate")) set("gExtraDate",todayStr());
+  if(!val("gBuyDate")) setv("gBuyDate",todayStr());
+  if(!val("gMealDate")) setv("gMealDate",todayStr());
+  if(!val("gExtraDate")) setv("gExtraDate",todayStr());
   // 依月份彙整（進貨＋額外伙食費 = 當月總伙食費）
   const months={};
   buys.forEach(b=>{ const m=gMonth(b.date); if(!m) return; (months[m]=months[m]||{buy:0,extra:0,mealCnt:0,people:0}).buy+=+b.amount||0; });
@@ -1211,6 +1217,8 @@ function renderGrocery(){
   meals.forEach(x=>{ const m=gMonth(x.date); if(!m) return; const o=months[m]=months[m]||{buy:0,extra:0,mealCnt:0,people:0}; o.mealCnt+=1; o.people+=+x.people||0; });
   const keys=Object.keys(months).sort((a,b)=>b.localeCompare(a));
   const sb=document.getElementById("gSummaryBox");
+  renderGPending(buys);
+  const pendN=buys.filter(b=>b.pending).length;
   if(!keys.length){ sb.innerHTML=`<div class="hint">還沒有資料，先在上面記一筆吧。</div>`; }
   else{
     let totBuy=0, totExtra=0, totMeal=0;
@@ -1226,7 +1234,7 @@ function renderGrocery(){
     const totAll=totBuy+totExtra;
     const gAvg=totMeal?Math.round(totBuy/totMeal):0;
     sb.innerHTML=`<div class="gtblwrap"><table class="gtbl"><thead><tr><th>月份</th><th style="text-align:right">進貨</th><th style="text-align:right">外食</th><th style="text-align:right">月總計</th><th style="text-align:right">餐數</th><th style="text-align:right">自煮每餐</th><th style="text-align:right">自煮每人</th></tr></thead><tbody>${rows}</tbody></table></div>`+
-      `<div class="hint" style="margin-top:8px">全期累計：自煮進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b>　（外食累計另計 $${totExtra.toLocaleString()}，全部合計 $${totAll.toLocaleString()}）</div>`;
+      (pendN?`<div class="hint" style="margin-top:8px;color:#b5564e">⏳ 還有 ${pendN} 筆進貨沒填金額，進貨與每餐成本先不含它們。</div>`:"")+`<div class="hint" style="margin-top:8px">全期累計：自煮進貨 $${totBuy.toLocaleString()}　÷　${totMeal} 餐　=　平均每餐 <b style="color:var(--accent)">$${gAvg.toLocaleString()}</b>　（外食累計另計 $${totExtra.toLocaleString()}，全部合計 $${totAll.toLocaleString()}）</div>`;
   }
   // 公司補給：平日有煮的天數 × 200 = 累計補給；已申請現金 = settles 加總；結餘 = 差額
   const settles=g.settles||[];
@@ -1261,13 +1269,13 @@ function renderGrocery(){
       subTable+
       `<details class="gdet" style="margin-top:10px"><summary class="ghd">🧾 申請紀錄（${setList.length}）</summary>${setRows}</details>`;
   }
-  if(!val("gSetDate")) set("gSetDate",todayStr());
+  if(!val("gSetDate")) setv("gSetDate",todayStr());
   // 明細（快取各類清單，供 setGDetailType 切換時重繪）
   const bList=buys.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const mList=meals.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const eList=extras.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   GDETAIL_ROWS={
-    buy:{count:bList.length, html: bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">$${(+b.amount||0).toLocaleString()}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`},
+    buy:{count:bList.length, html: bList.length?bList.map(b=>`<div class="grow"><span class="gd">${b.date}</span><span class="gn">${b.note||"（進貨）"}</span><span class="ga">${b.pending?`<span style="color:#b5564e">待補</span>`:`$${(+b.amount||0).toLocaleString()}`}</span><span class="x" onclick="delGBuy('${b.id}')">✕</span></div>`).join(""):`<div class="hint">尚無進貨</div>`},
     meal:{count:mList.length, html: mList.length?mList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"一餐"}　<span class="pill">${x.people||1}人</span></span><span class="x" onclick="delGMeal('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無煮餐紀錄</div>`},
     extra:{count:eList.length, html: eList.length?eList.map(x=>`<div class="grow"><span class="gd">${x.date}</span><span class="gn">${x.note||"（額外伙食費）"}</span><span class="ga">$${(+x.amount||0).toLocaleString()}</span><span class="x" onclick="delGExtra('${x.id}')">✕</span></div>`).join(""):`<div class="hint">尚無額外伙食費</div>`},
   };
@@ -1281,6 +1289,68 @@ function renderGDetail(){
   const labels={buy:"🛒 進貨",meal:"🍳 煮餐",extra:"🍽️ 外食"};
   const bar=Object.keys(labels).map(k=>`<button class="gtypebtn${k===gDetailType?" on":""}" onclick="setGDetailType('${k}')">${labels[k]}（${GDETAIL_ROWS[k].count}）</button>`).join("");
   db.innerHTML=`<div class="gtypebar">${bar}</div>${GDETAIL_ROWS[gDetailType].html}`;
+}
+
+/* 飲食頁的「🍳 自己煮的」：記飲食時順便在月結記一餐（只有 zen 看得到）。
+   同一天同一餐只記一次 —— 午餐分兩次加入、或改完再加一次，都不會變成兩餐。
+   勾選狀態和人數記在這台裝置上，下次打開還是一樣（zen 平常大多是自己煮）。 */
+function loadCookPref(){
+  try{
+    const p=JSON.parse(localStorage.getItem("cookPref")||"{}");
+    const c=document.getElementById("cookChk"), n=document.getElementById("cookPeople");
+    if(c) c.checked=!!p.on; if(n&&p.people) n.value=p.people;
+  }catch(e){}
+}
+function saveCookPref(){
+  try{ localStorage.setItem("cookPref",JSON.stringify({on:!!(document.getElementById("cookChk")||{}).checked, people:Math.max(1,Math.round(+val("cookPeople")||2))})); }catch(e){}
+}
+function logCookedMeal(date, meal){
+  const people=Math.max(1,Math.min(50,Math.round(+val("cookPeople")||2)));
+  store.grocery=store.grocery||{buys:[],meals:[]}; store.grocery.meals=store.grocery.meals||[];
+  const dup=store.grocery.meals.find(x=>x.date===date&&x.note===meal);
+  const msg=document.getElementById("cookMsg");
+  if(dup){
+    if(dup.people!==people){ dup.people=people; saveGrocery(); }
+    if(msg){ msg.style.display=""; msg.textContent=`🍳 ${date} ${meal}已經記在月結了（${people} 人份）`; }
+    return;
+  }
+  store.grocery.meals.push({id:Date.now()+""+Math.random(),date,people,note:meal});
+  saveGrocery();
+  if(typeof renderGrocery==="function") renderGrocery();
+  if(msg){ msg.style.display=""; msg.textContent=`🍳 已記到月結：${date} ${meal}，${people} 人份${isWeekday(date)?"（平日，公司補給 +$"+subsidyFor(date)+"）":""}`; }
+}
+
+/* 進貨：拍收據或購物 App 的截圖，AI 讀日期、實付金額、品項，帶進表單（還是要按「加入進貨」才會存） */
+async function onReceiptPick(ev){
+  const f=ev.target.files&&ev.target.files[0]; ev.target.value="";
+  if(!f) return;
+  const msg=document.getElementById("gReceiptMsg");
+  msg.textContent="🔍 讀取中…";
+  try{
+    const img=await compressImg(f);
+    const r=await api("/api/receipt",{method:"POST",body:JSON.stringify({image:img})});
+    if(r.date) setv("gBuyDate",r.date);
+    if(r.amount) setv("gBuyAmount",String(r.amount));
+    const note=[r.store,r.items].filter(Boolean).join("：");
+    if(note) setv("gBuyNote",note);
+    msg.innerHTML=r.amount?`✅ 讀到 ${r.date||"（日期讀不到，用今天）"}　<b>$${r.amount.toLocaleString()}</b>，確認沒錯再按「加入進貨」`
+      :`⚠️ 讀不到金額，品項先帶進去了；金額可以手動填，或先記下來之後再補`;
+  }catch(e){ msg.textContent="辨識失敗："+e.message; }
+}
+/* 待補金額的進貨：先記品項，等有空再補金額（不用為了查金額切到別的 App） */
+function fillGBuy(id){
+  const b=(store.grocery&&store.grocery.buys||[]).find(x=>x.id===id); if(!b) return;
+  const amount=Math.round(+val("gPend-"+id)||0);
+  if(!amount){ alert("請輸入金額"); return; }
+  b.amount=amount; delete b.pending;
+  saveGrocery(); renderGrocery();
+}
+function renderGPending(buys){
+  const box=document.getElementById("gPendingBox"); if(!box) return;
+  const list=buys.filter(b=>b.pending).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  box.innerHTML=list.length?`<div class="gpending"><b>⏳ 待補金額（${list.length}）</b>`+list.map(b=>
+    `<div class="prow"><span class="gd">${(b.date||"").slice(5)}</span><span class="pn">${b.note||"（進貨）"}</span>`+
+    `<input type="number" inputmode="numeric" id="gPend-${b.id}" placeholder="金額"><button class="sm" onclick="fillGBuy('${b.id}')">補上</button></div>`).join("")+`</div>`:"";
 }
 
 /* ---------- 我的最愛 ---------- */
@@ -2700,6 +2770,7 @@ async function addMeal(){
   foodCart.forEach(it=>bumpFoodStat(it.n,it.g));   // 記錄常用與上次克數
   try{
     await api("/api/meal",{method:"POST",body:JSON.stringify({date,meal,items,photo:mealPhoto})});
+    if(isZen()&&document.getElementById("cookChk")&&document.getElementById("cookChk").checked) logCookedMeal(date,meal);
     foodCart=[]; renderFood(); clearMealPhoto(); await reload();
     document.getElementById("mealGroups").scrollIntoView({behavior:"smooth"});
   }catch(e){ alert(e.message); }
@@ -4151,6 +4222,7 @@ function scheduleGroupSync(){
 /* ---------- helpers ---------- */
 function val(id){ return document.getElementById(id).value; }
 function set(id,t){ const el=document.getElementById(id); if(el) el.textContent=t; }
+function setv(id,v){ const el=document.getElementById(id); if(el) el.value=v; }   // 輸入框要設 value；set() 設的是 textContent，對 <input> 沒作用
 function show(id){ document.getElementById(id).style.display="block"; }
 function hide(id){ document.getElementById(id).style.display="none"; }
 function avg(a){ return a.reduce((x,y)=>x+y,0)/a.length; }

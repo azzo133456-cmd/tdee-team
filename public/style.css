@@ -317,3 +317,16 @@
 .advpl-pocket.hot{background:rgba(255,212,59,.3);}
 .advpl-pocket.hit{background:#ffd43b; color:#2b2140; animation:advWin .3s 3 alternate;}
 .advmachine-foot button.ghost{color:#fff; border-color:rgba(255,255,255,.45);}
+/* 飲食頁：自己煮的（zen 月結） */
+.cookrow{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); flex-wrap:wrap;}
+.cookchk{display:flex; align-items:center; gap:6px; margin:0; font-size:14px; cursor:pointer;}
+.cookchk input{width:auto; margin:0; transform:scale(1.2);}
+.cookppl{font-size:13px; color:var(--sub); display:flex; align-items:center; gap:4px;}
+.cookppl input{width:56px; padding:6px 8px; font-size:15px;}
+/* 月結：收據辨識、待補金額 */
+.receiptbtn{display:inline-flex; align-items:center; justify-content:center; flex:1; margin:0; padding:9px 12px; border:1px solid var(--line); border-radius:10px; color:var(--accent); font-size:14px; cursor:pointer;}
+.gpending{margin-top:12px; padding:10px; border-radius:12px; background:#fff6e6; border:1px solid #f3d29a;}
+.gpending .prow{display:flex; align-items:center; gap:8px; margin-top:6px; font-size:13px;}
+.gpending .prow .pn{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.gpending .prow input{width:90px; padding:6px 8px; font-size:15px;}
+.gpending .prow button{margin:0;}
