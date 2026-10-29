@@ -445,7 +445,7 @@ export function enhance(st, slot) {
    三個地方用到同一套「轉盤」：遊樂場機台（A）、開寶箱（B）、彈珠產生器（C）。
    結果全部由伺服器決定，前端只負責把動畫「演」到那個結果；前端改不了中獎。 */
 export const PACHI = {
-  ballPrice: 2, perPlay: 10, dailyBalls: 200, holdMax: 4,
+  ballPrice: 2, perPlay: 10, holdMax: 4,       // 不限每天顆數（只受金幣限制；長期回收率約 83%，金幣會慢慢輸掉）
   pStart: 0.18,            // 掉進中央入賞口（啟動轉盤、存一個保留）
   pReturn: 0.15, returnGold: 3,   // 掉進兩側小口：退 3 金幣
   pWin: 1 / 17, pWinKaku: 1 / 3, kakuSpins: 5,
@@ -470,7 +470,6 @@ function pachiDay(st, today) {
    每 3 顆珠子的時間轉一次保留；打完再把剩下的保留轉完。 */
 export function pachiPlay(st, today, rand = Math.random) {
   const P = PACHI, d = pachiDay(st, today), cost = P.ballPrice * P.perPlay;
-  if (d.balls + P.perPlay > P.dailyBalls) throw new Error(`今天的珠子打完了（每天 ${P.dailyBalls} 顆）`);
   if ((st.gold || 0) < cost) throw new Error(`金幣不夠（要 ${cost}）`);
   st.gold -= cost; d.balls += P.perPlay;
   const events = [], res = { kind: "pachi", events, gold: 0, items: [], wins: 0, cost };
@@ -566,7 +565,7 @@ export function publicState(st, today, now) {
     potionMax: POTION_MAX, potionPrice: POTION_PRICE, enhMax: ENH_MAX,
     rush: st.rush || 0,
     pachi: { ballsToday: st.pachi && st.pachi.day === today ? st.pachi.balls : 0, kaku: (st.pachi && st.pachi.kaku) || 0,
-      price: PACHI.ballPrice, perPlay: PACHI.perPlay, daily: PACHI.dailyBalls },
+      price: PACHI.ballPrice, perPlay: PACHI.perPlay },
     dropTiers: DROP_TIERS,
   };
 }

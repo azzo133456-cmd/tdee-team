@@ -331,7 +331,7 @@ const empty = () => Array(A.CELLS).fill(null);
   console.log(`      （遊樂場模擬 600,000 輪：回收率 ${(rtp * 100).toFixed(1)}%，平均每 ${(spent / 2 / wins).toFixed(0)} 顆珠子中一次大當）`);
   eq("回收率 70%～95%", rtp > 0.7 && rtp < 0.95, true);
   st.pachi.balls = 195;
-  eq("每天最多 200 顆", A.runAction(st, { action: "pachi" }, T).error, "今天的珠子打完了（每天 200 顆）");
+  eq("不限每天顆數（195 顆之後還能打）", A.runAction(st, { action: "pachi" }, T).error, undefined);
   eq("隔天重算", !!A.runAction(st, { action: "pachi" }, "2026-10-28").events, true);
   // 確變：奇數大當後下 5 轉中獎率 1/3
   const k = A.newState(NOW); k.gold = 100; k.pachi = { day: T, balls: 0, kaku: 5 };

@@ -300,7 +300,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("城鎮最上面是遊樂場、金幣不夠按鈕不能按", [w.html.advBox.includes("健康機台"), w.html.advBox.includes(`disabled onclick="aPachi()"`)], [true, true]);
   eq("金幣不夠：按鈕上寫原因", w.html.advBox.includes("金幣不夠（要 💰20，有 💰0）"), true);
   w.server.st.gold = 500; w.server.st.pachi = { day: "2026-10-27", balls: 200, kaku: 0 }; await w.sb.loadAdvGame(); w.sb.aSetTab("town");
-  eq("今天打滿 200 顆：按鈕上寫明天再來", [w.html.advBox.includes("今天的 200 顆打完了，明天再來"), w.html.advBox.includes(`disabled onclick="aPachi()"`)], [true, true]);
+  eq("打了 200 顆還能繼續打（不設上限）", [w.html.advBox.includes("今天打了 200 顆"), w.html.advBox.includes(`disabled onclick="aPachi()"`)], [true, false]);
   w.server.st.pachi = null; w.server.st.gold = 0; await w.sb.loadAdvGame(); w.sb.aSetTab("town");
   w.server.st.gold = 100; await w.sb.loadAdvGame();
   // 第 1 顆入賞、轉盤中 7（大當＋4 階裝備＋確變），其他珠子都掉出去
