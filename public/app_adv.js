@@ -635,9 +635,12 @@ function pzReelsHtml(reels,cls){
 }
 const pzHoldsHtml=(holds)=>[0,1,2,3].map(i=>`<i class="advhold${holds[i]?" on c-"+holds[i]:""}"></i>`).join("");
 function pzFootHtml(){
-  const pz=AS.pachi, v=aPachiView, cost=pz.price*pz.perPlay, can=AS.gold>=cost&&pz.ballsToday+pz.perPlay<=pz.daily;
+  const pz=AS.pachi, v=aPachiView, cost=pz.price*pz.perPlay;
+  const out=pz.ballsToday+pz.perPlay>pz.daily, poor=AS.gold<cost;
+  // 不能打的時候直接寫在按鈕上為什麼，不然只看到按鈕變灰，會以為壞了
+  const label=out?`今天的 ${pz.daily} 顆打完了，明天再來`:poor?`金幣不夠（要 💰${cost}，有 💰${AS.gold}）`:`🎯 發射 ${pz.perPlay} 顆（💰${cost}）`;
   const main=v?`<button class="ghost" onclick="aPachiSkip()">跳過 ⏩</button>`
-    :`<button ${aBusy||!can?"disabled":""} onclick="aPachi()">🎯 發射 ${pz.perPlay} 顆（💰${cost}）</button>`;
+    :`<button ${aBusy||out||poor?"disabled":""} onclick="aPachi()">${label}</button>`;
   return `<div class="pzbtns">${main}<button class="ghost pzauto${aPachiAuto?" on":""}" onclick="aPachiToggleAuto()">🔁 自動${aPachiAuto?"中":""}</button></div>`+
     `<div class="hint" style="margin-top:4px">今天 ${pz.ballsToday}/${pz.daily} 顆。珠子掉進中央入賞口就轉一次，三個一樣大當（💰40，7 是 💰100＋4 階裝備）；奇數大當進確變，接下來 5 轉更容易中。保留燈越紅、越金越有機會。長期算下來是會輸的，玩玩就好。</div>`;
 }
