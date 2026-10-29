@@ -16,10 +16,10 @@ const eq = (name, got, want) => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}` + (ok ? "" : `\n        got  ${JSON.stringify(got)}\n        want ${JSON.stringify(want)}`));
 };
 
-function makeWorld({ user = "zen", grocery = { buys: [], meals: [] }, receipt = null, confirmAns = true } = {}) {
+function makeWorld({ user = "zen", grocery = { buys: [], meals: [] }, receipt = null, confirmAns = true, parse = null } = {}) {
   const els = {};
   const el = (id) => els[id] || (els[id] = { id, value: "", textContent: "", innerHTML: "", checked: false, style: {}, classList: { toggle() {} } });
-  const puts = [];
+  const puts = [], parseCalls = [];
   const sb = {
     console, JSON, Math, Date, Promise,
     session: { username: user }, store: { grocery },
@@ -30,16 +30,18 @@ function makeWorld({ user = "zen", grocery = { buys: [], meals: [] }, receipt = 
     compressImg: async () => "data:image/jpeg;base64,xx",
     api: async (path, opts) => {
       if (path === "/api/grocery") { puts.push(JSON.parse(opts.body)); return { ok: true }; }
+      if (path === "/api/grocery/parse") { parseCalls.push(JSON.parse(opts.body)); if (!parse) throw new Error("AI 服務錯誤"); return JSON.parse(JSON.stringify(parse)); }
       if (path === "/api/receipt") { if (!receipt) throw new Error("辨識服務錯誤"); return receipt; }
       throw new Error("unexpected " + path);
     },
   };
+  sb.escapeHtml = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
   sb.val = (id) => el(id).value;
   sb.set = (id, t) => { el(id).textContent = t; };
   sb.setv = (id, v) => { el(id).value = v; };
   vm.createContext(sb);
   vm.runInContext(code, sb);
-  return { sb, els, el, puts, g: () => sb.store.grocery };
+  return { sb, els, el, puts, parseCalls, g: () => sb.store.grocery };
 }
 
 /* ---------- 記飲食時順便記煮餐 ---------- */
@@ -118,6 +120,49 @@ function makeWorld({ user = "zen", grocery = { buys: [], meals: [] }, receipt = 
   const f = makeWorld();
   await f.sb.onReceiptPick({ target: { files: [{}], value: "" } });
   eq("辨識失敗有訊息", f.el("gReceiptMsg").textContent.includes("辨識失敗"), true);
+}
+
+/* ---------- 對話記帳 ---------- */
+{
+  const parsed = { entries: [
+    { type: "buy", date: "2026-10-27", note: "全聯：雞腿8kg", amount: 2465 },
+    { type: "meal", date: "2026-10-26", note: "午餐", people: 3 },
+    { type: "extra", date: "2026-10-27", note: "<b>聚餐</b>", amount: 0, pending: true },
+  ], reply: "好" };
+  const w = makeWorld({ grocery: { buys: [], meals: [{ id: "old", date: "2026-10-25", note: "晚餐", people: 2 }] }, parse: parsed });
+  w.el("gChatText").value = "今天全聯雞腿2465，昨天午餐煮3人，還有聚餐";
+  await w.sb.gChatSend();
+  const g = w.g();
+  eq("一句話拆成三筆、加進對的地方", [g.buys.length, g.meals.length, g.extras.length], [1, 2, 1]);
+  eq("送給 AI 的是這句話", w.parseCalls[0].text, "今天全聯雞腿2465，昨天午餐煮3人，還有聚餐");
+  eq("沒金額的外食 → 待補", g.extras[0].pending, true);
+  eq("有存到伺服器", w.puts.length >= 1, true);
+  eq("輸入框清空", w.el("gChatText").value, "");
+  const log = w.el("gChatLog").innerHTML;
+  eq("對話裡列出記了什麼、有復原鈕", [log.includes("$2,465"), log.includes("10/26 午餐・3 人份"), log.includes("gChatUndo")], [true, true, true]);
+  eq("AI 回的文字會跳脫，不會變成 HTML", log.includes("&lt;b&gt;聚餐"), true);
+  const batch = vm.runInContext("gChatLog", w.sb).find((m) => m.batch).batch;
+  w.sb.gChatUndo(batch);
+  eq("復原：這一批全部拿掉，舊的還在", [g.buys.length, g.meals.map((x) => x.id), g.extras.length], [0, ["old"], 0]);
+  eq("對話標示已復原", w.el("gChatLog").innerHTML.includes("已復原"), true);
+}
+{
+  const w = makeWorld({ grocery: { buys: [], meals: [{ id: "m1", date: "2026-10-26", note: "午餐", people: 2 }] },
+    parse: { entries: [{ type: "meal", date: "2026-10-26", note: "午餐", people: 2 }] } });
+  w.el("gChatText").value = "昨天午餐自己煮";
+  await w.sb.gChatSend();
+  eq("同一天同一餐已經記過 → 略過並告知", [w.g().meals.length, w.el("gChatLog").innerHTML.includes("已經記過")], [1, true]);
+  const n = makeWorld({ parse: { entries: [], reply: "今天天氣不錯" } });
+  n.el("gChatText").value = "你好";
+  await n.sb.gChatSend();
+  eq("跟記帳無關 → 不記、回一句話", [n.g().buys.length, n.el("gChatLog").innerHTML.includes("今天天氣不錯")], [0, true]);
+  const e = makeWorld({ parse: null });
+  e.el("gChatText").value = "買菜 300";
+  await e.sb.gChatSend();
+  eq("AI 失敗 → 顯示錯誤、什麼都不記", [e.el("gChatLog").innerHTML.includes("⚠️"), e.g().buys.length], [true, 0]);
+  const b = makeWorld();
+  await b.sb.gChatSend();
+  eq("空白不送", b.parseCalls.length, 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

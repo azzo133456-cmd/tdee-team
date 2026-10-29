@@ -136,7 +136,7 @@ function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 
 /* ---------- API ---------- */
 // AI 端點的前端節流：避免短時間連發（與後端限流呼應，減少觸發上游限流）
-const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels","/api/receipt"];
+const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels","/api/receipt","/api/grocery/parse"];
 let aiCalls=[], aiLastCall=0, aiInFlight=false;
 function isAiPath(path){ return AI_PATHS.some(p=>path.startsWith(p)); }
 function aiThrottleOk(path){
@@ -1351,6 +1351,64 @@ function renderGPending(buys){
   box.innerHTML=list.length?`<div class="gpending"><b>⏳ 待補金額（${list.length}）</b>`+list.map(b=>
     `<div class="prow"><span class="gd">${(b.date||"").slice(5)}</span><span class="pn">${b.note||"（進貨）"}</span>`+
     `<input type="number" inputmode="numeric" id="gPend-${b.id}" placeholder="金額"><button class="sm" onclick="fillGBuy('${b.id}')">補上</button></div>`).join("")+`</div>`:"";
+}
+
+/* 對話記帳：打一句話，AI 拆成紀錄後直接加進月結（規則在 grocery_parse.js）。
+   一次加進去的算一批（id 前綴相同），說錯了按「復原」整批拿掉。對話只留在這次畫面上。 */
+let gChatLog=[], gChatBusy=false;
+async function gChatSend(){
+  const text=(val("gChatText")||"").trim(); if(!text||gChatBusy) return;
+  setv("gChatText","");
+  gChatLog.push({who:"me", html:escapeHtml(text)});
+  const ai={who:"ai", html:"🤔 整理中…"}; gChatLog.push(ai); renderGChat();
+  gChatBusy=true;
+  try{
+    let people=2; try{ people=JSON.parse(localStorage.getItem("cookPref")||"{}").people||2; }catch(e){}
+    const r=await api("/api/grocery/parse",{method:"POST",body:JSON.stringify({text,people})});
+    const res=applyGChat(r.entries||[]);
+    if(!res.lines.length&&!res.skipped.length){ ai.html=`🤷 ${escapeHtml(r.reply)||"這句看起來不是記帳，可以說「今天買了什麼、多少錢」或「午餐自己煮 2 人」"}`; }
+    else{
+      ai.batch=res.batch;
+      ai.html=(res.lines.length?`✅ 記好了：<br>${res.lines.join("<br>")}`:"")+
+        (res.skipped.length?`${res.lines.length?"<br>":""}<span class="hint">已經記過，略過：${res.skipped.join("、")}</span>`:"");
+    }
+  }catch(e){ ai.html="⚠️ "+escapeHtml(e.message); }
+  finally{ gChatBusy=false; renderGChat(); }
+}
+const GCHAT_LABEL={buy:"🛒 進貨",meal:"🍳 煮餐",extra:"🍽️ 外食",settle:"🏢 補給"};
+function applyGChat(entries){
+  const g=store.grocery=store.grocery||{buys:[],meals:[]};
+  ["buys","meals","extras","settles"].forEach(k=>{ g[k]=g[k]||[]; });
+  const batch="c"+Date.now(), lines=[], skipped=[];
+  entries.forEach((e,i)=>{
+    const id=batch+"-"+i, md=(e.date||"").slice(5).replace("-","/");
+    if(e.type==="meal"){
+      if(g.meals.find(x=>x.date===e.date&&x.note===e.note)){ skipped.push(`${md} ${e.note}`); return; }
+      g.meals.push({id,date:e.date,note:e.note,people:e.people});
+      lines.push(`${GCHAT_LABEL.meal} ${md} ${escapeHtml(e.note)}・${e.people} 人份`);
+      return;
+    }
+    const rec={id,date:e.date,note:e.note,amount:e.amount};
+    if(e.pending) rec.pending=true;
+    ({buy:g.buys,extra:g.extras,settle:g.settles})[e.type].push(rec);
+    lines.push(`${GCHAT_LABEL[e.type]} ${md} ${escapeHtml(e.note)||""}　${e.pending?`<span style="color:#b5564e">金額待補</span>`:`$${e.amount.toLocaleString()}`}`);
+  });
+  if(lines.length){ saveGrocery(); renderGrocery(); }
+  return {batch, lines, skipped};
+}
+function gChatUndo(batch){
+  const g=store.grocery; if(!g) return;
+  const keep=x=>!String(x.id).startsWith(batch+"-");
+  ["buys","meals","extras","settles"].forEach(k=>{ if(g[k]) g[k]=g[k].filter(keep); });
+  const m=gChatLog.find(x=>x.batch===batch); if(m){ m.undone=true; }
+  saveGrocery(); renderGrocery(); renderGChat();
+}
+function renderGChat(){
+  const box=document.getElementById("gChatLog"); if(!box) return;
+  box.innerHTML=gChatLog.slice(-8).map(m=>`<div class="gmsg ${m.who}${m.undone?" undone":""}">${m.html}`+
+    (m.batch&&!m.undone?`<button class="ghost sm gundo" onclick="gChatUndo('${m.batch}')">↩ 復原</button>`:"")+
+    (m.undone?`<div class="hint">（已復原）</div>`:"")+`</div>`).join("");
+  box.scrollTop=box.scrollHeight;
 }
 
 /* ---------- 我的最愛 ---------- */

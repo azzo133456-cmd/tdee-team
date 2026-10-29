@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readFileSync } from "fs";
 import * as ADV from "./adv_logic.js";
+import * as GPARSE from "./grocery_parse.js";
 import { ARCADE, validArcadeScore, settleArcade, arcadeBoard } from "./arcade_rules.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
@@ -1015,6 +1016,26 @@ app.post("/api/receipt", auth, aiLimit, async (req, res) => {
       items: String(p.items || "").slice(0, 280),
       store: String(p.store || "").slice(0, 30),
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "伺服器錯誤" });
+  }
+});
+
+/* ---------- 買菜月結：對話記帳（打一句話，AI 拆成紀錄；規則在 grocery_parse.js） ---------- */
+app.post("/api/grocery/parse", auth, aiLimit, async (req, res) => {
+  try {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(503).json({ error: "未設定 AI 金鑰" });
+    const text = String(req.body.text || "").trim();
+    if (!text) return res.status(400).json({ error: "請輸入內容" });
+    const today = twToday();
+    const people = Math.max(1, Math.min(50, Math.round(+req.body.people || 2)));
+    const g = await geminiText(key, GPARSE.buildPrompt(text, today, people), 0.1);
+    if (g.error) return res.status(502).json({ error: geminiErrMsg(g.error.status) });
+    const parsed = extractJson(g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "");
+    if (!parsed) return res.status(502).json({ error: "看不懂這句，換個說法試試" });
+    res.json({ ok: true, ...GPARSE.normalize(parsed, today, people) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });

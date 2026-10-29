@@ -614,6 +614,15 @@
   <!-- 買菜月結 -->
   <div class="tabpage hidden" id="page-grocery">
     <div class="card">
+      <h2>💬 說一句話記帳</h2>
+      <div id="gChatLog" class="gchat-log"></div>
+      <div class="gchat-in">
+        <input type="text" id="gChatText" enterkeyhint="send" placeholder="例：今天全聯買雞腿8kg、四季豆3包 2465" onkeydown="if(event.key==='Enter'&&!event.isComposing)gChatSend()">
+        <button class="sm" onclick="gChatSend()">送出</button>
+      </div>
+      <div class="hint" style="margin-top:6px">進貨、煮餐、外食、申請補給都可以，一句話講好幾筆也行（「週一到週三午餐都自己煮」）。記錯了按「↩ 復原」。</div>
+    </div>
+    <div class="card">
       <h2>🧾 買菜月結</h2>
       <div class="gtypebar">
         <button class="gtypebtn on" data-gt="buy" onclick="setGType('buy')">🛒 進貨</button>
