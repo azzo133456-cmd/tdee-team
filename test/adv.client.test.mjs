@@ -312,7 +312,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("777 送的 4 階裝備放進背包", S.board.filter(Boolean).map((x) => x[1]), [4]);
   await w.flush();
   eq("存檔被接受（額度用掉）", w.server.st.credit, 0);
-  eq("7 是奇數 → 確變中 5 轉", [S.pachi.kaku, w.html.advBox.includes("確變中 5")], [5, true]);
+  eq("7 是奇數 → 確變中 5 轉", [S.pachi.kaku, w.html.advBox.includes("RUSH 確變 5")], [5, true]);
   eq("今天打了 10 顆", S.pachi.ballsToday, 10);
 }
 
@@ -357,6 +357,39 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   eq("連發 5 顆：背包多 5 件、能量 −5", [w.get().AS.board.filter(Boolean).length, w.server.st.energy], [6, 4]);
   w.sb.aSetGenMode("tap");
   eq("切回點擊", w.html.advBox.includes(`onclick="aSpawn(0)"`), true);
+}
+
+/* ---------- 遊樂場演出：先讀、聽牌、跳過、自動 ---------- */
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame();
+  const ctx = (code) => vm.runInContext(code, w.sb);
+  w.sb.Math.random = () => 0.05;
+  eq("中的那轉：保留燈偏紅金（亂數 0.05 → 白，0.9 → 金）", [ctx("pzHoldColor({win:true})"), (w.sb.Math.random = () => 0.95, ctx("pzHoldColor({win:true})"))], ["white", "gold"]);
+  const golds = [0, 0.3, 0.75, 0.93, 0.99, 0.999999].filter((x) => (w.sb.Math.random = () => x, ctx("pzHoldColor({win:false,reach:false})")) === "gold");
+  eq("沒中、沒聽牌：保留燈不會出金", golds, []);
+  w.sb.Math.random = () => 0.1;
+  eq("中的那轉 0.1 → 激熱；沒中 0.1 → 超級", [ctx("pzReachType(true)"), ctx("pzReachType(false)")], ["geki", "super"]);
+  w.sb.Math.random = () => 0.5;
+  w.server.st.gold = 100; await w.sb.loadAdvGame(); w.sb.aSetTab("town");
+  const seq = [0.1, 0.99, 0.99, 0.0, 0.9, 0.0];
+  w.server.rand = () => (seq.length ? seq.shift() : 0.99);
+  const p = w.sb.aPachi();
+  await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r));
+  w.sb.aPachiSkip();
+  await w.run(p);
+  eq("跳過：直接跑完，結果一樣", [w.get().aMsg.includes("大當 1 次"), w.get().AS.gold], [true, 180]);
+  eq("跳過會關掉自動", ctx("aPachiAuto"), false);
+  w.server.rand = () => 0.99;
+  ctx("aPachiAuto=true; aOpen=true");                // 自動只在遊戲畫面開著時接著打
+  await w.run(w.sb.aPachi());
+  await w.run(new Promise((r) => setTimeout(r, 800)));
+  await w.run(new Promise((r) => setTimeout(r, 1)));
+  eq("自動：打完一輪接著打下一輪", w.server.st.pachi.balls >= 30, true);
+  w.server.st.gold = 5; ctx("AS.gold=5");
+  await w.run(new Promise((r) => setTimeout(r, 2000)));
+  ctx("aPachiAuto=true"); await w.run(w.sb.aPachi());
+  eq("金幣不夠：自動停下來", [ctx("aPachiAuto"), w.get().aMsg.includes("金幣不夠")], [false, true]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

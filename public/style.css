@@ -341,3 +341,67 @@
 .gchat-in{display:flex; gap:6px; margin-top:8px; align-items:center;}
 .gchat-in input{flex:1; min-width:0;}
 .gchat-in button{margin:0; flex:none;}
+/* ===== 柏青哥機台：演出 ===== */
+.advmachine.pz{position:relative; overflow:hidden;}
+.pzface{position:relative; overflow:hidden; min-height:178px;}
+.pzicon{width:auto; margin:0; padding:2px 6px; background:transparent; border:1px solid rgba(255,255,255,.35); border-radius:8px; color:#fff; font-size:14px;}
+.pzrush{animation:advBlink .5s infinite alternate;}
+/* 轉盤：轉動時數字真的在捲 */
+.pzspin{overflow:hidden; background:#fff;}
+.pzstrip{display:flex; flex-direction:column; animation:pzRoll .32s linear infinite;}
+.pzstrip span{height:74px; line-height:74px; font-size:46px; font-weight:900; color:#2b2140; filter:blur(1.5px);}
+.pzspin.slow .pzstrip{animation-duration:.9s;}
+.pzspin.slow .pzstrip span{filter:blur(.6px);}
+@keyframes pzRoll{from{transform:translateY(0);} to{transform:translateY(-518px);}}
+.pzbump{animation:pzBump .28s ease-out;}
+@keyframes pzBump{0%{transform:translateY(-14px);} 60%{transform:translateY(5px);} 100%{transform:translateY(0);}}
+.advreel.seven{color:#e03131;}
+.pzreels.reach .advreel:not(.pzspin){box-shadow:0 0 0 3px #ff6b6b, 0 0 14px #ff6b6b;}
+.advreel-msg.geki{color:#ffd43b; font-size:22px; text-shadow:0 0 10px #ff922b; animation:advBlink .15s infinite alternate;}
+/* 保留燈先讀顏色 */
+.advhold.on.c-white{background:#fff; box-shadow:0 0 5px #fff;}
+.advhold.on.c-blue{background:#4dabf7; box-shadow:0 0 6px #4dabf7;}
+.advhold.on.c-green{background:#51cf66; box-shadow:0 0 6px #51cf66;}
+.advhold.on.c-red{background:#ff6b6b; box-shadow:0 0 8px #ff6b6b; animation:advBlink .4s infinite alternate;}
+.advhold.on.c-gold{background:conic-gradient(#ffd43b,#ff922b,#ffd43b); box-shadow:0 0 10px #ffd43b; animation:advBlink .25s infinite alternate;}
+/* 激熱、777 彩虹 */
+.advmachine.pz.geki{background:linear-gradient(180deg,#7a5200,#c79100); animation:pzGeki .3s infinite alternate;}
+@keyframes pzGeki{to{box-shadow:inset 0 0 0 4px #fff3bf, 0 0 26px #ffd43b;}}
+.advmachine.pz.rainbow{background:linear-gradient(120deg,#e03131,#f08c00,#fab005,#40c057,#1c7ed6,#7048e8,#e03131); background-size:400% 400%; animation:pzRainbow 1.2s linear infinite;}
+@keyframes pzRainbow{to{background-position:400% 0;}}
+/* 超級聽牌：寵物大戰 */
+.pzstage:empty{display:none;}
+.pzstage{position:absolute; inset:0; background:rgba(10,5,25,.82); display:flex; align-items:center; justify-content:center; z-index:2;}
+.pzvs{display:flex; align-items:center; justify-content:space-between; width:90%;}
+.pzvs.in{animation:pzIn .4s ease-out;}
+@keyframes pzIn{from{transform:scale(1.5); opacity:0;}}
+.pzfighter{display:flex; align-items:center; justify-content:center; width:64px; height:64px; font-size:48px; transition:transform .15s;}
+.pzvstxt{font-weight:900; color:#ffd43b; font-size:16px; text-align:center;}
+.pzvs.mehit .me{transform:translateX(34px) scale(1.15);}
+.pzvs.mehit .foe{animation:advShake .3s;}
+.pzvs.foehit .foe{transform:translateX(-34px) scale(1.15);}
+.pzvs.foehit .me{animation:advShake .3s;}
+.pzvs.finish.win .me{transform:translateX(40px) scale(1.3);}
+.pzvs.finish.win .foe{transform:translate(60px,-40px) rotate(200deg) scale(.4); opacity:0; transition:all .6s;}
+.pzvs.finish.win .pzvstxt{font-size:24px; color:#fff; text-shadow:0 0 12px #ffd43b;}
+.pzvs.finish.lose .foe{transform:translateX(-40px) scale(1.3);}
+.pzvs.finish.lose .me{transform:translate(-40px,30px) rotate(-90deg); opacity:.5; transition:all .6s;}
+/* 寵物吉祥物 */
+.pzmascot{display:flex; align-items:center; gap:8px; margin:8px 2px 0; min-height:36px;}
+.pzpet{display:flex; width:34px; height:34px; align-items:center; justify-content:center;}
+.pzsay{position:relative; background:#fff; color:#2b2140; font-size:13px; font-weight:700; padding:4px 10px; border-radius:10px;}
+.pzsay:empty{display:none;}
+.pzsay::before{content:""; position:absolute; left:-6px; top:50%; margin-top:-5px; border:5px solid transparent; border-right-color:#fff; border-left:0;}
+/* 珠子：鋸齒路徑落下 */
+.pzball{position:absolute; top:0; left:var(--x0); width:11px; height:11px; margin-left:-5px; border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#fff,#adb5bd); box-shadow:0 0 4px rgba(255,255,255,.7); animation:pzFall .9s cubic-bezier(.35,.1,.6,1) forwards;}
+@keyframes pzFall{0%{top:-10px; left:var(--x0);} 30%{left:var(--x1);} 60%{left:var(--x2);} 100%{top:82px; left:var(--x3);}}
+.advpockets span.start.lit{background:#ffd43b; color:#a3182f; box-shadow:0 0 10px #ffd43b;}
+/* 彩帶 */
+.pzfx{position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:3;}
+.pzconf{position:absolute; top:-30px; animation:pzConf 2s ease-in forwards;}
+@keyframes pzConf{to{transform:translateY(240px) rotate(540deg); opacity:.2;}}
+.pzbtns{display:grid; grid-template-columns:1fr auto; gap:6px;}
+.pzbtns button{width:100%;}
+.pzauto{width:auto !important; padding-left:12px; padding-right:12px;}
+.advmachine-foot button.pzauto.on{background:#ffd43b; color:#2b2140; border-color:#ffd43b;}

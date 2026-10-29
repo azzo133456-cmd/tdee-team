@@ -121,7 +121,7 @@ async function aSend(action,keepalive,extra){
     AS={...r.state, board, equip};                          // 棋盤、裝備以本機為準（路上可能又動過）
     AS.energy=Math.max(0, r.state.energy-aPend.spent);      // 路上又花的能量
     if(r.pet){ petData=r.pet; if(typeof renderPet==="function") renderPet(); }
-    if(!action) advDraw();
+    if(!action){ if(aPachiView) aSet("advHud",advHudHtml()); else advDraw(); }   // 機台動畫中只更新狀態列，不然機台會整個重來
     return r.result;
   }catch(e){
     if(/資料|不正確|不合理/.test(e.message)){                 // 伺服器拒收：直接換成伺服器的版本
@@ -551,69 +551,225 @@ function aReelsHtml(shown,reach,win,big){
     (win?`<div class="advreel-msg win">大當り！！</div>`:reach?`<div class="advreel-msg reach">リーチ！</div>`:`<div class="advreel-msg">&nbsp;</div>`);
 }
 
-/* ---------- A：遊樂場 ---------- */
+/* ---------- A：遊樂場 ----------
+   結果是伺服器一次給的時間軸（珠子落點、每一轉的三格與中不中），這裡只負責「演」：
+   - 保留燈先讀：燈的顏色暗示那一轉的期待度（中的那轉比較容易出紅、金）
+   - 聽牌分三種：普通、超級（寵物大戰怪物）、激熱（全機台金光＋大戰）
+   - 大當：彩帶、金幣跳數、7 是彩虹；確變中整台變紅
+   - 音效用 WebAudio 現做（不用下載音檔），可以關
+   機台的外框只畫一次，之後只更新各個小區塊（用 id），飛行中的珠子、轉動中的轉盤才不會因為重畫而重來。 */
+let aPachiAuto=false;
+let aPachiSound=(()=>{ try{ return localStorage.getItem("pzSound")!=="0"; }catch(e){ return true; } })();
+const pzEl=(id)=>document.getElementById(id);
+const pzHtml=(id,h)=>{ const e=pzEl(id); if(e) e.innerHTML=h; };
+const pzCls=(id,c)=>{ const e=pzEl(id); if(e) e.className=c; };
+// 跳過時所有等待變 0，時間軸照樣跑完（最後的狀態一樣），只是不演
+const pzWait=(ms)=>aPachiView&&aPachiView.skip?Promise.resolve():aSleep(ms);
+
+/* ── 音效 ── */
+let pzAudio=null;
+function pzTone(freq,dur,type,vol,delay){
+  if(!aPachiSound) return;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    pzAudio=pzAudio||new AC();
+    const t=pzAudio.currentTime+(delay||0), o=pzAudio.createOscillator(), g=pzAudio.createGain();
+    o.type=type||"square"; o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(vol||0.05,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(pzAudio.destination); o.start(t); o.stop(t+dur+0.02);
+  }catch(e){}
+}
+const PZ_SFX={
+  ball:()=>pzTone(1400+Math.random()*500,0.04,"square",0.02),
+  start:()=>{ pzTone(880,0.08,"square",0.05); pzTone(1320,0.1,"square",0.05,0.07); },
+  stop:()=>pzTone(330,0.06,"triangle",0.08),
+  reach:()=>[523,659,784,1047].forEach((f,i)=>pzTone(f,0.14,"sawtooth",0.04,i*0.09)),
+  geki:()=>[392,523,659,784,1047,1319].forEach((f,i)=>pzTone(f,0.16,"square",0.05,i*0.07)),
+  hit:()=>pzTone(180,0.12,"sawtooth",0.07),
+  win:()=>[523,659,784,1047,784,1047,1319].forEach((f,i)=>pzTone(f,0.18,"square",0.06,i*0.11)),
+  lose:()=>{ pzTone(300,0.15,"triangle",0.06); pzTone(220,0.25,"triangle",0.06,0.14); },
+};
+function aPachiToggleSound(){ aPachiSound=!aPachiSound; try{ localStorage.setItem("pzSound",aPachiSound?"1":"0"); }catch(e){} pzHtml("pzSoundBtn",aPachiSound?"🔊":"🔇"); if(aPachiSound) PZ_SFX.start(); }
+function aPachiToggleAuto(){ aPachiAuto=!aPachiAuto; pzHtml("pzFoot",pzFootHtml()); if(aPachiAuto&&!aPachiView&&!aBusy) aPachi(); }
+
+/* ── 先讀：保留燈顏色。中的那轉偏紅金，沒中偏白藍；聽牌落空介於中間 ── */
+const PZ_COLORS=["white","blue","green","red","gold"];
+function pzPick(weights){ let x=Math.random(), i=0; for(;i<weights.length-1;i++){ if((x-=weights[i])<0) break; } return PZ_COLORS[i]; }
+function pzHoldColor(spin){
+  if(!spin) return "white";
+  if(spin.win) return pzPick([0.1,0.15,0.25,0.32,0.18]);
+  if(spin.reach) return pzPick([0.35,0.3,0.22,0.12,0.01]);
+  return pzPick([0.72,0.2,0.07,0.01,0]);
+}
+// 聽牌種類：中的那轉比較容易出超級、激熱
+function pzReachType(win){
+  const x=Math.random();
+  if(win) return x<0.2?"geki":x<0.6?"super":"normal";
+  return x<0.03?"geki":x<0.3?"super":"normal";
+}
+
+/* ── 機台外框（只在整頁重畫時畫一次） ── */
+function advPachiHtml(){
+  const pz=AS.pachi, v=aPachiView, kaku=v?v.kaku:pz.kaku;
+  return `<div id="pzMachine" class="advmachine pz${kaku?" kaku":""}">`+
+    `<div class="advmachine-top"><b>🎰 健康機台</b><span style="display:flex;gap:8px;align-items:center">`+
+      `<span id="pzMode">${pzModeHtml(kaku)}</span>`+
+      `<button id="pzSoundBtn" class="pzicon" onclick="aPachiToggleSound()" title="音效">${aPachiSound?"🔊":"🔇"}</button></span></div>`+
+    `<div class="advmachine-face pzface" id="pzFace">`+
+      `<div id="pzReels">${pzReelsHtml(v?v.reels:[7,7,7].map(n=>({n,spin:false})),"")}</div>`+
+      `<div id="pzMsg" class="advreel-msg">&nbsp;</div>`+
+      `<div id="pzStage" class="pzstage"></div>`+
+      `<div id="pzBanner" class="advbanner">&nbsp;</div>`+
+      `<div class="advholds">保留 <span id="pzHolds">${pzHoldsHtml(v?v.holds:[])}</span></div>`+
+      `<div id="pzFx" class="pzfx"></div>`+
+    `</div>`+
+    `<div class="pzmascot"><span class="pzpet">${aGlyph(34)}</span><span id="pzSay" class="pzsay">${v?"":"今天也來一發？"}</span></div>`+
+    `<div class="advpins" id="pzField"><div id="pzBalls"></div><div class="advpockets"><span id="pzP1">退3</span><span></span><span id="pzP2" class="start">入賞</span><span></span><span id="pzP3">退3</span></div></div>`+
+    `<div class="advmachine-foot" id="pzFoot">${pzFootHtml()}</div></div>`;
+}
+const pzModeHtml=(kaku)=>kaku?`<b class="advkaku pzrush">🔥 RUSH 確變 ${kaku}</b>`:`<span style="opacity:.8">通常</span>`;
+function pzReelsHtml(reels,cls){
+  return `<div class="advreels big pzreels ${cls||""}">`+reels.map((r,i)=>r.spin
+    ?`<div class="advreel pzspin${r.slow?" slow":""}"><div class="pzstrip">${[1,2,3,4,5,6,7,1,2,3].map(n=>`<span>${n}</span>`).join("")}</div></div>`
+    :`<div class="advreel${r.bump?" pzbump":""}${r.n===7?" seven":""}">${r.n}</div>`).join("")+`</div>`;
+}
+const pzHoldsHtml=(holds)=>[0,1,2,3].map(i=>`<i class="advhold${holds[i]?" on c-"+holds[i]:""}"></i>`).join("");
+function pzFootHtml(){
+  const pz=AS.pachi, v=aPachiView, cost=pz.price*pz.perPlay, can=AS.gold>=cost&&pz.ballsToday+pz.perPlay<=pz.daily;
+  const main=v?`<button class="ghost" onclick="aPachiSkip()">跳過 ⏩</button>`
+    :`<button ${aBusy||!can?"disabled":""} onclick="aPachi()">🎯 發射 ${pz.perPlay} 顆（💰${cost}）</button>`;
+  return `<div class="pzbtns">${main}<button class="ghost pzauto${aPachiAuto?" on":""}" onclick="aPachiToggleAuto()">🔁 自動${aPachiAuto?"中":""}</button></div>`+
+    `<div class="hint" style="margin-top:4px">今天 ${pz.ballsToday}/${pz.daily} 顆。珠子掉進中央入賞口就轉一次，三個一樣大當（💰40，7 是 💰100＋4 階裝備）；奇數大當進確變，接下來 5 轉更容易中。保留燈越紅、越金越有機會。長期算下來是會輸的，玩玩就好。</div>`;
+}
+const pzSay=(t)=>pzHtml("pzSay",t);
+
+/* ── 珠子：每顆一個獨立的元素，沿著隨機的鋸齒路徑落到洞裡，動畫結束自己消失 ── */
+function pzBall(pocket){
+  const box=pzEl("pzBalls"); if(!box||!box.appendChild) return;
+  const end=[8+Math.random()*10,30,50,70,50][pocket]+(pocket===0&&Math.random()<0.5?74:0);
+  const b=document.createElement("i"); b.className="pzball";
+  b.style.setProperty("--x0",(46+Math.random()*8)+"%");
+  b.style.setProperty("--x1",(20+Math.random()*60)+"%");
+  b.style.setProperty("--x2",(15+Math.random()*70)+"%");
+  b.style.setProperty("--x3",end+"%");
+  box.appendChild(b);
+  setTimeout(()=>{ try{ b.remove(); }catch(e){} },1000);
+  if(pocket===2||pocket===4){ setTimeout(()=>{ const p=pzEl("pzP2"); if(p&&p.classList){ p.classList.add("lit"); setTimeout(()=>p.classList.remove("lit"),300); } },700); }
+}
+/* ── 大當的彩帶 ── */
+function pzConfetti(big){
+  const fx=pzEl("pzFx"); if(!fx||!fx.appendChild) return;
+  const icons=big?["🌈","💰","✨","⭐","🎉"]:["💰","✨","🎉"];
+  for(let k=0;k<(big?34:20);k++){
+    const s=document.createElement("span"); s.className="pzconf"; s.textContent=icons[k%icons.length];
+    s.style.left=Math.random()*100+"%"; s.style.animationDelay=Math.random()*0.5+"s"; s.style.fontSize=(14+Math.random()*14)+"px";
+    fx.appendChild(s); setTimeout(()=>{ try{ s.remove(); }catch(e){} },2400);
+  }
+}
+async function pzCountUp(to,prefix){
+  for(let k=1;k<=10;k++){ pzHtml("pzBanner",`${prefix} 💰+${Math.round(to*k/10)}`); await pzWait(55); }
+}
+/* ── 超級聽牌：寵物對決怪物，三回合交手，最後一擊決定結果 ── */
+async function pzBattle(win){
+  const R=AD.regions[Math.floor(Math.random()*AD.regions.length)], mon=Math.random()<0.4?R.boss:R.mobs[Math.floor(Math.random()*R.mobs.length)];
+  const draw=(cls,txt)=>pzHtml("pzStage",`<div class="pzvs ${cls}"><span class="pzfighter me">${aGlyph(46)}</span><span class="pzvstxt">${txt}</span><span class="pzfighter foe">${mon[0]}</span></div>`);
+  draw("in",`VS ${mon[1]}`); await pzWait(700);
+  for(let k=0;k<2;k++){
+    draw(k%2?"foehit":"mehit",k%2?"！":"喝！"); PZ_SFX.hit(); await pzWait(420);
+    draw("",`VS ${mon[1]}`); await pzWait(240);
+  }
+  if(win){ draw("finish win","必殺！！"); PZ_SFX.hit(); aVibe([40,30,90]); await pzWait(800); }
+  else{ draw("finish lose","被反擊了…"); PZ_SFX.hit(); await pzWait(800); }
+  pzHtml("pzStage","");
+}
+
 async function aPachi(){
   if(aBusy||aPachiView||!AS) return;
   const pz=AS.pachi, cost=pz.price*pz.perPlay;
-  if(pz.ballsToday+pz.perPlay>pz.daily){ aMsg=`今天的珠子打完了（每天 ${pz.daily} 顆）`; advDraw(); return; }
-  if(AS.gold<cost){ aMsg=`💰 金幣不夠（要 ${cost}）`; advDraw(); return; }
+  if(pz.ballsToday+pz.perPlay>pz.daily){ aPachiAuto=false; aMsg=`今天的珠子打完了（每天 ${pz.daily} 顆）`; advDraw(); return; }
+  if(AS.gold<cost){ aPachiAuto=false; aMsg=`💰 金幣不夠（要 ${cost}）`; advDraw(); return; }
   aBusy=true; aMsg="";
   const pre=AS.gold;
   try{
     const res=await aSync("pachi");
-    if(!res) return;
-    if(res.error){ aMsg=`⚠️ ${res.error}`; return; }
-    aPachiView={res, i:0, hold:0, shown:[null,null,null], reach:false, win:false, gold:pre-cost, ball:null, banner:"", kaku:0};
+    if(!res){ aPachiAuto=false; return; }
+    if(res.error){ aPachiAuto=false; aMsg=`⚠️ ${res.error}`; return; }
+    const spins=res.events.filter(e=>e[0]==="spin").map(e=>({win:e[3],reach:e[2]}));
+    const v=aPachiView={res, gold:pre-cost, kaku:pz.kaku, holds:[], reels:[7,7,7].map(n=>({n,spin:false})), skip:false};
     for(const it of res.items){ const k=AS.board.indexOf(null); if(k>=0) AS.board[k]=it; }   // 777 送的裝備
     if(res.items.length) aQueue();
     advDraw();
-    const v=aPachiView;
+    pzSay("發射！"); PZ_SFX.start();
+    let nextHold=0;
     for(const ev of res.events){
-      if(!aPachiView) break;                                  // 按了跳過
       if(ev[0]==="ball"){
-        v.ball={p:ev[1], k:(v.ball?v.ball.k:0)+1};
-        if(ev[1]===2) v.hold++;
-        if(ev[1]===1||ev[1]===3) v.gold+=3;
-        aPachiDrawPart(); await aSleep(230);
+        pzBall(ev[1]); PZ_SFX.ball();
+        if(ev[1]===2){ v.holds.push(pzHoldColor(spins[nextHold++])); pzHtml("pzHolds",pzHoldsHtml(v.holds));
+          const c=v.holds[v.holds.length-1]; if(c==="red"||c==="gold"){ pzSay(c==="gold"?"金色保留！？":"紅色保留…有機會！"); PZ_SFX.start(); } }
+        if(ev[1]===1||ev[1]===3){ v.gold+=3; aSet("advHud",advHudHtml()); }
+        await pzWait(200);
       }else{
-        const [,r,reach,win,prize,enter,kaku]=ev;
-        v.hold=Math.max(0,v.hold-1); v.shown=[null,null,null]; v.reach=false; v.win=false; v.banner="";
-        aPachiDrawPart(); await aSleep(380);
-        v.shown=[r[0],null,null]; aPachiDrawPart(); await aSleep(260);
-        v.shown=[r[0],r[1],null]; v.reach=r[0]===r[1]; aPachiDrawPart();
-        if(v.reach) aVibe(30);
-        await aSleep(v.reach?1100:260);
-        v.shown=r.slice(); v.win=win; v.kaku=kaku;
-        if(win){ v.gold+=prize; v.banner=`💰+${prize}`+(r[0]===7?" ＋4 階裝備！":"")+(enter?"　🔥確變突入！":""); aVibe([80,40,80]); }
-        aPachiDrawPart(); await aSleep(win?1200:300);
+        await pzSpin(v,ev);
       }
     }
+    await pzWait(500);
     if(aPachiView) aPachiDone();
-  }finally{ aBusy=false; if(!aPachiView) advDraw(); }
+  }finally{
+    aBusy=false;
+    if(!aPachiView) advDraw();
+    if(aPachiAuto&&aOpen!==false) setTimeout(()=>{ if(aPachiAuto&&!aPachiView&&!aBusy&&aTab==="town") aPachi(); },700);
+  }
 }
-function aPachiSkip(){ if(aPachiView) aPachiDone(); }
+async function pzSpin(v,ev){
+  const [,r,reach,win,prize,enter,kaku]=ev;
+  v.holds.shift(); pzHtml("pzHolds",pzHoldsHtml(v.holds));
+  v.reels=[0,1,2].map(()=>({spin:true})); pzHtml("pzReels",pzReelsHtml(v.reels)); pzHtml("pzMsg","&nbsp;"); pzHtml("pzBanner","&nbsp;");
+  await pzWait(520);
+  v.reels[0]={n:r[0],bump:true}; pzHtml("pzReels",pzReelsHtml(v.reels)); PZ_SFX.stop(); await pzWait(300);
+  v.reels[1]={n:r[1],bump:true};
+  const isReach=r[0]===r[1];
+  if(isReach){
+    const type=pzReachType(win);
+    v.reels[2]={spin:true,slow:true};
+    pzHtml("pzReels",pzReelsHtml(v.reels,"reach")); PZ_SFX.stop();
+    pzCls("pzMsg","advreel-msg reach"); pzHtml("pzMsg","リーチ！"); PZ_SFX.reach(); aVibe(30);
+    pzSay(type==="geki"?"這、這個光是…！？":type==="super"?"上吧！我來決鬥！":"來吧來吧…");
+    if(type==="geki"){ pzCls("pzMachine",`advmachine pz geki${v.kaku?" kaku":""}`); pzCls("pzMsg","advreel-msg geki"); pzHtml("pzMsg","激熱！！"); PZ_SFX.geki(); aVibe([60,40,60]); await pzWait(900); }
+    if(type==="normal") await pzWait(1300);
+    else await pzBattle(win);
+  }else{
+    pzHtml("pzReels",pzReelsHtml(v.reels)); PZ_SFX.stop(); await pzWait(280);
+  }
+  v.reels[2]={n:r[2],bump:true}; pzHtml("pzReels",pzReelsHtml(v.reels,win?"win":"")); PZ_SFX.stop();
+  v.kaku=kaku;
+  if(win){
+    const seven=r[0]===7;
+    pzCls("pzMachine",`advmachine pz${seven?" rainbow":""}${kaku?" kaku":""}`);
+    pzCls("pzMsg","advreel-msg win"); pzHtml("pzMsg",seven?"777 超大當り！！":"大當り！！");
+    PZ_SFX.win(); aVibe([80,40,80,40,120]); pzConfetti(seven);
+    pzSay(seven?"7！！是 7！！":"中了！！");
+    v.gold+=prize; aSet("advHud",advHudHtml());
+    await pzCountUp(prize, seven?"🌈":"🎉");
+    if(seven) pzHtml("pzBanner",`🌈 💰+${prize}　＋ 4 階裝備！`);
+    if(enter){ pzHtml("pzMode",pzModeHtml(kaku)); pzCls("pzMachine",`advmachine pz kaku${seven?" rainbow":""}`); await pzWait(500); pzHtml("pzBanner",`🔥 確變突入！接下來 ${kaku} 轉`); pzSay("確變！繼續繼續！"); }
+    await pzWait(1300);
+    pzCls("pzMachine",`advmachine pz${kaku?" kaku":""}`);
+  }else{
+    pzCls("pzMsg","advreel-msg"); pzHtml("pzMsg",isReach?"可惜…":"&nbsp;");
+    if(isReach){ PZ_SFX.lose(); pzSay("差一點點…"); }
+    pzHtml("pzMode",pzModeHtml(kaku));
+    if(!kaku) pzCls("pzMachine","advmachine pz");
+    await pzWait(isReach?700:250);
+  }
+}
+function aPachiSkip(){ if(aPachiView){ aPachiView.skip=true; aPachiAuto=false; } }
 function aPachiDone(){
   const r=aPachiView.res;
   aPachiView=null;
   aMsg=r.wins?`🎰 這輪大當 ${r.wins} 次！金幣 +${r.gold}（花 ${r.cost}）`+(r.items.length?`，送 ${r.items.length} 件 4 階裝備`:""):`🎰 這輪沒中，退回 ${r.gold} 金幣（花 ${r.cost}）`;
   advDraw();
 }
-function aPachiDrawPart(){ aSet("advPachi",advPachiHtml()); aSet("advHud",advHudHtml()); }
-function advPachiHtml(){
-  const pz=AS.pachi, v=aPachiView, kaku=v?v.kaku:pz.kaku, hold=v?v.hold:0;
-  const pocketX=[12,30,50,70,50], ball=v&&v.ball?`<i class="advpball" style="--x:${pocketX[v.ball.p]}%" data-k="${v.ball.k}"></i>`:"";
-  const lamps=[0,1,2,3].map(i=>`<i class="advhold${i<hold?" on":""}"></i>`).join("");
-  const cost=pz.price*pz.perPlay;
-  return `<div class="advmachine${kaku?" kaku":""}">`+
-    `<div class="advmachine-top"><b>🎰 健康機台</b><span>${kaku?`<b class="advkaku">確變中 ${kaku}</b>`:"通常"}</span></div>`+
-    `<div class="advmachine-face">${aReelsHtml(v?v.shown:[7,7,7],v&&v.reach&&!v.win,v&&v.win,true)}`+
-    `<div class="advbanner">${v&&v.banner?v.banner:"&nbsp;"}</div><div class="advholds">保留 ${lamps}</div></div>`+
-    `<div class="advpins">${ball}<div class="advpockets"><span>退3</span><span></span><span class="start">入賞</span><span></span><span>退3</span></div></div>`+
-    `<div class="advmachine-foot">`+
-    (v?`<button class="ghost" onclick="aPachiSkip()">跳過 ⏩</button>`
-      :`<button ${aBusy||AS.gold<cost||pz.ballsToday+pz.perPlay>pz.daily?"disabled":""} onclick="aPachi()">發射 ${pz.perPlay} 顆（💰${cost}）</button>`)+
-    `<div class="hint" style="margin-top:4px">今天 ${pz.ballsToday}/${pz.daily} 顆。珠子掉進中央入賞口就轉一次，三個一樣大當（💰40，7 是 💰100＋4 階裝備）；奇數大當進確變，接下來 5 轉更容易中。長期算下來是會輸的，玩玩就好。</div></div></div>`;
-}
+function aPachiDrawPart(){ aSet("advHud",advHudHtml()); }
 
 /* ---------- B：寶箱轉盤（開箱時播） ---------- */
 async function aChestReel(res){
