@@ -7,6 +7,7 @@ import { dirname, join } from "path";
 import { readFileSync } from "fs";
 import * as ADV from "./adv_logic.js";
 import * as GPARSE from "./grocery_parse.js";
+import * as DUN from "./dungeon_logic.js";
 import { ARCADE, validArcadeScore, settleArcade, arcadeBoard } from "./arcade_rules.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
@@ -1538,6 +1539,10 @@ app.get("/api/game/adv", auth, async (req, res) => {
 async function gameRows() {
   return (await pool.query("SELECT p.user_id, u.username, p.games FROM pets p JOIN users u ON u.id=p.user_id")).rows;
 }
+app.get("/api/game/adv/dunboard", auth, async (req, res) => {
+  try { res.json(DUN.dunBoard(await gameRows(), req.user.id, twToday())); }
+  catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }
+});
 app.get("/api/game/adv/board", auth, async (req, res) => {
   try { res.json({ board: ADV.leaderboard(await gameRows(), req.user.id) }); }
   catch (e) { console.error(e); res.status(500).json({ error: "伺服器錯誤" }); }

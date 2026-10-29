@@ -15,6 +15,7 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import * as DUN from "./dungeon_logic.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const DATA = JSON.parse(readFileSync(join(here, "public", "adv_data.json"), "utf8"));
@@ -535,6 +536,15 @@ export function runAction(st, body, today, rand = Math.random) {
     if (action === "enhance") return enhance(st, body.slot);
     if (action === "pachi") return pachiPlay(st, today, rand);
     if (action === "drop") return dropBall(st, body.chain, today, rand);
+    // 深淵地城（規則在 dungeon_logic.js）
+    if (action === "dun_start") return DUN.dunStart(st, body.mode, heroStats(st), today);
+    if (action === "dun_go") return DUN.dunGo(st, body.i, today);
+    if (action === "dun_bless") return DUN.dunBless(st, body.i);
+    if (action === "dun_camp") return DUN.dunCamp(st, body.opt);
+    if (action === "dun_event") return DUN.dunEvent(st, body.opt, today);
+    if (action === "dun_buy") return DUN.dunBuy(st, body.i);
+    if (action === "dun_leave") return DUN.dunLeave(st);
+    if (action === "dun_quit") return DUN.dunQuit(st, today);
   } catch (e) { return { kind: action, error: e.message }; }
   return null;
 }
@@ -567,5 +577,6 @@ export function publicState(st, today, now) {
     pachi: { ballsToday: st.pachi && st.pachi.day === today ? st.pachi.balls : 0, kaku: (st.pachi && st.pachi.kaku) || 0,
       price: PACHI.ballPrice, perPlay: PACHI.perPlay },
     dropTiers: DROP_TIERS,
+    dun: DUN.dunPublic(st, today), dunBless: DUN.BLESS,
   };
 }

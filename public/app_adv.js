@@ -296,7 +296,7 @@ function aBrew(){
 /* ---------- 地圖 ---------- */
 function aMapToggle(ri){ aMapOpen=aMapOpen===ri?null:ri; aMapPick=null; advDraw(); }
 function aMapSel(s){ aMapPick=aMapPick===s?null:s; advDraw(); }
-function aSetTab(t){ aTab=t; aSel=null; aTown.picks=[]; if(t==="rank") aLoadRank(); if(t==="map"&&aMapOpen===null&&AS) aMapOpen=Math.floor((AS.stage-1)/10)%AD.regions.length; advScrollTop(); advDraw(); }
+function aSetTab(t){ aTab=t; aSel=null; aTown.picks=[]; if(t==="rank") aLoadRank(); if(t==="dungeon") aDunBoard=null; if(t==="map"&&aMapOpen===null&&AS) aMapOpen=Math.floor((AS.stage-1)/10)%AD.regions.length; advScrollTop(); advDraw(); }
 function advScrollTop(){ const s=document.getElementById("advScroll"); if(s) s.scrollTop=0; }
 
 /* ================= 畫面 ================= */
@@ -312,11 +312,11 @@ function advDraw(){
   // ── 下方分頁 ──
   const q=AS.daily||{quests:[],claimed:true}, qDone=q.quests.filter(x=>x.done).length;
   const qDot=!q.claimed&&qDone===q.quests.length?`<i class="advdot"></i>`:"";
-  const tabs=[["battle","⚔️","冒險"],["map","🗺️","地圖"],["town","🏘️","城鎮"],["quest","📋","任務"],["skill","🌀","技能"],["dex","📖","圖鑑"],["rank","🏆","排行"]];
-  aSet("advNav",tabs.map(([k,e,l])=>`<button class="advtab${aTab===k?" on":""}" ${v&&k!=="battle"?"disabled":""} onclick="aSetTab('${k}')">`+
+  const tabs=[["battle","⚔️","冒險"],["dungeon","🏰","地城"],["map","🗺️","地圖"],["town","🏘️","城鎮"],["quest","📋","任務"],["skill","🌀","技能"],["dex","📖","圖鑑"],["rank","🏆","排行"]];
+  aSet("advNav",tabs.map(([k,e,l])=>`<button class="advtab${aTab===k?" on":""}" ${(v&&k!=="battle")||(aDunView&&k!=="dungeon")?"disabled":""} onclick="aSetTab('${k}')">`+
     `<span class="advtab-e">${e}${k==="quest"?qDot:""}${k==="skill"&&!AS.skillSlots?"<i class='advlock'>🔒</i>":""}</span><span>${l}</span></button>`).join(""));
   const msg=aMsg?`<div class="advmsg">${aMsg}</div>`:"";
-  const body=aTab==="map"?advMapHtml():aTab==="town"?advTownHtml():aTab==="quest"?advQuestHtml():aTab==="skill"?advSkillHtml()
+  const body=aTab==="dungeon"?advDunHtml():aTab==="map"?advMapHtml():aTab==="town"?advTownHtml():aTab==="quest"?advQuestHtml():aTab==="skill"?advSkillHtml()
     :aTab==="dex"?advDexHtml():aTab==="rank"?advRankHtml():advBattleHtml();
   aSet("advBox",msg+body);
 }
@@ -835,4 +835,136 @@ function advGenHtml(){
     `<button ${aBusy||v||AS.energy<1?"disabled":""} onclick="aDrop()">🎯 發射 −1⚡</button>`+
     `<button class="ghost" ${aBusy||v||AS.energy<5?"disabled":""} onclick="aDropMany(5)">連發 ×5</button></div>`+
     `<div class="hint" style="margin-top:4px">珠子掉進哪個洞決定幾階，兩邊的洞最難掉進去（3 階）。種類是你瞄準的那一種。</div>`;
+}
+
+/* ================= 深淵地城（肉鴿）=================
+   規則全在伺服器（dungeon_logic.js），這裡只送「選了哪扇門／哪個祝福」並播動畫。 */
+let aDunView=null, aDunTimer=null, aDunBoard=null, aDunBoardTab="week";
+const DUN_DOOR={fight:["⚔️","戰鬥","打贏挑祝福"],elite:["💀","菁英","比較強，稀有祝福機會高"],event:["❓","事件","不知道會遇到什麼"],
+  camp:["🔥","營火","休息回血或鍛鍊"],shop:["🛒","商人","用碎晶買東西"],boss:["👑","頭目","打贏回 30% 血＋稀有祝福"]};
+const dunBlessOf=(id)=>(AS.dunBless||[]).find(b=>b.id===id)||{e:"?",name:id,desc:""};
+async function aDunAct(action,extra){
+  if(aBusy||aDunView||!AS) return null;
+  const pre=AS.dun&&AS.dun.run?{hp:AS.dun.run.hp,max:AS.dun.run.hero.maxHp}:null;
+  aBusy=true; aMsg="";
+  try{
+    const res=await aSync(action,false,extra);
+    if(!res) return null;
+    if(res.error){ aMsg=`⚠️ ${res.error}`; return res; }
+    if(res.kind==="dun_fight"){ aDunView={res,i:0,pre}; advDraw(); aDunAnim(); return res; }   // 整頁重畫一次：分頁列要鎖住
+    if(res.msg) aMsg=res.msg;
+    if(res.kind==="dun_quit") aMsg=aDunSummaryText(res.summary);
+    return res;
+  }finally{ aBusy=false; if(!aDunView) advDraw(); }
+}
+function aDunAnim(){
+  clearTimeout(aDunTimer);
+  const v=aDunView; if(!v) return;
+  if(v.i>=v.res.events.length){ aDunDone(); return; }
+  v.i++; const ev=v.res.events[v.i-1];
+  if(ev[0]==="h"&&ev[2]) aVibe(40);
+  if(aTab==="dungeon") aSet("advBox",advDunHtml());
+  aDunTimer=setTimeout(aDunAnim,380);
+}
+function aDunSkip(){ if(!aDunView) return; clearTimeout(aDunTimer); aDunDone(); }
+function aDunDone(){
+  const r=aDunView.res; aDunView=null;
+  if(r.over) aMsg=aDunSummaryText(r.summary);
+  else aMsg=`🎉 打倒 ${r.mon.e} ${r.mon.name}！💎+${r.gems}`+(r.mimic?"（原來是寶箱怪！）":"")+"　選一個祝福吧";
+  advDraw();
+}
+function aDunSummaryText(s){
+  return (s.how==="dead"?"💀 倒下了…":"🏃 撤退了。")+`這場打過 <b>${s.cleared}</b> 層`+(s.bosses?`、打倒 ${s.bosses} 個頭目`:"")+
+    `，💰+${s.gold}`+(s.capped?"（今天地城金幣已封頂）":"")+(s.newBest?"<br>🏆 新紀錄！":"")+(s.newWeek?"<br>📅 本週新紀錄！":"");
+}
+function aDunStart(mode){ return aDunAct("dun_start",{mode}); }
+function aDunGo(i){ return aDunAct("dun_go",{i}); }
+function aDunPick(i){ return aDunAct("dun_bless",{i}); }
+function aDunCamp(opt){ return aDunAct("dun_camp",{opt}); }
+function aDunEvent(opt){ return aDunAct("dun_event",{opt}); }
+function aDunBuy(i){ return aDunAct("dun_buy",{i}); }
+function aDunLeave(){ return aDunAct("dun_leave"); }
+function aDunQuit(){ if(confirm("確定撤退？這場就到這裡結束，照打過的層數拿金幣。")) return aDunAct("dun_quit"); }
+async function aDunLoadBoard(){ try{ aDunBoard=await api("/api/game/adv/dunboard"); }catch(e){ aDunBoard={week:[],all:[]}; } if(aTab==="dungeon"&&!aDunView) advDraw(); }
+function aDunSetBoard(t){ aDunBoardTab=t; advDraw(); }
+
+function advDunHtml(){
+  const D=AS.dun||{run:null,rec:{best:0,weekBest:0,goldToday:0,goldCap:100}}, run=D.run;
+  if(aDunView) return advDunFightHtml();
+  if(!run||!run.active) return advDunLobbyHtml(D);
+  const H=run.hero;
+  const chips=Object.entries(run.bless||{}).map(([id,n])=>{ const b=dunBlessOf(id); return `<span class="dunchip${b.rare?" rare":""}" title="${b.name}：${b.desc}">${b.e}${n>1?`×${n}`:""}</span>`; }).join("")+
+    (run.forge?`<span class="dunchip" title="鍛鍊">🔨×${Math.round(run.forge*10)/10}</span>`:"");
+  const reg=AD.regions[Math.floor((run.floor-1)/5)%AD.regions.length];
+  const head=`<div class="dunhead" style="background:${reg.bg}">`+
+    `<div style="display:flex;justify-content:space-between;align-items:center"><b>🏰 第 ${run.floor} 層・${reg.name}${run.mode==="weekly"?"　📅 本週挑戰":""}</b>`+
+    `<button class="ghost sm" style="width:auto;padding:3px 10px" onclick="aDunQuit()">撤退</button></div>`+
+    `<div style="display:flex;gap:10px;align-items:center;margin-top:6px"><span>❤️ ${run.hp}/${H.maxHp}</span><div style="flex:1">${aBar(run.hp,H.maxHp,"#2f9e44",9)}</div><span>💎 ${run.gems}</span></div>`+
+    `<div class="hint" style="margin-top:4px">⚔️ ${H.atk}　💥 ${Math.round(H.crit*100)}%${run.undyingLeft?`　👼×${run.undyingLeft}`:""}</div>`+
+    (chips?`<div class="dunchips">${chips}</div>`:`<div class="hint" style="margin-top:4px">還沒有祝福，打贏就能挑一個。</div>`)+`</div>`;
+  let body="";
+  if(run.phase==="choose"){
+    body=`<div class="advsec">選一扇門</div><div class="dundoors">`+run.doors.map((t,i)=>{
+      const [e,n,s]=DUN_DOOR[t]; const boss=t==="boss"?`${reg.boss[0]} ${reg.boss[1]}`:"";
+      return `<button class="dundoor ${t}" ${aBusy?"disabled":""} onclick="aDunGo(${i})"><span class="dundoor-e">${t==="boss"?reg.boss[0]:e}</span><b>${t==="boss"?boss:n}</b><small>${s}</small></button>`;
+    }).join("")+`</div>`+(run.floor%5===4?`<div class="hint" style="margin-top:6px">⚠️ 下一層是頭目：${reg.boss[0]} ${reg.boss[1]}（${AD.traits[reg.trait]}）</div>`:"");
+  }else if(run.phase==="bless"){
+    body=`<div class="advsec">挑一個祝福（可以重複拿，效果會疊加）</div><div class="dunbless">`+run.offer.map((id,i)=>{ const b=dunBlessOf(id), have=(run.bless||{})[id]||0;
+      return `<button class="dunbcard${b.rare?" rare":""}" ${aBusy?"disabled":""} onclick="aDunPick(${i})"><span class="dunb-e">${b.e}</span><b>${b.name}${have?` <small>（已有 ${have}）</small>`:""}</b><small>${b.desc}</small></button>`; }).join("")+`</div>`;
+  }else if(run.phase==="camp"){
+    body=`<div class="advsec">🔥 營火</div><div class="dunbless">`+
+      `<button class="dunbcard" ${aBusy?"disabled":""} onclick="aDunCamp(0)"><span class="dunb-e">🛌</span><b>休息</b><small>回 35% 血（${Math.round(H.maxHp*0.35)}）</small></button>`+
+      `<button class="dunbcard" ${aBusy?"disabled":""} onclick="aDunCamp(1)"><span class="dunb-e">🔨</span><b>鍛鍊</b><small>攻擊 +8%（這場一直有效）</small></button></div>`;
+  }else if(run.phase==="event"&&run.event){
+    const ev=run.event;
+    body=`<div class="dunevent"><div style="font-size:44px">${ev.e}</div><b>${ev.name}</b><div class="hint" style="margin:6px 0 10px">${ev.text}</div>`+
+      ev.opts.map((o,i)=>`<button class="${i?"ghost ":""}" style="margin-top:6px" ${aBusy?"disabled":""} onclick="aDunEvent(${i})">${o}</button>`).join("")+`</div>`;
+  }else if(run.phase==="shop"){
+    body=`<div class="advsec">🛒 商人（💎 ${run.gems}）</div>`+run.shop.map((it,i)=>{
+      const b=it.kind==="bless"?dunBlessOf(it.id):{e:"🧪",name:"回復藥",desc:"回 30% 血"};
+      return `<div class="advcardrow"><span style="font-size:28px">${b.e}</span><div style="flex:1;min-width:0"><b>${b.name}</b><div class="hint">${b.desc}</div></div>`+
+        `<button style="width:auto;padding:8px 12px" ${it.sold||aBusy||run.gems<it.price?"disabled":""} onclick="aDunBuy(${i})">${it.sold?"已買":`💎${it.price}`}</button></div>`;
+    }).join("")+`<button class="ghost" style="margin-top:10px" ${aBusy?"disabled":""} onclick="aDunLeave()">離開，往下一層 ⬇️</button>`;
+  }
+  return head+body;
+}
+function advDunFightHtml(){
+  const v=aDunView, r=v.res, m=r.mon, max=r.heroMax;
+  let hHp=v.pre?v.pre.hp:max, mHp=m.hp, hit="", shake="";
+  for(let k=0;k<v.i;k++){ const [who,,,left]=r.events[k]; if(who==="h"||who==="mh"||who==="hx"||who==="r") mHp=left; else hHp=left; }
+  const last=r.events[v.i-1];
+  if(last){
+    const [who,n,flag]=last, onMon=["h","mh","hx","r"].includes(who), heal=who==="hh"||who==="mh";
+    const txt=who==="hx"?"MISS":who==="u"?"👼 不屈！":who==="r"?`🌵-${n}`:heal?`+${n}`:who==="m"&&flag?"格擋！":`-${n}${who==="h"&&flag?" 暴擊！":""}`;
+    const col=who==="hx"?"#868e96":who==="u"?"#f08c00":heal?"#2f9e44":who==="h"&&flag?"#e8590c":who==="m"&&flag?"#1971c2":"#c92a2a";
+    hit=`<div class="advfloat" style="${onMon?"right:16%":"left:16%"};color:${col};font-size:${who==="h"&&flag?26:20}px">${txt}</div>`;
+    if(who==="h"||who==="r") shake="mon"; else if(who==="m"&&!flag) shake="hero";
+  }
+  return `<div class="advarena${last&&last[0]==="h"&&last[2]?" advflash":""}" style="background:${m.bg}">`+
+    `<div class="advarena-title">🏰 第 ${m.floor} 層・${m.region}${m.boss?" 👑頭目":m.elite?" 💀菁英":""}</div>`+
+    `<div class="advarena-vs"><div class="advfighter"><div class="advsprite${shake==="hero"?" advshake":""}">${aGlyph(84)}</div>`+
+    `<div class="advhp">❤️ ${hHp}/${max}</div>${aBar(hHp,max,"#2f9e44",9)}</div><div class="advvs">VS</div>`+
+    `<div class="advfighter"><div class="advsprite advmon${shake==="mon"?" advshake":""}">${m.e}</div>`+
+    `<div class="advhp">${m.name}　❤️ ${mHp}/${m.hp}</div>${aBar(mHp,m.hp,"#e03131",9)}</div></div>`+
+    `<div class="advarena-foot">怪物攻擊 ${m.atk}</div>`+(m.traitText?`<div class="advarena-trait">⚠️ ${m.traitText}</div>`:"")+hit+`</div>`+
+    `<div style="text-align:center;margin-top:10px"><button class="ghost" style="width:auto;padding:8px 18px" onclick="aDunSkip()">跳過動畫 ⏩</button></div>`;
+}
+function advDunLobbyHtml(D){
+  const rec=D.rec;
+  if(!aDunBoard) aDunLoadBoard();
+  const b=aDunBoard||{week:[],all:[]}, list=aDunBoardTab==="week"?b.week:b.all;
+  const medal=i=>["🥇","🥈","🥉"][i]||`${i+1}.`;
+  const board=list.length?list.map((x,i)=>`<div class="advcardrow${x.me?" on":""}" style="justify-content:space-between;margin-top:6px"><span>${medal(i)} ${x.name}</span><b>${aDunBoardTab==="week"?x.week:x.best} 層</b></div>`).join("")
+    :`<div class="hint" style="padding:8px;text-align:center">${aDunBoardTab==="week"?"這週還沒有人挑戰":"還沒有紀錄"}</div>`;
+  return `<div class="dunlobby"><div style="font-size:48px">🏰</div><b style="font-size:18px">深淵地城</b>`+
+    `<div class="hint" style="margin:6px 0 10px">帶著寵物現在的能力往下走。每層選一扇門，打贏挑一個祝福，血量整場延續；倒下就結束。免費、不限次數。</div>`+
+    `<div class="advgrid3" style="grid-template-columns:repeat(3,minmax(0,1fr))">`+
+      `<div class="advslot"><div class="hint">最深</div><b style="font-size:20px">${rec.best}</b><div class="hint">層</div></div>`+
+      `<div class="advslot"><div class="hint">本週挑戰</div><b style="font-size:20px">${rec.weekBest}</b><div class="hint">層</div></div>`+
+      `<div class="advslot"><div class="hint">今天金幣</div><b style="font-size:20px">${rec.goldToday}</b><div class="hint">/ ${rec.goldCap}</div></div></div>`+
+    `<button style="margin-top:12px;width:100%;padding:13px;font-size:16px" ${aBusy?"disabled":""} onclick="aDunStart('normal')">🏰 開始探索（隨機地圖）</button>`+
+    `<button class="ghost" style="margin-top:8px;width:100%;padding:12px" ${aBusy?"disabled":""} onclick="aDunStart('weekly')">📅 本週挑戰（大家同一張地圖）</button>`+
+    `<div class="hint" style="margin-top:8px">結束時照打過的層數給金幣（每層 💰3、每個頭目 💰10，每天最多 💰${rec.goldCap}）。💎 碎晶只能在那一場用。</div></div>`+
+    `<div class="advsec" style="display:flex;justify-content:space-between;align-items:center">🏆 地城排行<span style="display:flex;gap:4px">`+
+      [["week","本週挑戰"],["all","歷史最深"]].map(([k,l])=>`<button class="ghost sm${aDunBoardTab===k?" on":""}" style="width:auto;padding:3px 10px" onclick="aDunSetBoard('${k}')">${l}</button>`).join("")+`</span></div>`+board;
 }

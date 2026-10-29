@@ -405,3 +405,22 @@
 .pzbtns button{width:100%;}
 .pzauto{width:auto !important; padding-left:12px; padding-right:12px;}
 .advmachine-foot button.pzauto.on{background:#ffd43b; color:#2b2140; border-color:#ffd43b;}
+/* ===== 深淵地城 ===== */
+.dunlobby{text-align:center; padding:14px; border-radius:16px; background:linear-gradient(180deg,#ece6f7,#d6cbee); margin-top:4px;}
+.dunhead{padding:10px 12px; border-radius:14px; margin-top:4px;}
+.dunchips{display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;}
+.dunchip{background:rgba(255,255,255,.75); border-radius:10px; padding:2px 7px; font-size:15px;}
+.dunchip.rare{background:#fff3bf; box-shadow:0 0 0 1px #fab005 inset;}
+.dundoors{display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:8px;}
+.dundoor{display:flex; flex-direction:column; align-items:center; gap:2px; margin:0; padding:14px 6px; border-radius:14px; background:var(--card); color:var(--ink); border:2px solid var(--line); line-height:1.25;}
+.dundoor small{font-size:11px; color:var(--sub); font-weight:400;}
+.dundoor-e{font-size:34px;}
+.dundoor.elite{border-color:#c92a2a;} .dundoor.boss{border-color:#e8590c; background:#fff4e6;}
+.dundoor.camp{border-color:#f08c00;} .dundoor.shop{border-color:#2f9e44;} .dundoor.event{border-color:#7048e8;}
+.dunbless{display:grid; gap:8px;}
+@media (min-width:600px){ .dunbless{grid-template-columns:repeat(3,minmax(0,1fr));} }
+.dunbcard{display:flex; flex-direction:column; align-items:center; gap:3px; margin:0; padding:12px 10px; border-radius:14px; background:var(--card); color:var(--ink); border:2px solid var(--line); line-height:1.35;}
+.dunbcard small{font-size:12px; color:var(--sub); font-weight:400;}
+.dunbcard.rare{border-color:#fab005; background:linear-gradient(180deg,#fff9db,#fff); box-shadow:0 0 12px rgba(250,176,5,.35);}
+.dunb-e{font-size:32px;}
+.dunevent{text-align:center; padding:16px; border-radius:16px; background:var(--soft); margin-top:8px;}

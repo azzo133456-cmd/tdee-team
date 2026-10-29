@@ -5,6 +5,7 @@
 import fs from "fs";
 import vm from "vm";
 import * as A from "../adv_logic.js";
+import * as DUN from "../dungeon_logic.js";
 
 const code = fs.readFileSync(new URL("../public/app_adv.js", import.meta.url), "utf8");
 const data = JSON.parse(fs.readFileSync(new URL("../public/adv_data.json", import.meta.url), "utf8"));
@@ -32,6 +33,7 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
     }
     const st = server.st;
     A.regen(st, now);
+    if (path === "/api/game/adv/dunboard") return DUN.dunBoard([{ user_id: 1, username: "我", games: { adv: st } }], 1, TODAY);
     if (path === "/api/game/adv/board") return { board: A.leaderboard([{ user_id: 1, username: "我", games: { adv: st } }, { user_id: 2, username: "amy", games: { adv: { v: 1, stage: 50, level: 30 } } }], 1) };
     if (path === "/api/game/adv") {
       const gained = A.grantHealth(st, rows, TODAY);
@@ -394,6 +396,42 @@ function makeWorld({ rows = [], startEnergy = 30, oldMerge = null } = {}) {
   await w.run(new Promise((r) => setTimeout(r, 2000)));
   ctx("aPachiAuto=true"); await w.run(w.sb.aPachi());
   eq("金幣不夠：自動停下來", [ctx("aPachiAuto"), w.get().aMsg.includes("金幣不夠")], [false, true]);
+}
+
+/* ---------- 深淵地城 ---------- */
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame();
+  w.sb.aSetTab("dungeon"); await w.flush(); await new Promise((r) => setImmediate(r));
+  eq("大廳：兩種開始按鈕、紀錄、排行", ["開始探索", "本週挑戰", "最深", "地城排行"].every((t) => w.html.advBox.includes(t)), true);
+  eq("分頁列有地城", w.html.advNav.includes("地城"), true);
+  await w.sb.aDunStart("normal");
+  const run = () => w.get().AS.dun.run;
+  eq("開始：第 1 層、選門", [run().floor, run().phase, w.html.advBox.includes("選一扇門")], [1, "choose", true]);
+  w.server.st.dun.doors = ["fight", "camp"]; await w.sb.loadAdvGame(); w.sb.aSetTab("dungeon");
+  const p = w.sb.aDunGo(0);
+  await p;
+  eq("進戰鬥：播動畫、其他分頁鎖住", [!!vm.runInContext("aDunView", w.sb), w.html.advNav.includes(`disabled onclick="aSetTab('map')"`)], [true, true]);
+  w.sb.aDunSkip();
+  eq("打贏：選祝福、三張卡", [run().phase, (w.html.advBox.match(/onclick="aDunPick\(/g) || []).length, w.get().aMsg.includes("選一個祝福")], ["bless", 3, true]);
+  const id = run().offer[1];
+  await w.sb.aDunPick(1);
+  eq("選了祝福 → 第 2 層、祝福顯示在上面", [run().floor, run().bless[id], w.html.advBox.includes("dunchip")], [2, 1, true]);
+  w.sb.confirm = () => true;
+  await w.sb.aDunQuit();
+  eq("撤退：回大廳、顯示結算", [run().active, w.get().aMsg.includes("這場打過 <b>1</b> 層"), w.html.advBox.includes("開始探索")], [false, true, true]);
+  eq("金幣 +3", w.server.st.gold, 3);
+  await w.sb.aDunLoadBoard(); w.sb.aDunSetBoard("all");
+  eq("歷史排行有自己（一般模式不算本週挑戰）", w.html.advBox.includes("🥇 我"), true);
+}
+{
+  const w = makeWorld();
+  await w.sb.loadAdvGame(); w.sb.aSetTab("dungeon");
+  await w.sb.aDunStart("weekly");
+  const d = w.server.st.dun; d.floor = 9; d.hp = 1; d.doors = ["fight"];
+  await w.sb.loadAdvGame(); w.sb.aSetTab("dungeon");
+  await w.sb.aDunGo(0); w.sb.aDunSkip();
+  eq("血 1 打第 9 層：倒下、結算、本週紀錄", [w.get().AS.dun.run.active, w.get().aMsg.includes("倒下"), w.get().AS.dun.rec.weekBest], [false, true, 8]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
