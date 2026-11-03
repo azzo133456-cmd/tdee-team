@@ -1040,7 +1040,7 @@ app.post("/api/receipt", auth, aiLimit, async (req, res) => {
 
 /* ---------- 記帳本（路由在 ledger_routes.js） ---------- */
 registerLedger(app, {
-  pool, auth, aiLimit, today: twToday,
+  pool, auth, aiLimit, today: () => twToday(),   // twToday 宣告在後面，要呼叫時才讀
   askAi: async (prompt) => {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return { error: "未設定 AI 金鑰", status: 503 };
