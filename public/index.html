@@ -687,6 +687,57 @@
     </div>
   </div>
 
+  <!-- 記帳本（只有「肉」看得到；跟買菜月結無關） -->
+  <div class="tabpage hidden" id="page-ledger">
+    <div class="card">
+      <div class="ledmonth">
+        <button class="ghost sm" onclick="ledMonth(-1)" aria-label="上個月">‹</button>
+        <b id="ledMonthLabel"></b>
+        <button class="ghost sm" onclick="ledMonth(1)" aria-label="下個月">›</button>
+      </div>
+      <div id="ledSummary"><div class="hint">載入中…</div></div>
+    </div>
+    <div class="card" id="ledFormCard">
+      <h2 id="ledFormTitle">＋ 記一筆</h2>
+      <div class="gtypebar">
+        <button class="gtypebtn ledtype on" data-t="expense" onclick="ledSetType('expense')">支出</button>
+        <button class="gtypebtn ledtype" data-t="income" onclick="ledSetType('income')">收入</button>
+      </div>
+      <label>金額<input type="number" id="ledAmount" inputmode="numeric" min="1" placeholder="例：120"></label>
+      <div id="ledCats" class="ledcats"></div>
+      <div class="row">
+        <label>日期<input type="date" id="ledDate"></label>
+        <label>帳戶<select id="ledAccount"></select></label>
+      </div>
+      <label>備註（可空）<input type="text" id="ledNote" maxlength="200" placeholder="例：午餐便當"></label>
+      <button class="primary" id="ledSaveBtn" onclick="ledSave()">記下來</button>
+      <div id="ledEditBtns" class="row" style="display:none;margin-top:0;">
+        <button class="ghost" onclick="ledResetForm()">取消修改</button>
+        <button class="danger" onclick="ledDelete()">刪除這筆</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>💬 說一句話記帳</h2>
+      <div id="ledChatLog" class="gchat-log"></div>
+      <div class="gchat-in">
+        <input type="text" id="ledChatText" enterkeyhint="send" placeholder="例：午餐 120、捷運 30" onkeydown="if(event.key==='Enter'&&!event.isComposing)ledChatSend()">
+        <button class="sm" onclick="ledChatSend()">送出</button>
+      </div>
+      <div class="hint" style="margin-top:6px">一句話講好幾筆也行，例如「昨天加油 1200 刷卡，今天領薪水 45000」。記錯了按「↩ 復原」。</div>
+    </div>
+    <div class="card"><h2>📂 這個月花在哪</h2><div id="ledCatBox"></div></div>
+    <div class="card"><h2>📈 近 6 個月</h2><div id="ledTrend"></div></div>
+    <div class="card"><h2>🧾 明細</h2><div id="ledList"></div></div>
+    <div class="card">
+      <h2>⚙️ 設定</h2>
+      <div class="row" style="align-items:flex-end;">
+        <label style="flex:1;">每月支出預算（0 代表不設）<input type="number" id="ledBudget" inputmode="numeric" min="0" placeholder="例：30000"></label>
+        <button class="sm" style="flex:none;margin-bottom:2px;" onclick="ledSaveBudget()">儲存</button>
+      </div>
+      <button class="ghost" onclick="ledExport()">⬇️ 匯出全部紀錄（CSV，可用 Excel 開）</button>
+    </div>
+  </div>
+
   <!-- 底部導覽 -->
   <div class="bottomnav">
     <div class="nav on" data-tab="overview" onclick="showTab('overview')">📊<span>概覽</span></div>
@@ -695,6 +746,7 @@
     <div class="nav" data-tab="records" onclick="showTab('records')">📝<span>紀錄</span></div>
     <div class="nav" data-tab="games" onclick="showTab('games')">🎮<span>遊戲</span></div>
     <div class="nav" data-tab="grocery" onclick="showTab('grocery')" style="display:none">🧾<span>月結</span></div>
+    <div class="nav" data-tab="ledger" onclick="showTab('ledger')" style="display:none">💰<span>記帳</span></div>
   </div>
 </div>
 
@@ -711,6 +763,7 @@
 </div>
 
 <script defer src="app_arcade.js"></script>
+<script defer src="app_ledger.js"></script>
 <script defer src="app_pets.js"></script>
 <script defer src="app.js"></script>
 <!-- 合成冒險全螢幕畫面：按入口卡的「進入冒險」才打開（app_adv.js 也是那時才載入） -->

@@ -1,5 +1,5 @@
 // 離線快取：同源 app 檔案用「網路優先」（連得上網就拿最新，免清快取），離線才用快取
-const CACHE = "tdee-v247";
+const CACHE = "tdee-v248";
 const SHELL = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const SHELL = [
   "./app_adv.js",
   "./adv_data.json",
   "./app_arcade.js",
+  "./app_ledger.js",
   "./app_pets.js",
   "./foods_tw.js",
   "./foods_chain.js",

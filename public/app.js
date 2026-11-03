@@ -136,7 +136,7 @@ function exKcalPerMin(met, weight){ return met * 3.5 * (weight||60) / 200; }
 
 /* ---------- API ---------- */
 // AI 端點的前端節流：避免短時間連發（與後端限流呼應，減少觸發上游限流）
-const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels","/api/receipt","/api/grocery/parse"];
+const AI_PATHS=["/api/coach","/api/analyze","/api/estimate","/api/label","/api/labels","/api/receipt","/api/grocery/parse","/api/ledger/parse"];
 let aiCalls=[], aiLastCall=0, aiInFlight=false;
 function isAiPath(path){ return AI_PATHS.some(p=>path.startsWith(p)); }
 function aiThrottleOk(path){
@@ -1109,11 +1109,12 @@ function applyTips(){
 }
 function toggleTips(){ localStorage.setItem("tdee_tips", localStorage.getItem("tdee_tips")==="1"?"0":"1"); applyTips(); }
 function showTab(name){
-  ["overview","food","exercise","records","games","grocery"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
+  ["overview","food","exercise","records","games","grocery","ledger"].forEach(t=>document.getElementById("page-"+t).classList.toggle("hidden", t!==name));
   document.querySelectorAll(".bottomnav .nav").forEach(n=>n.classList.toggle("on", n.dataset.tab===name));
   if(name==="games" && typeof loadAllGames==="function") loadAllGames();   // 進遊戲分頁才載入(lazy)，整個 session 只載一次
   if(name==="games" && typeof loadDexGame==="function") loadDexGame();      // 圖鑑每次進來都刷新(反映最新扭蛋/培養)
   if(name==="grocery" && typeof renderGrocery==="function") renderGrocery();
+  if(name==="ledger" && typeof renderLedger==="function") renderLedger();
   window.scrollTo(0,0);
 }
 
@@ -4231,6 +4232,7 @@ function applyStoreData(data){
   store.favorites = store.favorites||[]; store.meals = store.meals||[]; store.dailyStats = store.dailyStats||[];
   store.grocery = store.grocery||{buys:[],meals:[]}; store.grocery.buys=store.grocery.buys||[]; store.grocery.meals=store.grocery.meals||[]; store.grocery.settles=store.grocery.settles||[]; store.grocery.extras=store.grocery.extras||[];
   if(typeof applyGroceryVisibility==="function") applyGroceryVisibility();
+  if(typeof applyLedgerVisibility==="function") applyLedgerVisibility();
   if(typeof seedGroceryZen==="function") seedGroceryZen();
   // 載入共享食物庫（其他人建立的自訂食物/食譜）→ 可被搜尋
   (store.sharedFoods||[]).forEach(s=>{

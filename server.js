@@ -8,6 +8,7 @@ import { readFileSync } from "fs";
 import * as ADV from "./adv_logic.js";
 import * as GPARSE from "./grocery_parse.js";
 import * as DUN from "./dungeon_logic.js";
+import { registerLedger } from "./ledger_routes.js";
 import { ARCADE, validArcadeScore, settleArcade, arcadeBoard } from "./arcade_rules.js";
 
 // Push notifications are optional. Keys must always be supplied through the environment.
@@ -60,6 +61,7 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS racer TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS skin TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS grocery JSONB DEFAULT '{"buys":[],"meals":[]}'::jsonb;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS ledger_cfg JSONB DEFAULT '{}'::jsonb;
     CREATE TABLE IF NOT EXISTS records (
       id SERIAL PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -190,6 +192,19 @@ async function initDb() {
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS protein_pct REAL;
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS poop INT;
     ALTER TABLE daily_stats ADD COLUMN IF NOT EXISTS body_fat REAL;
+    -- 記帳本（目前只開放「肉」）：一筆一列，金額是新台幣整數
+    CREATE TABLE IF NOT EXISTS ledger (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date DATE NOT NULL,
+      type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      account TEXT NOT NULL,
+      amount INT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS ledger_user_date ON ledger(user_id, date);
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY,
       user_id INT REFERENCES users(id) ON DELETE CASCADE,
@@ -1021,6 +1036,19 @@ app.post("/api/receipt", auth, aiLimit, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: "伺服器錯誤" });
   }
+});
+
+/* ---------- 記帳本（路由在 ledger_routes.js） ---------- */
+registerLedger(app, {
+  pool, auth, aiLimit, today: twToday,
+  askAi: async (prompt) => {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return { error: "未設定 AI 金鑰", status: 503 };
+    const g = await geminiText(key, prompt, 0.1);
+    if (g.error) return { error: geminiErrMsg(g.error.status) };
+    const parsed = extractJson(g.data?.candidates?.[0]?.content?.parts?.[0]?.text || "");
+    return parsed ? { parsed } : { error: "看不懂這句，換個說法試試" };
+  },
 });
 
 /* ---------- 買菜月結：對話記帳（打一句話，AI 拆成紀錄；規則在 grocery_parse.js） ---------- */
